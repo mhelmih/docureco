@@ -1,0 +1,3 @@
+"""
+Docureco package
+"""

@@ -1,0 +1,25 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+env/
+.venv/
+
+# Environment variables
+.env
+
+# Byte-compiled / optimized / DLL files
+*.so
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# GitHub Actions
+.github/_temp/
+.github/_work/
+
+# VSCode
+.vscode/
