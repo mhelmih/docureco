@@ -109,6 +109,8 @@ def main():
     else:
         logging.info("No changed file information available to extract diffs.")
     logging.info("--- END CODE DIFF (Placeholder) ---")
+    
+    print("something")
 
 
     # Removed Repomix, SRS/SDD loading, LangChain, and comment posting sections
