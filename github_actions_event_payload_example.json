@@ -489,7 +489,6 @@
     "starred_url": "https://api.github.com/users/mhelmih/starred{/owner}{/repo}",
     "subscriptions_url": "https://api.github.com/users/mhelmih/subscriptions",
     "type": "User",
-    "url": "https://api.github.com/users/mhelmih",
-    "user_view_type": "public"
+    "url": "https://api.github.com/users/mhelmih"
   }
 }
