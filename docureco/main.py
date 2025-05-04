@@ -5,8 +5,8 @@ import logging
 import requests
 from dotenv import load_dotenv
 
-# from langchain import OpenAI
-# import repomix
+# import repomix # Removed for now
+# from langchain_openai import ChatOpenAI # Removed for now
 
 
 def main():
@@ -20,60 +20,102 @@ def main():
 
     with open(event_path) as f:
         event = json.load(f)
-        logging.info("FULL GITHUB EVENT PAYLOAD:\n", json.dumps(event, indent=2))
+        # Correct logging format: Use %s for string formatting or f-strings
+        logging.info("--- FULL GITHUB EVENT PAYLOAD ---")
+        logging.info("%s", json.dumps(event, indent=2))
+        logging.info("--- END GITHUB EVENT PAYLOAD ---")
 
     pr = event.get("pull_request", {})
     pr_number = pr.get("number")
-    repository = event.get("repository", {}).get("full_name")
-    
-    resp = requests.get(
-        f"https://api.github.com/repos/{repository}/pulls/{pr_number}",
-        headers={"Authorization": f"Bearer {github_token}", "Accept":"application/vnd.github.v3+json"}
-    )
-    logging.info("PR DETAIL:\n", json.dumps(resp.json(), indent=2))
+    repository_info = event.get("repository", {})
+    repository = repository_info.get("full_name")
+    repo_owner = repository_info.get("owner", {}).get("login")
+    repo_name = repository_info.get("name")
+    base_sha = pr.get("base", {}).get("sha")
+    head_sha = pr.get("head", {}).get("sha")
+    clone_url = repository_info.get("clone_url") # Needed if repomix clones
 
-    # for the list of files changed in the PR:
-    files = requests.get(
-        f"https://api.github.com/repos/{repository}/pulls/{pr_number}/files",
-        headers={
-            "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-    ).json()
-    logging.info("FILES CHANGED:\n", json.dumps(files, indent=2))
-
-    # TODO: compute code changes (e.g., using Repomix)
-    # changes = repomix.diff()
-
-    # TODO: load SRS and SDD files
-    # with open('path/to/SRS.md') as f: ...
-
-    # TODO: generate recommendations via LangChain/OpenAI
-    # llm = OpenAI(temperature=0)
-    # ...
-
-    # TODO: post recommendations to GitHub PR
-    # use GITHUB_TOKEN and GitHub API
-
-    # Simple test: post a comment to the PR to confirm the agent is working
     github_token = os.getenv("GITHUB_TOKEN")
-    if github_token:
-        comment = "✅ Docureco agent is up and running."
-        headers = {
-            "Authorization": f"Bearer {github_token}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-        url = f"https://api.github.com/repos/{repository}/issues/{pr_number}/comments"
-        resp = requests.post(url, json={"body": comment}, headers=headers)
-        if resp.ok:
-            logging.info("Posted test comment to PR")
-        else:
-            logging.error(f"Failed to post test comment: {resp.status_code} {resp.text}")
-    else:
-        logging.warning("GITHUB_TOKEN not set; skipping test comment")
+    if not github_token:
+        logging.error("GITHUB_TOKEN environment variable not set. Cannot proceed.")
+        sys.exit(1)
 
-    logging.info(f"Processed PR #{pr_number} in {repository}")
+    # Fetch PR details
+    pr_details = None
+    if repository and pr_number:
+        pr_url = f"https://api.github.com/repos/{repository}/pulls/{pr_number}"
+        logging.info(f"Fetching PR details from: {pr_url}")
+        try:
+            resp = requests.get(
+                pr_url,
+                headers={"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github.v3+json"}
+            )
+            resp.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+            pr_details = resp.json()
+            logging.info("--- PR DETAILS ---")
+            logging.info("%s", json.dumps(pr_details, indent=2))
+            logging.info("--- END PR DETAILS ---")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to fetch PR details: {e}")
+            # Decide if you want to exit or continue without PR details
+            # sys.exit(1)
+    else:
+        logging.warning("Could not determine repository or PR number from event payload.")
+
+
+    # Fetch list of files changed in the PR:
+    changed_files = None
+    if repository and pr_number:
+        files_url = f"https://api.github.com/repos/{repository}/pulls/{pr_number}/files"
+        logging.info(f"Fetching changed files list from: {files_url}")
+        try:
+            resp = requests.get(
+                files_url,
+                headers={
+                    "Authorization": f"Bearer {github_token}", # Use the variable defined earlier
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            resp.raise_for_status()
+            changed_files = resp.json()
+            logging.info("--- CHANGED FILES ---")
+            logging.info("%s", json.dumps(changed_files, indent=2))
+            logging.info("--- END CHANGED FILES ---")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to fetch changed files: {e}")
+            # Decide if you want to exit or continue
+            # sys.exit(1)
+    else:
+        # This condition is likely already handled above, but added for safety
+        logging.warning("Could not determine repository or PR number for fetching files.")
+
+
+    # TODO: Get the actual code diffs for the changed files
+    # This typically involves using the 'patch' field from the changed_files response
+    # or fetching the diff using the base and head SHAs.
+    logging.info("--- CODE DIFF (Placeholder) ---")
+    if changed_files:
+        for file_info in changed_files:
+            filename = file_info.get('filename')
+            patch = file_info.get('patch')
+            status = file_info.get('status')
+            logging.info(f"File: {filename} (Status: {status})")
+            if patch:
+                 # Log only a snippet or confirmation, as patches can be large
+                 logging.info(f"  Patch available ({len(patch)} bytes)")
+                 # logging.debug(f"Patch:\n{patch}") # Use debug level for full patch
+            else:
+                 logging.info("  No patch data available in this response.")
+    else:
+        logging.info("No changed file information available to extract diffs.")
+    logging.info("--- END CODE DIFF (Placeholder) ---")
+
+
+    # Removed Repomix, SRS/SDD loading, LangChain, and comment posting sections
+
+    logging.info(f"Finished basic processing for PR #{pr_number} in {repository}")
 
 
 if __name__ == "__main__":
     main()
+# This line is removed by the previous REPLACE block
