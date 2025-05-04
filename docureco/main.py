@@ -26,6 +26,10 @@ def main():
     pr_number = pr.get("number")
     repository = event.get("repository", {}).get("full_name")
     
+    resp = requests.get(
+        f"https://api.github.com/repos/{repository}/pulls/{pr_number}",
+        headers={"Authorization": f"Bearer {github_token}", "Accept":"application/vnd.github.v3+json"}
+    )
     logging.info("PR DETAIL:\n", json.dumps(resp.json(), indent=2))
 
     # for the list of files changed in the PR:
