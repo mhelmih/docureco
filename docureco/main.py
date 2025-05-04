@@ -20,13 +20,13 @@ def main():
 
     with open(event_path) as f:
         event = json.load(f)
-        print("FULL GITHUB EVENT PAYLOAD:\n", json.dumps(event, indent=2))
+        logging.info("FULL GITHUB EVENT PAYLOAD:\n", json.dumps(event, indent=2))
 
     pr = event.get("pull_request", {})
     pr_number = pr.get("number")
     repository = event.get("repository", {}).get("full_name")
     
-    print("PR DETAIL:\n", json.dumps(resp.json(), indent=2))
+    logging.info("PR DETAIL:\n", json.dumps(resp.json(), indent=2))
 
     # for the list of files changed in the PR:
     files = requests.get(
@@ -36,7 +36,7 @@ def main():
             "Accept": "application/vnd.github.v3+json"
         }
     ).json()
-    print("FILES CHANGED:\n", json.dumps(files, indent=2))
+    logging.info("FILES CHANGED:\n", json.dumps(files, indent=2))
 
     # TODO: compute code changes (e.g., using Repomix)
     # changes = repomix.diff()
