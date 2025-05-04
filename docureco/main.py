@@ -25,8 +25,7 @@ def main():
     pr_number = pr.get("number")
     repository = event.get("repository", {}).get("full_name")
     
-    print("Processing PR:", pr_number)
-    print("Repository:", repository)
+    print(pr)
 
     # TODO: compute code changes (e.g., using Repomix)
     # changes = repomix.diff()
