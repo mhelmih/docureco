@@ -1,6 +1,0 @@
-langchain
-langgraph
-psycopg2-binary
-repomix
-python-dotenv
-requests

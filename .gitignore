@@ -23,3 +23,6 @@ env/
 
 # VSCode
 .vscode/
+
+# Parsed PDF
+parsed-pdf/
