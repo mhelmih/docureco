@@ -222,7 +222,7 @@ jobs:
     
     - name: Upload update artifacts
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: baseline-map-update-${{ github.run_id }}
         path: |

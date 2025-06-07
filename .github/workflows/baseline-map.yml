@@ -115,7 +115,7 @@ jobs:
     
     - name: Upload baseline map artifacts
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: baseline-map-${{ github.event.inputs.repository }}-${{ github.event.inputs.branch }}
         path: |
