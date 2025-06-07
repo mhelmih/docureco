@@ -8,9 +8,13 @@ __all__ = [
     # Enums
     "ChangeType", "ChangeScope", "ChangeNature", "ChangeVolume",
     "TraceabilityStatus", "FindingType", "Likelihood", "Severity", "TracePathType",
+    "ImpactSeverity", "RecommendationType", "RecommendationStatus",
     
     # Core workflow models
     "CodeChangeClassification", "LogicalChangeSet", "ImpactFindings", "DocumentationRecommendation",
+    
+    # New enhanced models
+    "ImpactAnalysisResultModel", "DocumentationRecommendationModel",
     
     # Baseline map models
     "RequirementModel", "DesignElementModel", "CodeComponentModel", 

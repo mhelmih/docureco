@@ -121,6 +121,27 @@ class TracePathType(str, Enum):
     DIRECT = "Direct"
     INDIRECT = "Indirect"
 
+# Additional enums for new workflow
+class ImpactSeverity(str, Enum):
+    """Impact severity levels"""
+    LOW = "Low"
+    MEDIUM = "Medium" 
+    HIGH = "High"
+
+class RecommendationType(str, Enum):
+    """Types of documentation recommendations"""
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+    REVIEW = "REVIEW"
+
+class RecommendationStatus(str, Enum):
+    """Status of documentation recommendations"""
+    PENDING = "PENDING"
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+
 # Main data models
 
 @dataclass
@@ -288,6 +309,31 @@ class WorkflowStatusModel(BaseModel):
     started_at: datetime = Field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
 
+class ImpactAnalysisResultModel(BaseModel):
+    """Result of impact analysis for a specific element"""
+    element_type: str = Field(..., description="Type of impacted element")
+    element_id: str = Field(..., description="ID of impacted element")
+    impact_reason: str = Field(..., description="Reason for impact")
+    likelihood: float = Field(..., ge=0.0, le=1.0, description="Likelihood score (0-1)")
+    severity: ImpactSeverity = Field(..., description="Impact severity")
+    change_details: Dict[str, Any] = Field(default_factory=dict, description="Details about the change")
+
+class DocumentationRecommendationModel(BaseModel):
+    """Enhanced documentation recommendation model for new workflow"""
+    target_document: str = Field(..., description="Target document to update")
+    section: str = Field(..., description="Specific section to update")
+    recommendation_type: RecommendationType = Field(..., description="Type of recommendation")
+    priority: str = Field(..., description="Priority level")
+    what_to_update: str = Field(..., description="What needs to be updated")
+    where_to_update: str = Field(..., description="Where to make the update")
+    why_update_needed: str = Field(..., description="Why update is needed")
+    how_to_update: str = Field(..., description="How to perform the update")
+    affected_element_id: str = Field(..., description="ID of affected element")
+    affected_element_type: str = Field(..., description="Type of affected element")
+    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    status: RecommendationStatus = Field(default=RecommendationStatus.PENDING)
+    created_at: datetime = Field(default_factory=datetime.now)
+
 # Export all models
 __all__ = [
     # Enums
@@ -305,5 +351,8 @@ __all__ = [
     "PREventModel", "CommitModel", "FileChangeModel",
     
     # Response models
-    "ClassificationResponseModel", "RecommendationResponseModel", "WorkflowStatusModel"
+    "ClassificationResponseModel", "RecommendationResponseModel", "WorkflowStatusModel",
+    
+    # New workflow models
+    "ImpactAnalysisResultModel", "DocumentationRecommendationModel"
 ] 

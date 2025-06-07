@@ -14,7 +14,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from ..llm.llm_client import DocurecoLLMClient, create_llm_client
-from ..database import BaselineMapRepository, VectorSearchRepository
+from ..database import create_baseline_map_repository, create_vector_search_repository
 from ..models.docureco_models import (
     BaselineMapModel, DocumentationRecommendationModel, 
     ImpactAnalysisResultModel, RequirementModel, DesignElementModel,
@@ -61,8 +61,8 @@ class DocumentUpdateRecommendatorWorkflow:
     
     def __init__(self, 
                  llm_client: Optional[DocurecoLLMClient] = None,
-                 baseline_map_repo: Optional[BaselineMapRepository] = None,
-                 vector_search_repo: Optional[VectorSearchRepository] = None):
+                 baseline_map_repo = None,
+                 vector_search_repo = None):
         """
         Initialize Document Update Recommendator workflow
         
@@ -72,8 +72,8 @@ class DocumentUpdateRecommendatorWorkflow:
             vector_search_repo: Optional repository for vector similarity search
         """
         self.llm_client = llm_client or create_llm_client()
-        self.baseline_map_repo = baseline_map_repo or BaselineMapRepository()
-        self.vector_search_repo = vector_search_repo or VectorSearchRepository()
+        self.baseline_map_repo = baseline_map_repo or create_baseline_map_repository()
+        self.vector_search_repo = vector_search_repo or create_vector_search_repository()
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()

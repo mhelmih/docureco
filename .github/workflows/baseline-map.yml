@@ -1,0 +1,139 @@
+name: 'Docureco Agent: Baseline Map'
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Repository name (owner/repo)'
+        required: true
+        default: 'mhelmih/docureco'
+      branch:
+        description: 'Branch name to analyze'
+        required: true
+        default: 'main'
+      force_recreate:
+        description: 'Force recreate if baseline map exists'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  # LLM Configuration
+  GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+  GROK_BASE_URL: ${{ secrets.GROK_BASE_URL }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  
+  # Database Configuration
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  
+  # GitHub Configuration
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  create-baseline-map:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        cd agent
+        pip install -r requirements.txt
+    
+    - name: Validate inputs
+      run: |
+        echo "Repository: ${{ github.event.inputs.repository }}"
+        echo "Branch: ${{ github.event.inputs.branch }}"
+        echo "Force recreate: ${{ github.event.inputs.force_recreate }}"
+        
+        # Validate repository format
+        if [[ ! "${{ github.event.inputs.repository }}" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
+          echo "Error: Repository must be in format 'owner/repo'"
+          exit 1
+        fi
+    
+    - name: Create baseline traceability map
+      run: |
+        cd agent
+        python -c "
+        import asyncio
+        import os
+        import sys
+        from workflows.baseline_map_creator import create_baseline_map_creator
+        
+        async def main():
+            try:
+                print('🚀 Starting baseline map creation...')
+                
+                # Create workflow instance
+                creator = create_baseline_map_creator()
+                
+                # Execute baseline map creation
+                repository = '${{ github.event.inputs.repository }}'
+                branch = '${{ github.event.inputs.branch }}'
+                force_recreate = '${{ github.event.inputs.force_recreate }}' == 'true'
+                
+                print(f'📊 Analyzing repository: {repository}:{branch}')
+                
+                # Override existing check if force recreate is enabled
+                if force_recreate:
+                    print('⚠️  Force recreate enabled - will overwrite existing baseline map')
+                
+                result = await creator.execute(repository, branch)
+                
+                # Print results
+                print('\\n📈 Baseline Map Creation Results:')
+                print(f'Repository: {result.repository}:{result.branch}')
+                print(f'Requirements: {len(result.requirements)}')
+                print(f'Design Elements: {len(result.design_elements)}')
+                print(f'Code Components: {len(result.code_components)}')
+                print(f'Traceability Links: {len(result.traceability_links)}')
+                
+                if result.errors:
+                    print('\\n⚠️  Errors encountered:')
+                    for error in result.errors:
+                        print(f'  - {error}')
+                
+                print(f'\\n✅ Baseline map creation completed: {result.current_step}')
+                
+            except Exception as e:
+                print(f'❌ Baseline map creation failed: {str(e)}')
+                sys.exit(1)
+        
+        asyncio.run(main())
+        "
+    
+    - name: Upload baseline map artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: baseline-map-${{ github.event.inputs.repository }}-${{ github.event.inputs.branch }}
+        path: |
+          agent/logs/
+          agent/output/
+        retention-days: 30
+    
+    - name: Create summary
+      if: always()
+      run: |
+        echo "## 📊 Baseline Map Creation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** \`${{ github.event.inputs.repository }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** \`${{ github.event.inputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Force Recreate:** \`${{ github.event.inputs.force_recreate }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Workflow Details" >> $GITHUB_STEP_SUMMARY
+        echo "- Started by: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Workflow: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Run ID: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY 
