@@ -83,7 +83,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
 ```env
 # LLM Provider (default: grok)
 DOCURECO_LLM_PROVIDER=grok
-DOCURECO_LLM_MODEL=grok-3-mini-reasoning-high
+DOCURECO_LLM_MODEL=grok-3-mini
 
 # OpenAI Fallback
 OPENAI_API_KEY=your_openai_api_key_here
@@ -172,7 +172,7 @@ Based on the addition of the UserProfile model, the SDD should be updated to inc
 # config/llm_config.py
 class LLMConfig(BaseModel):
     provider: LLMProvider = Field(default=LLMProvider.GROK)
-    model_name: str = Field(default="grok-3-mini-reasoning-high")
+    llm_model: str = Field(default="grok-3-mini")
     temperature: float = Field(default=0.1)
     max_tokens: int = Field(default=4000)
 ```

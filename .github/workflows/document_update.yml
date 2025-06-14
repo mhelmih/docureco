@@ -68,7 +68,7 @@ jobs:
           
           # LLM Configuration
           DOCURECO_LLM_PROVIDER: ${{ vars.DOCURECO_LLM_PROVIDER || 'grok' }}
-          DOCURECO_LLM_MODEL: ${{ vars.DOCURECO_LLM_MODEL || 'grok-3-mini-reasoning-high' }}
+          DOCURECO_LLM_MODEL: ${{ vars.DOCURECO_LLM_MODEL || 'grok-3-mini' }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           GROK_BASE_URL: ${{ vars.GROK_BASE_URL || 'https://api.x.ai/v1' }}
           

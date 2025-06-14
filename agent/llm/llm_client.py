@@ -44,7 +44,7 @@ class DocurecoLLMClient:
         self.task_config = get_task_config()
         self.llm = self._initialize_llm()
         
-        logger.info(f"Initialized LLM client with provider: {self.config.provider}, model: {self.config.model_name}")
+        logger.info(f"Initialized LLM client with provider: {self.config.provider}, model: {self.config.llm_model}")
     
     def _initialize_llm(self) -> BaseLanguageModel:
         """
@@ -69,18 +69,16 @@ class DocurecoLLMClient:
             raise ValueError("GROK_API_KEY environment variable is required for Grok 3")
         
         return ChatOpenAI(
-            model=self.config.model_name,
+            model=self.config.llm_model,
             api_key=self.config.api_key,
             base_url=self.config.base_url,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
             request_timeout=self.config.request_timeout,
-            model_kwargs={
-                "top_p": self.config.top_p,
-                "frequency_penalty": self.config.frequency_penalty,
-                "presence_penalty": self.config.presence_penalty,
-            }
+            top_p=self.config.top_p,
+            frequency_penalty=self.config.frequency_penalty,
+            presence_penalty=self.config.presence_penalty
         )
     
     def _initialize_openai(self) -> ChatOpenAI:
@@ -94,7 +92,7 @@ class DocurecoLLMClient:
             raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI")
         
         return ChatOpenAI(
-            model=self.config.model_name,
+            model=self.config.llm_model,
             api_key=self.config.api_key,
             base_url=self.config.base_url,
             temperature=self.config.temperature,
@@ -147,7 +145,7 @@ class DocurecoLLMClient:
             return LLMResponse(
                 content=parsed_content,
                 metadata=response.response_metadata if hasattr(response, 'response_metadata') else {},
-                model_used=self.config.model_name,
+                model_used=self.config.llm_model,
                 tokens_used=response.response_metadata.get('token_usage', {}).get('total_tokens') 
                            if hasattr(response, 'response_metadata') else None
             )
@@ -175,22 +173,20 @@ class DocurecoLLMClient:
         # Override configuration for specific task
         if self.config.provider == LLMProvider.GROK:
             return ChatOpenAI(
-                model=self.config.model_name,
+                model=self.config.llm_model,
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,
                 temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
                 max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
                 max_retries=self.config.max_retries,
                 request_timeout=self.config.request_timeout,
-                model_kwargs={
-                    "top_p": self.config.top_p,
-                    "frequency_penalty": self.config.frequency_penalty,
-                    "presence_penalty": self.config.presence_penalty,
-                }
+                top_p=self.config.top_p,
+                frequency_penalty=self.config.frequency_penalty,
+                presence_penalty=self.config.presence_penalty
             )
         else:
             return ChatOpenAI(
-                model=self.config.model_name,
+                model=self.config.llm_model,
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,
                 temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),

@@ -10,7 +10,7 @@ import re
 import time
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import fnmatch
 import base64
 
@@ -42,27 +42,27 @@ class BaselineMapCreatorState:
     branch: str
     
     # Repository content
-    srs_content: Dict[str, str] = None
-    sdd_content: Dict[str, str] = None
-    code_files: List[Dict[str, Any]] = None
+    srs_content: Dict[str, str] = field(default_factory=dict)
+    sdd_content: Dict[str, str] = field(default_factory=dict)
+    code_files: List[Dict[str, Any]] = field(default_factory=list)
     
     # Extracted elements
-    requirements: List[RequirementModel] = None
-    design_elements: List[DesignElementModel] = None
-    code_components: List[CodeComponentModel] = None
+    requirements: List[RequirementModel] = field(default_factory=list)
+    design_elements: List[DesignElementModel] = field(default_factory=list)
+    code_components: List[CodeComponentModel] = field(default_factory=list)
     
     # Mapping relationships
-    design_to_design_links: List[TraceabilityLinkModel] = None
-    design_to_code_links: List[TraceabilityLinkModel] = None
-    requirements_to_design_links: List[TraceabilityLinkModel] = None
+    design_to_design_links: List[TraceabilityLinkModel] = field(default_factory=list)
+    design_to_code_links: List[TraceabilityLinkModel] = field(default_factory=list)
+    requirements_to_design_links: List[TraceabilityLinkModel] = field(default_factory=list)
     
     # Combined traceability links
-    traceability_links: List[TraceabilityLinkModel] = None
+    traceability_links: List[TraceabilityLinkModel] = field(default_factory=list)
     
     # Workflow metadata
     current_step: str = "initializing"
-    errors: List[str] = None
-    processing_stats: Dict[str, int] = None
+    errors: List[str] = field(default_factory=list)
+    processing_stats: Dict[str, int] = field(default_factory=dict)
 
 class BaselineMapCreatorWorkflow:
     """
@@ -146,16 +146,7 @@ class BaselineMapCreatorWorkflow:
         # Initialize state
         initial_state = BaselineMapCreatorState(
             repository=repository,
-            branch=branch,
-            requirements=[],
-            design_elements=[],
-            code_components=[],
-            design_to_design_links=[],
-            design_to_code_links=[],
-            requirements_to_design_links=[],
-            traceability_links=[],
-            errors=[],
-            processing_stats={}
+            branch=branch
         )
         
         try:
@@ -779,7 +770,7 @@ class BaselineMapCreatorWorkflow:
             for element in design_elements:
                 # Create text representation for embedding
                 text = f"{element.name}: {element.description} (Type: {element.type})"
-                embedding = await self.embedding_client.generate_embedding(text)
+                embedding = await self.embedding_client.embed_text(text)
                 # Store embedding (would be saved to vector database in full implementation)
                 element.embedding = embedding
         except Exception as e:
@@ -791,7 +782,7 @@ class BaselineMapCreatorWorkflow:
             for component in code_components:
                 # Create text representation for embedding (using file path and name)
                 text = f"File: {component.path} ({component.name})"
-                embedding = await self.embedding_client.generate_embedding(text)
+                embedding = await self.embedding_client.embed_text(text)
                 # Store embedding (would be saved to vector database in full implementation)
                 component.embedding = embedding
         except Exception as e:
@@ -803,7 +794,7 @@ class BaselineMapCreatorWorkflow:
             for requirement in requirements:
                 # Create text representation for embedding
                 text = f"{requirement.title}: {requirement.description} (Type: {requirement.type}, Priority: {requirement.priority})"
-                embedding = await self.embedding_client.generate_embedding(text)
+                embedding = await self.embedding_client.embed_text(text)
                 # Store embedding (would be saved to vector database in full implementation)
                 requirement.embedding = embedding
         except Exception as e:
