@@ -132,14 +132,14 @@ async def fetch_pr_details(pr_info: Dict[str, Any], github_token: str) -> Dict[s
     pr_url = f"https://api.github.com/repos/{repository}/pulls/{pr_number}"
     logger.info(f"Fetching PR details from: {pr_url}")
     
-    try:
+        try:
         response = requests.get(
-            pr_url,
+                pr_url,
             headers={
                 "Authorization": f"Bearer {github_token}", 
                 "Accept": "application/vnd.github.v3+json"
             }
-        )
+            )
         response.raise_for_status()
         pr_data = response.json()
         
@@ -164,7 +164,7 @@ async def fetch_pr_details(pr_info: Dict[str, Any], github_token: str) -> Dict[s
             "commits_count": len(commits_data)
         }
         
-    except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch PR details: {e}")
         return {}
 
@@ -173,17 +173,17 @@ async def fetch_changed_files(pr_info: Dict[str, Any], github_token: str) -> Lis
     repository = pr_info["repository"]
     pr_number = pr_info["pr_number"]
     
-    files_url = f"https://api.github.com/repos/{repository}/pulls/{pr_number}/files"
+        files_url = f"https://api.github.com/repos/{repository}/pulls/{pr_number}/files"
     logger.info(f"Fetching changed files list from: {files_url}")
     
-    try:
+        try:
         response = requests.get(
-            files_url,
-            headers={
+                files_url,
+                headers={
                 "Authorization": f"Bearer {github_token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-        )
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
         response.raise_for_status()
         files_data = response.json()
         
@@ -250,7 +250,7 @@ async def post_recommendations_to_pr(
         
         logger.info(f"Posted {len(recommendations)} recommendations to PR #{pr_number}")
         
-    except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException as e:
         logger.error(f"Failed to post recommendations: {e}")
 
 def format_recommendations_comment(recommendations: List[Any]) -> str:
@@ -334,7 +334,7 @@ async def update_check_status(
                 if getattr(r, 'priority', r.get('priority', '')) in ["High", "Major", "Fundamental"]
             ]
             status = "action_required" if high_priority else "success"
-        else:
+    else:
             status = "success"
     
     # Map internal status to GitHub status

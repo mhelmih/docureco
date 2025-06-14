@@ -94,8 +94,7 @@ jobs:
           MAX_FILE_SIZE_MB: ${{ vars.MAX_FILE_SIZE_MB || '10' }}
           
         run: |
-          cd agent
-          python -m main
+          python -m agent.main
         timeout-minutes: 10
 
       - name: Upload logs on failure
@@ -141,8 +140,7 @@ jobs:
           TARGET_BRANCH: ${{ inputs.branch || 'main' }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
         run: |
-          cd agent
-          python -m baseline_map_creator
+          python -m agent.baseline_map_creator
         timeout-minutes: 30
 
       - name: Upload baseline map creation logs
@@ -204,8 +202,7 @@ jobs:
           MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
         run: |
-          cd agent
-          python -m baseline_map_updater
+          python -m agent.baseline_map_updater
         timeout-minutes: 20
 
       - name: Upload baseline map update logs

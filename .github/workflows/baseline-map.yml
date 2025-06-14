@@ -47,8 +47,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        cd agent
-        pip install -r requirements.txt
+        pip install -r agent/requirements.txt
     
     - name: Validate inputs
       run: |
@@ -64,12 +63,11 @@ jobs:
     
     - name: Create baseline traceability map
       run: |
-        cd agent
         python -c "
         import asyncio
         import os
         import sys
-        from workflows.baseline_map_creator import create_baseline_map_creator
+        from agent.workflows.baseline_map_creator import create_baseline_map_creator
         
         async def main():
             try:

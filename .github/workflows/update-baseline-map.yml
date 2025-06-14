@@ -54,8 +54,7 @@ jobs:
     
     - name: Install dependencies
       run: |
-        cd agent
-        pip install -r requirements.txt
+        pip install -r agent/requirements.txt
     
     - name: Determine repositories to update
       id: repos
@@ -87,14 +86,13 @@ jobs:
     
     - name: Update baseline traceability map
       run: |
-        cd agent
         python -c "
         import asyncio
         import os
         import sys
         import json
-        from workflows.baseline_map_creator import create_baseline_map_creator
-        from database.baseline_map_repository import BaselineMapRepository
+        from agent.workflows.baseline_map_creator import create_baseline_map_creator
+        from agent.database.baseline_map_repository import BaselineMapRepository
         
         async def update_single_repository(repository, branch='main', strategy='incremental'):
             try:
