@@ -5,28 +5,14 @@ Creates initial baseline traceability maps for repositories
 """
 
 import asyncio
-import logging
 import os
 import sys
-from typing import Optional
 
 # Add current directory and parent directory to Python path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, current_dir)
 sys.path.insert(0, parent_dir)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('baseline_map_creator.log')
-    ]
-)
-
-logger = logging.getLogger(__name__)
 
 def main():
     """Main function for baseline map creator"""
@@ -73,28 +59,28 @@ async def create_baseline_map(repository: str, branch: str = "main"):
         
         # Print results
         print("\n📈 Baseline Map Creation Results:")
-        print(f"Repository: {final_state.repository}:{final_state.branch}")
+        print(f"Repository: {final_state['repository']}:{final_state['branch']}")
         
-        if hasattr(final_state, 'requirements'):
-            print(f"Requirements: {len(final_state.requirements)}")
-        if hasattr(final_state, 'design_elements'):
-            print(f"Design Elements: {len(final_state.design_elements)}")
-        if hasattr(final_state, 'code_components'):
-            print(f"Code Components: {len(final_state.code_components)}")
-        if hasattr(final_state, 'traceability_links'):
-            print(f"Traceability Links: {len(final_state.traceability_links)}")
+        if 'requirements' in final_state:
+            print(f"Requirements: {len(final_state['requirements'])}")
+        if 'design_elements' in final_state:
+            print(f"Design Elements: {len(final_state['design_elements'])}")
+        if 'code_components' in final_state:
+            print(f"Code Components: {len(final_state['code_components'])}")
+        if 'traceability_links' in final_state:
+            print(f"Traceability Links: {len(final_state['traceability_links'])}")
         
-        if final_state.errors:
+        if final_state.get('errors'):
             print("\n⚠️  Errors encountered:")
-            for error in final_state.errors:
+            for error in final_state['errors']:
                 print(f"  - {error}")
         
-        print(f"\n✅ Baseline map creation completed: {final_state.current_step}")
+        print(f"\n✅ Baseline map creation completed: {final_state['current_step']}")
         
         # Print statistics if available
-        if final_state.processing_stats:
+        if final_state.get('processing_stats'):
             print("\n📊 Processing Statistics:")
-            for key, value in final_state.processing_stats.items():
+            for key, value in final_state['processing_stats'].items():
                 print(f"  {key}: {value}")
         
     except Exception as e:

@@ -4,9 +4,7 @@ Creates initial traceability maps by scanning repository documentation and code
 """
 
 import asyncio
-import logging
 import os
-import re
 import time
 from typing import Dict, Any, List, Optional, Set, TypedDict
 from pathlib import Path
@@ -32,8 +30,6 @@ from ..models.docureco_models import (
     BaselineMapModel, RequirementModel, DesignElementModel, 
     CodeComponentModel, TraceabilityLinkModel
 )
-
-logger = logging.getLogger(__name__)
 
 class BaselineMapCreatorState(TypedDict):
     """State for baseline map creation workflow"""
@@ -93,16 +89,16 @@ class BaselineMapCreatorWorkflow:
         # Initialize GitHub client
         self.github_token = github_token or os.getenv("GITHUB_TOKEN")
         if not self.github_token:
-            logger.warning("No GitHub token provided. Repository scanning will be limited.")
+            print("No GitHub token provided. Repository scanning will be limited.")
             self.github_client = None
         else:
             self.github_client = Github(self.github_token)
-            logger.info("GitHub client initialized")
+            print("GitHub client initialized")
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
         
-        logger.info("Initialized BaselineMapCreatorWorkflow")
+        print("Initialized BaselineMapCreatorWorkflow")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow following the SRS, SDD, and Code Mapping process"""
@@ -165,10 +161,10 @@ class BaselineMapCreatorWorkflow:
             # Check if baseline map already exists
             existing_map = await self.baseline_map_repo.get_baseline_map(repository, branch)
             if existing_map:
-                logger.warning(f"Baseline map already exists for {repository}:{branch}")
+                print(f"Baseline map already exists for {repository}:{branch}")
                 force_overwrite = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
                 if not force_overwrite:
-                    logger.info("Baseline map exists. Exiting...")
+                    print("Baseline map exists. Exiting...")
                     return initial_state
             
             # Compile and run workflow
@@ -177,11 +173,11 @@ class BaselineMapCreatorWorkflow:
             
             final_state = await app.ainvoke(initial_state, config=config)
             
-            logger.info(f"Baseline map creation completed for {repository}:{branch}")
+            print(f"Baseline map creation completed for {repository}:{branch}")
             return final_state
             
         except Exception as e:
-            logger.error(f"Baseline map creation failed: {str(e)}")
+            print(f"Baseline map creation failed: {str(e)}")
             initial_state["errors"].append(str(e))
             raise
     
@@ -191,7 +187,7 @@ class BaselineMapCreatorWorkflow:
         """
         print("Scanning repository")
         print(state)
-        logger.info(f"Scanning repository {state['repository']}:{state['branch']}")
+        print(f"Scanning repository {state['repository']}:{state['branch']}")
         state["current_step"] = "scanning_repository"
         
         try:
@@ -215,19 +211,19 @@ class BaselineMapCreatorWorkflow:
             code_patterns = ["*.py", "*.java", "*.js", "*.ts", "*.cpp", "*.h"]
             
             # Scan SDD first (contains traceability matrix)
-            logger.info("Scanning SDD files (priority for traceability matrix)...")
+            print("Scanning SDD files (priority for traceability matrix)...")
             state["sdd_content"] = await self._fetch_documentation_files(state["repository"], sdd_patterns, state["branch"])
             
             # Then scan SRS and code files
-            logger.info("Scanning SRS and code files...")
+            print("Scanning SRS and code files...")
             state["srs_content"] = await self._fetch_documentation_files(state["repository"], srs_patterns, state["branch"])
             state["code_files"] = await self._fetch_code_files(state["repository"], code_patterns, state["branch"])
             
-            logger.info(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
+            print(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
             
         except Exception as e:
             error_msg = f"Error scanning repository: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -237,7 +233,7 @@ class BaselineMapCreatorWorkflow:
         Identify design elements from SDD documentation using LLM
         SDD is processed first as it contains the traceability matrix between design elements and requirements
         """
-        logger.info("Identifying design elements from SDD")
+        print("Identifying design elements from SDD")
         state["current_step"] = "identifying_design_elements"
         
         try:
@@ -264,17 +260,17 @@ class BaselineMapCreatorWorkflow:
             
             state["design_elements"] = design_elements
             state["processing_stats"]["design_elements_count"] = len(design_elements)
-            logger.info(f"Identified {len(design_elements)} design elements")
+            print(f"Identified {len(design_elements)} design elements")
             
             # Generate embeddings for design elements immediately for better mapping accuracy
             if design_elements and self.embedding_client:
-                logger.info("Generating embeddings for design elements...")
+                print("Generating embeddings for design elements...")
                 await self._generate_design_element_embeddings(design_elements)
-                logger.info("Design element embeddings generated")
+                print("Design element embeddings generated")
             
         except Exception as e:
             error_msg = f"Error identifying design elements: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -283,7 +279,7 @@ class BaselineMapCreatorWorkflow:
         """
         Create mappings between design elements (internal relationships)
         """
-        logger.info("Creating design-to-design mappings")
+        print("Creating design-to-design mappings")
         state["current_step"] = "design_to_design_mapping"
         
         try:
@@ -308,11 +304,11 @@ class BaselineMapCreatorWorkflow:
             
             state["design_to_design_links"] = design_to_design_links
             state["processing_stats"]["design_to_design_links_count"] = len(design_to_design_links)
-            logger.info(f"Created {len(design_to_design_links)} design-to-design mappings")
+            print(f"Created {len(design_to_design_links)} design-to-design mappings")
             
         except Exception as e:
             error_msg = f"Error creating design-to-design mappings: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -321,7 +317,7 @@ class BaselineMapCreatorWorkflow:
         """
         Create mappings between design elements and code components
         """
-        logger.info("Creating design-to-code mappings")
+        print("Creating design-to-code mappings")
         state["current_step"] = "design_to_code_mapping"
         
         try:
@@ -350,9 +346,9 @@ class BaselineMapCreatorWorkflow:
             
             # Generate embeddings for code components for better mapping accuracy
             if code_components and self.embedding_client:
-                logger.info("Generating embeddings for code components...")
+                print("Generating embeddings for code components...")
                 await self._generate_code_component_embeddings(code_components)
-                logger.info("Code component embeddings generated")
+                print("Code component embeddings generated")
             
             # Create design-to-code links using embeddings for similarity matching
             design_to_code_links = []
@@ -374,11 +370,11 @@ class BaselineMapCreatorWorkflow:
             
             state["design_to_code_links"] = design_to_code_links
             state["processing_stats"]["design_to_code_links_count"] = len(design_to_code_links)
-            logger.info(f"Created {len(design_to_code_links)} design-to-code mappings")
+            print(f"Created {len(design_to_code_links)} design-to-code mappings")
             
         except Exception as e:
             error_msg = f"Error creating design-to-code mappings: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -387,7 +383,7 @@ class BaselineMapCreatorWorkflow:
         """
         Identify requirements from SRS documentation using LLM
         """
-        logger.info("Identifying requirements from SRS")
+        print("Identifying requirements from SRS")
         state["current_step"] = "identifying_requirements"
         
         try:
@@ -415,17 +411,17 @@ class BaselineMapCreatorWorkflow:
             
             state["requirements"] = requirements
             state["processing_stats"]["requirements_count"] = len(requirements)
-            logger.info(f"Identified {len(requirements)} requirements")
+            print(f"Identified {len(requirements)} requirements")
             
             # Generate embeddings for requirements for better mapping accuracy
             if requirements and self.embedding_client:
-                logger.info("Generating embeddings for requirements...")
+                print("Generating embeddings for requirements...")
                 await self._generate_requirement_embeddings(requirements)
-                logger.info("Requirement embeddings generated")
+                print("Requirement embeddings generated")
             
         except Exception as e:
             error_msg = f"Error identifying requirements: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -435,7 +431,7 @@ class BaselineMapCreatorWorkflow:
         Create mappings between requirements and design elements
         Uses the traceability matrix from SDD documentation
         """
-        logger.info("Creating requirements-to-design mappings")
+        print("Creating requirements-to-design mappings")
         state["current_step"] = "requirements_to_design_mapping"
         
         try:
@@ -470,12 +466,12 @@ class BaselineMapCreatorWorkflow:
             )
             state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
             
-            logger.info(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
-            logger.info(f"Total traceability links: {len(state['traceability_links'])}")
+            print(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
+            print(f"Total traceability links: {len(state['traceability_links'])}")
             
         except Exception as e:
             error_msg = f"Error creating requirements-to-design mappings: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -484,7 +480,7 @@ class BaselineMapCreatorWorkflow:
         """
         Generate vector embeddings for all elements
         """
-        logger.info("Generating vector embeddings")
+        print("Generating vector embeddings")
         state["current_step"] = "generating_embeddings"
         
         try:
@@ -503,15 +499,15 @@ class BaselineMapCreatorWorkflow:
                 success = await self.vector_search_repo.generate_and_store_embeddings(baseline_map_data)
                 
                 if success:
-                    logger.info("Successfully generated vector embeddings")
+                    print("Successfully generated vector embeddings")
                 else:
-                    logger.warning("Failed to generate some embeddings")
+                    print("Failed to generate some embeddings")
             else:
-                logger.info("Vector search repository not available, skipping embedding generation")
+                print("Vector search repository not available, skipping embedding generation")
             
         except Exception as e:
             error_msg = f"Error generating embeddings: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -520,7 +516,7 @@ class BaselineMapCreatorWorkflow:
         """
         Save baseline map to database
         """
-        logger.info("Saving baseline map to database")
+        print("Saving baseline map to database")
         state["current_step"] = "saving_baseline_map"
         
         try:
@@ -538,16 +534,16 @@ class BaselineMapCreatorWorkflow:
             success = await self.baseline_map_repo.save_baseline_map(baseline_map)
             
             if success:
-                logger.info(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
+                print(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
                 state["current_step"] = "completed"
             else:
                 error_msg = "Failed to save baseline map to database"
-                logger.error(error_msg)
+                print(error_msg)
                 state["errors"].append(error_msg)
             
         except Exception as e:
             error_msg = f"Error saving baseline map: {str(e)}"
-            logger.error(error_msg)
+            print(error_msg)
             state["errors"].append(error_msg)
         
         return state
@@ -558,13 +554,13 @@ class BaselineMapCreatorWorkflow:
         documentation_files = {}
         
         if not self.github_client:
-            logger.warning("GitHub client not available. Returning empty documentation files.")
+            print("GitHub client not available. Returning empty documentation files.")
             return documentation_files
         
         try:
             # Get repository
             repo = self.github_client.get_repo(repository)
-            logger.info(f"Fetching documentation files from {repository}:{branch}")
+            print(f"Fetching documentation files from {repository}:{branch}")
             
             # Search for documentation files
             matching_files = await self._find_files_by_patterns(repo, patterns, branch)
@@ -575,12 +571,12 @@ class BaselineMapCreatorWorkflow:
                     content = await self._get_file_content(repo, file_path, branch)
                     if content:
                         documentation_files[file_path] = content
-                        logger.info(f"Fetched documentation file: {file_path}")
+                        print(f"Fetched documentation file: {file_path}")
                 except Exception as e:
-                    logger.warning(f"Failed to fetch content for {file_path}: {str(e)}")
+                    print(f"Failed to fetch content for {file_path}: {str(e)}")
             
         except Exception as e:
-            logger.error(f"Error fetching documentation files: {str(e)}")
+            print(f"Error fetching documentation files: {str(e)}")
         
         return documentation_files
     
@@ -589,13 +585,13 @@ class BaselineMapCreatorWorkflow:
         code_files = []
         
         if not self.github_client:
-            logger.warning("GitHub client not available. Returning empty code files.")
+            print("GitHub client not available. Returning empty code files.")
             return code_files
         
         try:
             # Get repository
             repo = self.github_client.get_repo(repository)
-            logger.info(f"Fetching code files from {repository}:{branch}")
+            print(f"Fetching code files from {repository}:{branch}")
             
             # Search for code files
             matching_files = await self._find_files_by_patterns(repo, patterns, branch)
@@ -606,12 +602,12 @@ class BaselineMapCreatorWorkflow:
                     "path": file_path,
                     "content": ""  # We'll only fetch content if needed for embedding generation
                 })
-                logger.debug(f"Found code file: {file_path}")
+                print(f"Found code file: {file_path}")
             
-            logger.info(f"Found {len(code_files)} code files")
+            print(f"Found {len(code_files)} code files")
             
         except Exception as e:
-            logger.error(f"Error fetching code files: {str(e)}")
+            print(f"Error fetching code files: {str(e)}")
         
         return code_files
     
@@ -631,13 +627,13 @@ class BaselineMapCreatorWorkflow:
             
         except GithubException as e:
             if e.status == 403:
-                logger.error("GitHub API rate limit exceeded. Please wait and try again.")
+                print("GitHub API rate limit exceeded. Please wait and try again.")
             elif e.status == 404:
-                logger.error(f"Repository or branch not found: {repo.full_name}:{branch}")
+                print(f"Repository or branch not found: {repo.full_name}:{branch}")
             else:
-                logger.error(f"GitHub API error: {str(e)}")
+                print(f"GitHub API error: {str(e)}")
         except Exception as e:
-            logger.error(f"Error searching files: {str(e)}")
+            print(f"Error searching files: {str(e)}")
         
         return matching_files
     
@@ -649,7 +645,7 @@ class BaselineMapCreatorWorkflow:
         
         # Prevent infinite recursion and limit API calls
         if current_depth > max_depth:
-            logger.warning(f"Maximum search depth ({max_depth}) reached at {current_path}")
+            print(f"Maximum search depth ({max_depth}) reached at {current_path}")
             return matching_files
         
         for content in contents:
@@ -661,7 +657,7 @@ class BaselineMapCreatorWorkflow:
                            'target', 'build', 'dist', '.next', 'coverage'}
                 
                 if content.name.lower() in skip_dirs:
-                    logger.debug(f"Skipping directory: {content.path}")
+                    print(f"Skipping directory: {content.path}")
                     continue
                 
                 # Recursively search directories
@@ -677,17 +673,17 @@ class BaselineMapCreatorWorkflow:
                     
                 except GithubException as e:
                     if e.status == 403:
-                        logger.warning(f"Rate limit hit while accessing {content.path}")
+                        print(f"Rate limit hit while accessing {content.path}")
                         await asyncio.sleep(1)  # Brief pause
                     else:
-                        logger.warning(f"Failed to access directory {content.path}: {str(e)}")
+                        print(f"Failed to access directory {content.path}: {str(e)}")
                 except Exception as e:
-                    logger.warning(f"Failed to access directory {content.path}: {str(e)}")
+                    print(f"Failed to access directory {content.path}: {str(e)}")
             else:
                 # Check if file matches any pattern
                 if self._matches_patterns(content.path, patterns):
                     matching_files.append(content.path)
-                    logger.debug(f"Found matching file: {content.path}")
+                    print(f"Found matching file: {content.path}")
         
         return matching_files
     
@@ -726,7 +722,7 @@ class BaselineMapCreatorWorkflow:
             return content
             
         except Exception as e:
-            logger.warning(f"Failed to get content for {file_path}: {str(e)}")
+            print(f"Failed to get content for {file_path}: {str(e)}")
             return None
     
     async def _check_rate_limit(self):
@@ -743,11 +739,11 @@ class BaselineMapCreatorWorkflow:
                 wait_time = max(0, reset_time - time.time())
                 
                 if wait_time > 0:
-                    logger.warning(f"GitHub API rate limit low ({core_remaining} remaining). Waiting {wait_time:.1f} seconds...")
+                    print(f"GitHub API rate limit low ({core_remaining} remaining). Waiting {wait_time:.1f} seconds...")
                     await asyncio.sleep(wait_time)
             
         except Exception as e:
-            logger.warning(f"Failed to check rate limit: {str(e)}")
+            print(f"Failed to check rate limit: {str(e)}")
     
     async def _llm_extract_requirements(self, content: str, file_path: str) -> List[Dict[str, Any]]:
         """Extract requirements using LLM"""
@@ -784,7 +780,7 @@ class BaselineMapCreatorWorkflow:
                 # Store embedding (would be saved to vector database in full implementation)
                 element.embedding = embedding
         except Exception as e:
-            logger.warning(f"Failed to generate embeddings for design elements: {str(e)}")
+            print(f"Failed to generate embeddings for design elements: {str(e)}")
     
     async def _generate_code_component_embeddings(self, code_components: List[CodeComponentModel]) -> None:
         """Generate embeddings for code components"""
@@ -796,7 +792,7 @@ class BaselineMapCreatorWorkflow:
                 # Store embedding (would be saved to vector database in full implementation)
                 component.embedding = embedding
         except Exception as e:
-            logger.warning(f"Failed to generate embeddings for code components: {str(e)}")
+            print(f"Failed to generate embeddings for code components: {str(e)}")
     
     async def _generate_requirement_embeddings(self, requirements: List[RequirementModel]) -> None:
         """Generate embeddings for requirements"""
@@ -808,7 +804,7 @@ class BaselineMapCreatorWorkflow:
                 # Store embedding (would be saved to vector database in full implementation)
                 requirement.embedding = embedding
         except Exception as e:
-            logger.warning(f"Failed to generate embeddings for requirements: {str(e)}")
+            print(f"Failed to generate embeddings for requirements: {str(e)}")
     
     async def _create_design_element_relationships_with_embeddings(self, design_elements: List[DesignElementModel]) -> List[Dict[str, Any]]:
         """Create relationships between design elements using embedding similarity"""
@@ -837,7 +833,7 @@ class BaselineMapCreatorWorkflow:
                             })
             
         except Exception as e:
-            logger.warning(f"Failed to create design element relationships with embeddings: {str(e)}")
+            print(f"Failed to create design element relationships with embeddings: {str(e)}")
             # Fallback to simple placeholder
             relationships = [
                 {
@@ -865,7 +861,7 @@ class BaselineMapCreatorWorkflow:
             links.extend(similarity_links)
             
         except Exception as e:
-            logger.warning(f"Failed to create requirement-design links with embeddings: {str(e)}")
+            print(f"Failed to create requirement-design links with embeddings: {str(e)}")
             # Fallback to simple placeholder
             links = [
                 {
@@ -900,7 +896,7 @@ class BaselineMapCreatorWorkflow:
                             })
             
         except Exception as e:
-            logger.warning(f"Failed to create design-code links with embeddings: {str(e)}")
+            print(f"Failed to create design-code links with embeddings: {str(e)}")
             # Fallback to simple placeholder
             links = [
                 {
@@ -933,7 +929,7 @@ class BaselineMapCreatorWorkflow:
             return float(similarity)
             
         except Exception as e:
-            logger.warning(f"Failed to calculate embedding similarity: {str(e)}")
+            print(f"Failed to calculate embedding similarity: {str(e)}")
             return 0.0
     
     async def _parse_traceability_matrix_from_sdd(self, sdd_content: Dict[str, str], 
@@ -966,7 +962,7 @@ class BaselineMapCreatorWorkflow:
                             })
         
         except Exception as e:
-            logger.warning(f"Failed to create requirement-design similarity links: {str(e)}")
+            print(f"Failed to create requirement-design similarity links: {str(e)}")
         
         return links
 
