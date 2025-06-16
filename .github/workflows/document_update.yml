@@ -138,6 +138,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
           TARGET_BRANCH: ${{ inputs.branch || 'main' }}
+          FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
         run: |
           python -m agent.baseline_map_creator
@@ -200,6 +201,7 @@ jobs:
           TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
           TARGET_BRANCH: ${{ github.event.pull_request.base.ref || inputs.branch || 'main' }}
           MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}
+          FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
         run: |
           python -m agent.baseline_map_updater

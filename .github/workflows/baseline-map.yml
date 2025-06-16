@@ -62,6 +62,9 @@ jobs:
         fi
     
     - name: Create baseline traceability map
+      env:
+        FORCE_OVERWRITE: ${{ github.event.inputs.force_recreate == 'true' && 'true' || 'false' }}
+        LOG_LEVEL: 'DEBUG'
       run: |
         python -c "
         import asyncio

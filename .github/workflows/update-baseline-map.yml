@@ -85,6 +85,9 @@ jobs:
         fi
     
     - name: Update baseline traceability map
+      env:
+        FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
+        LOG_LEVEL: 'DEBUG'
       run: |
         python -c "
         import asyncio

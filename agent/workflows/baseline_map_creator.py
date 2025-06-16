@@ -155,10 +155,25 @@ class BaselineMapCreatorWorkflow:
             print(f"Existing map: {existing_map}")
             if existing_map:
                 logger.warning(f"Baseline map already exists for {repository}:{branch}")
-                choice = input("Baseline map exists. Overwrite? (y/N): ").strip().lower()
-                if choice != 'y':
-                    logger.info("Baseline map creation cancelled")
-                    return initial_state
+                
+                # Check if we're in GitHub Actions (non-interactive environment)
+                is_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
+                force_overwrite = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
+                
+                if is_github_actions or force_overwrite:
+                    print("🔄 Running in GitHub Actions or FORCE_OVERWRITE=true - automatically overwriting baseline map")
+                    logger.info("Automatically overwriting baseline map in non-interactive environment")
+                else:
+                    # Interactive prompt only in local/interactive environments
+                    try:
+                        choice = input("Baseline map exists. Overwrite? (y/N): ").strip().lower()
+                        if choice != 'y':
+                            logger.info("Baseline map creation cancelled")
+                            return initial_state
+                    except EOFError:
+                        logger.error("Cannot get user input in non-interactive environment. Use FORCE_OVERWRITE=true to overwrite automatically.")
+                        initial_state.errors.append("EOF when reading input - use FORCE_OVERWRITE=true in non-interactive environments")
+                        return initial_state
             
             # Compile and run workflow
             app = self.workflow.compile(checkpointer=self.memory)
