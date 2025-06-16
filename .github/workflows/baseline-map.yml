@@ -94,18 +94,18 @@ jobs:
                 
                 # Print results
                 print('\\n📈 Baseline Map Creation Results:')
-                print(f'Repository: {result.repository}:{result.branch}')
-                print(f'Requirements: {len(result.requirements)}')
-                print(f'Design Elements: {len(result.design_elements)}')
-                print(f'Code Components: {len(result.code_components)}')
-                print(f'Traceability Links: {len(result.traceability_links)}')
+                print(f'Repository: {result[\"repository\"]}:{result[\"branch\"]}')
+                print(f'Requirements: {len(result[\"requirements\"])}')
+                print(f'Design Elements: {len(result[\"design_elements\"])}')
+                print(f'Code Components: {len(result[\"code_components\"])}')
+                print(f'Traceability Links: {len(result[\"traceability_links\"])}')
                 
-                if result.errors:
+                if result[\"errors\"]:
                     print('\\n⚠️  Errors encountered:')
-                    for error in result.errors:
+                    for error in result[\"errors\"]:
                         print(f'  - {error}')
                 
-                print(f'\\n✅ Baseline map creation completed: {result.current_step}')
+                print(f'\\n✅ Baseline map creation completed: {result[\"current_step\"]}')
                 
             except Exception as e:
                 print(f'❌ Baseline map creation failed: {str(e)}')

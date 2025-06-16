@@ -111,7 +111,7 @@ jobs:
                     print('💡 Tip: Run the \"Create Baseline Map\" workflow first')
                     return False
                 
-                print(f'✅ Found existing baseline map with {len(existing_map.requirements)} requirements')
+                print(f'✅ Found existing baseline map with {len(existing_map[\"requirements\"])} requirements')
                 
                 # Create workflow instance
                 creator = create_baseline_map_creator()
@@ -144,19 +144,19 @@ jobs:
                 
                 # Print results
                 print('\\n📊 Baseline Map Update Results:')
-                print(f'Repository: {result.repository}:{result.branch}')
-                print(f'Requirements: {len(result.requirements)}')
-                print(f'Design Elements: {len(result.design_elements)}')
-                print(f'Code Components: {len(result.code_components)}')
-                print(f'Traceability Links: {len(result.traceability_links)}')
+                print(f'Repository: {result[\"repository\"]}:{result[\"branch\"]}')
+                print(f'Requirements: {len(result[\"requirements\"])}')
+                print(f'Design Elements: {len(result[\"design_elements\"])}')
+                print(f'Code Components: {len(result[\"code_components\"])}')
+                print(f'Traceability Links: {len(result[\"traceability_links\"])}')
                 
-                if result.errors:
+                if result[\"errors\"]:
                     print('\\n⚠️  Errors encountered:')
-                    for error in result.errors:
+                    for error in result[\"errors\"]:
                         print(f'  - {error}')
                     return False
                 
-                print(f'\\n✅ Baseline map update completed: {result.current_step}')
+                print(f'\\n✅ Baseline map update completed: {result[\"current_step\"]}')
                 return True
                 
             except Exception as e:
