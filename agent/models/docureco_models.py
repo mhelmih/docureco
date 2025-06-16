@@ -208,6 +208,7 @@ class RequirementModel(BaseModel):
     type: str = Field(..., description="Functional or Non-functional")
     priority: str = Field(default="Medium", description="Requirement priority")
     section: str = Field(..., description="SRS section containing this requirement")
+    embedding: Optional[List[float]] = Field(None, description="Vector embedding for similarity search")
 
 class DesignElementModel(BaseModel):
     """Design element from SDD"""
@@ -216,6 +217,7 @@ class DesignElementModel(BaseModel):
     description: str = Field(..., description="Design element description")
     type: str = Field(..., description="Type of design element (class, module, component, etc.)")
     section: str = Field(..., description="SDD section containing this element")
+    embedding: Optional[List[float]] = Field(None, description="Vector embedding for similarity search")
 
 class CodeComponentModel(BaseModel):
     """Code component (file, class, function)"""
@@ -223,6 +225,7 @@ class CodeComponentModel(BaseModel):
     path: str = Field(..., description="File path or component path")
     type: str = Field(..., description="Type of component (file, class, function)")
     name: Optional[str] = Field(None, description="Component name if applicable")
+    embedding: Optional[List[float]] = Field(None, description="Vector embedding for similarity search")
 
 class TraceabilityLinkModel(BaseModel):
     """Traceability link between artifacts"""

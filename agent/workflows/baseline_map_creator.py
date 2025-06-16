@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import time
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, TypedDict
 from pathlib import Path
 from dataclasses import dataclass, field
 import fnmatch
@@ -35,34 +35,33 @@ from ..models.docureco_models import (
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class BaselineMapCreatorState:
+class BaselineMapCreatorState(TypedDict):
     """State for baseline map creation workflow"""
     repository: str
     branch: str
     
     # Repository content
-    srs_content: Dict[str, str] = field(default_factory=dict)
-    sdd_content: Dict[str, str] = field(default_factory=dict)
-    code_files: List[Dict[str, Any]] = field(default_factory=list)
+    srs_content: Dict[str, str]
+    sdd_content: Dict[str, str]
+    code_files: List[Dict[str, Any]]
     
     # Extracted elements
-    requirements: List[RequirementModel] = field(default_factory=list)
-    design_elements: List[DesignElementModel] = field(default_factory=list)
-    code_components: List[CodeComponentModel] = field(default_factory=list)
+    requirements: List[RequirementModel]
+    design_elements: List[DesignElementModel]
+    code_components: List[CodeComponentModel]
     
     # Mapping relationships
-    design_to_design_links: List[TraceabilityLinkModel] = field(default_factory=list)
-    design_to_code_links: List[TraceabilityLinkModel] = field(default_factory=list)
-    requirements_to_design_links: List[TraceabilityLinkModel] = field(default_factory=list)
+    design_to_design_links: List[TraceabilityLinkModel]
+    design_to_code_links: List[TraceabilityLinkModel]
+    requirements_to_design_links: List[TraceabilityLinkModel]
     
     # Combined traceability links
-    traceability_links: List[TraceabilityLinkModel] = field(default_factory=list)
+    traceability_links: List[TraceabilityLinkModel]
     
     # Workflow metadata
-    current_step: str = "initializing"
-    errors: List[str] = field(default_factory=list)
-    processing_stats: Dict[str, int] = field(default_factory=dict)
+    current_step: str
+    errors: List[str]
+    processing_stats: Dict[str, int]
 
 class BaselineMapCreatorWorkflow:
     """
@@ -144,36 +143,33 @@ class BaselineMapCreatorWorkflow:
             BaselineMapCreatorState: Final workflow state
         """
         # Initialize state
-        initial_state = BaselineMapCreatorState(
-            repository=repository,
-            branch=branch
-        )
+        initial_state = {
+            "repository": repository,
+            "branch": branch,
+            "srs_content": {},
+            "sdd_content": {},
+            "code_files": [],
+            "requirements": [],
+            "design_elements": [],
+            "code_components": [],
+            "design_to_design_links": [],
+            "design_to_code_links": [],
+            "requirements_to_design_links": [],
+            "traceability_links": [],
+            "current_step": "initializing",
+            "errors": [],
+            "processing_stats": {}
+        }
         
         try:
             # Check if baseline map already exists
             existing_map = await self.baseline_map_repo.get_baseline_map(repository, branch)
-            print(f"Existing map: {existing_map}")
             if existing_map:
                 logger.warning(f"Baseline map already exists for {repository}:{branch}")
-                
-                # Check if we're in GitHub Actions (non-interactive environment)
-                is_github_actions = os.getenv("GITHUB_ACTIONS") == "true"
                 force_overwrite = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
-                
-                if is_github_actions or force_overwrite:
-                    print("🔄 Running in GitHub Actions or FORCE_OVERWRITE=true - automatically overwriting baseline map")
-                    logger.info("Automatically overwriting baseline map in non-interactive environment")
-                else:
-                    # Interactive prompt only in local/interactive environments
-                    try:
-                        choice = input("Baseline map exists. Overwrite? (y/N): ").strip().lower()
-                        if choice != 'y':
-                            logger.info("Baseline map creation cancelled")
-                            return initial_state
-                    except EOFError:
-                        logger.error("Cannot get user input in non-interactive environment. Use FORCE_OVERWRITE=true to overwrite automatically.")
-                        initial_state.errors.append("EOF when reading input - use FORCE_OVERWRITE=true in non-interactive environments")
-                        return initial_state
+                if not force_overwrite:
+                    logger.info("Baseline map exists. Exiting...")
+                    return initial_state
             
             # Compile and run workflow
             app = self.workflow.compile(checkpointer=self.memory)
@@ -186,15 +182,15 @@ class BaselineMapCreatorWorkflow:
             
         except Exception as e:
             logger.error(f"Baseline map creation failed: {str(e)}")
-            initial_state.errors.append(str(e))
+            initial_state["errors"].append(str(e))
             raise
     
     async def _scan_repository(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
         """
         Scan repository for documentation and code files
         """
-        logger.info(f"Scanning repository {state.repository}:{state.branch}")
-        state.current_step = "scanning_repository"
+        logger.info(f"Scanning repository {state['repository']}:{state['branch']}")
+        state["current_step"] = "scanning_repository"
         
         try:
             # In a full implementation, this would use GitHub API to fetch files
@@ -218,19 +214,19 @@ class BaselineMapCreatorWorkflow:
             
             # Scan SDD first (contains traceability matrix)
             logger.info("Scanning SDD files (priority for traceability matrix)...")
-            state.sdd_content = await self._fetch_documentation_files(state.repository, sdd_patterns, state.branch)
+            state["sdd_content"] = await self._fetch_documentation_files(state["repository"], sdd_patterns, state["branch"])
             
             # Then scan SRS and code files
             logger.info("Scanning SRS and code files...")
-            state.srs_content = await self._fetch_documentation_files(state.repository, srs_patterns, state.branch)
-            state.code_files = await self._fetch_code_files(state.repository, code_patterns, state.branch)
+            state["srs_content"] = await self._fetch_documentation_files(state["repository"], srs_patterns, state["branch"])
+            state["code_files"] = await self._fetch_code_files(state["repository"], code_patterns, state["branch"])
             
-            logger.info(f"Found {len(state.sdd_content)} SDD files, {len(state.srs_content)} SRS files, {len(state.code_files)} code files")
+            logger.info(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
             
         except Exception as e:
             error_msg = f"Error scanning repository: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
     
@@ -240,13 +236,13 @@ class BaselineMapCreatorWorkflow:
         SDD is processed first as it contains the traceability matrix between design elements and requirements
         """
         logger.info("Identifying design elements from SDD")
-        state.current_step = "identifying_design_elements"
+        state["current_step"] = "identifying_design_elements"
         
         try:
             design_elements = []
             elem_counter = 1
             
-            for file_path, content in state.sdd_content.items():
+            for file_path, content in state["sdd_content"].items():
                 if not content.strip():
                     continue
                 
@@ -264,8 +260,8 @@ class BaselineMapCreatorWorkflow:
                     design_elements.append(design_element)
                     elem_counter += 1
             
-            state.design_elements = design_elements
-            state.processing_stats["design_elements_count"] = len(design_elements)
+            state["design_elements"] = design_elements
+            state["processing_stats"]["design_elements_count"] = len(design_elements)
             logger.info(f"Identified {len(design_elements)} design elements")
             
             # Generate embeddings for design elements immediately for better mapping accuracy
@@ -277,7 +273,7 @@ class BaselineMapCreatorWorkflow:
         except Exception as e:
             error_msg = f"Error identifying design elements: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
     
@@ -286,15 +282,15 @@ class BaselineMapCreatorWorkflow:
         Create mappings between design elements (internal relationships)
         """
         logger.info("Creating design-to-design mappings")
-        state.current_step = "design_to_design_mapping"
+        state["current_step"] = "design_to_design_mapping"
         
         try:
             design_to_design_links = []
             link_counter = 1
             
             # Analyze relationships between design elements using embeddings + LLM
-            if len(state.design_elements) > 1:
-                links_data = await self._create_design_element_relationships_with_embeddings(state.design_elements)
+            if len(state["design_elements"]) > 1:
+                links_data = await self._create_design_element_relationships_with_embeddings(state["design_elements"])
                 
                 for link_data in links_data:
                     link = TraceabilityLinkModel(
@@ -308,14 +304,14 @@ class BaselineMapCreatorWorkflow:
                     design_to_design_links.append(link)
                     link_counter += 1
             
-            state.design_to_design_links = design_to_design_links
-            state.processing_stats["design_to_design_links_count"] = len(design_to_design_links)
+            state["design_to_design_links"] = design_to_design_links
+            state["processing_stats"]["design_to_design_links_count"] = len(design_to_design_links)
             logger.info(f"Created {len(design_to_design_links)} design-to-design mappings")
             
         except Exception as e:
             error_msg = f"Error creating design-to-design mappings: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
     
@@ -324,14 +320,14 @@ class BaselineMapCreatorWorkflow:
         Create mappings between design elements and code components
         """
         logger.info("Creating design-to-code mappings")
-        state.current_step = "design_to_code_mapping"
+        state["current_step"] = "design_to_code_mapping"
         
         try:
             # Create code components from file paths (simplified approach)
             code_components = []
             comp_counter = 1
             
-            for file_info in state.code_files:
+            for file_info in state["code_files"]:
                 file_path = file_info.get("path", "")
                 
                 if not file_path:
@@ -347,8 +343,8 @@ class BaselineMapCreatorWorkflow:
                 code_components.append(code_component)
                 comp_counter += 1
             
-            state.code_components = code_components
-            state.processing_stats["code_components_count"] = len(code_components)
+            state["code_components"] = code_components
+            state["processing_stats"]["code_components_count"] = len(code_components)
             
             # Generate embeddings for code components for better mapping accuracy
             if code_components and self.embedding_client:
@@ -360,7 +356,7 @@ class BaselineMapCreatorWorkflow:
             design_to_code_links = []
             link_counter = 1
             
-            links_data = await self._create_design_code_links_with_embeddings(state.design_elements, code_components)
+            links_data = await self._create_design_code_links_with_embeddings(state["design_elements"], code_components)
             
             for link_data in links_data:
                 link = TraceabilityLinkModel(
@@ -374,14 +370,14 @@ class BaselineMapCreatorWorkflow:
                 design_to_code_links.append(link)
                 link_counter += 1
             
-            state.design_to_code_links = design_to_code_links
-            state.processing_stats["design_to_code_links_count"] = len(design_to_code_links)
+            state["design_to_code_links"] = design_to_code_links
+            state["processing_stats"]["design_to_code_links_count"] = len(design_to_code_links)
             logger.info(f"Created {len(design_to_code_links)} design-to-code mappings")
             
         except Exception as e:
             error_msg = f"Error creating design-to-code mappings: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
     
@@ -390,13 +386,13 @@ class BaselineMapCreatorWorkflow:
         Identify requirements from SRS documentation using LLM
         """
         logger.info("Identifying requirements from SRS")
-        state.current_step = "identifying_requirements"
+        state["current_step"] = "identifying_requirements"
         
         try:
             requirements = []
             req_counter = 1
             
-            for file_path, content in state.srs_content.items():
+            for file_path, content in state["srs_content"].items():
                 if not content.strip():
                     continue
                 
@@ -415,8 +411,8 @@ class BaselineMapCreatorWorkflow:
                     requirements.append(requirement)
                     req_counter += 1
             
-            state.requirements = requirements
-            state.processing_stats["requirements_count"] = len(requirements)
+            state["requirements"] = requirements
+            state["processing_stats"]["requirements_count"] = len(requirements)
             logger.info(f"Identified {len(requirements)} requirements")
             
             # Generate embeddings for requirements for better mapping accuracy
@@ -428,7 +424,7 @@ class BaselineMapCreatorWorkflow:
         except Exception as e:
             error_msg = f"Error identifying requirements: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
     
@@ -438,7 +434,7 @@ class BaselineMapCreatorWorkflow:
         Uses the traceability matrix from SDD documentation
         """
         logger.info("Creating requirements-to-design mappings")
-        state.current_step = "requirements_to_design_mapping"
+        state["current_step"] = "requirements_to_design_mapping"
         
         try:
             requirements_to_design_links = []
@@ -446,7 +442,7 @@ class BaselineMapCreatorWorkflow:
             
             # Extract traceability matrix from SDD and create requirement-design links using embeddings
             req_to_design_links = await self._create_requirement_design_links_from_sdd_with_embeddings(
-                state.requirements, state.design_elements, state.sdd_content
+                state["requirements"], state["design_elements"], state["sdd_content"]
             )
             
             for link_data in req_to_design_links:
@@ -461,46 +457,44 @@ class BaselineMapCreatorWorkflow:
                 requirements_to_design_links.append(link)
                 link_counter += 1
             
-            state.requirements_to_design_links = requirements_to_design_links
-            state.processing_stats["requirements_to_design_links_count"] = len(requirements_to_design_links)
+            state["requirements_to_design_links"] = requirements_to_design_links
+            state["processing_stats"]["requirements_to_design_links_count"] = len(requirements_to_design_links)
             
             # Combine all traceability links
-            state.traceability_links = (
-                state.design_to_design_links + 
-                state.design_to_code_links + 
-                state.requirements_to_design_links
+            state["traceability_links"] = (
+                state["design_to_design_links"] + 
+                state["design_to_code_links"] + 
+                state["requirements_to_design_links"]
             )
-            state.processing_stats["total_traceability_links_count"] = len(state.traceability_links)
+            state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
             
             logger.info(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
-            logger.info(f"Total traceability links: {len(state.traceability_links)}")
+            logger.info(f"Total traceability links: {len(state['traceability_links'])}")
             
         except Exception as e:
             error_msg = f"Error creating requirements-to-design mappings: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
-    
-
     
     async def _generate_embeddings(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
         """
         Generate vector embeddings for all elements
         """
         logger.info("Generating vector embeddings")
-        state.current_step = "generating_embeddings"
+        state["current_step"] = "generating_embeddings"
         
         try:
             if self.vector_search_repo:
                 # Convert to dict format for embedding generation
                 baseline_map_data = {
-                    "repository": state.repository,
-                    "branch": state.branch,
-                    "requirements": [req.dict() for req in state.requirements],
-                    "design_elements": [elem.dict() for elem in state.design_elements],
-                    "code_components": [comp.dict() for comp in state.code_components],
-                    "traceability_links": [link.dict() for link in state.traceability_links]
+                    "repository": state["repository"],
+                    "branch": state["branch"],
+                    "requirements": [req.dict() for req in state["requirements"]],
+                    "design_elements": [elem.dict() for elem in state["design_elements"]],
+                    "code_components": [comp.dict() for comp in state["code_components"]],
+                    "traceability_links": [link.dict() for link in state["traceability_links"]]
                 }
                 
                 # Generate and store embeddings
@@ -516,7 +510,7 @@ class BaselineMapCreatorWorkflow:
         except Exception as e:
             error_msg = f"Error generating embeddings: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
     
@@ -525,34 +519,34 @@ class BaselineMapCreatorWorkflow:
         Save baseline map to database
         """
         logger.info("Saving baseline map to database")
-        state.current_step = "saving_baseline_map"
+        state["current_step"] = "saving_baseline_map"
         
         try:
             # Create baseline map model
             baseline_map = BaselineMapModel(
-                repository=state.repository,
-                branch=state.branch,
-                requirements=state.requirements,
-                design_elements=state.design_elements,
-                code_components=state.code_components,
-                traceability_links=state.traceability_links
+                repository=state["repository"],
+                branch=state["branch"],
+                requirements=state["requirements"],
+                design_elements=state["design_elements"],
+                code_components=state["code_components"],
+                traceability_links=state["traceability_links"]
             )
             
             # Save to database
             success = await self.baseline_map_repo.save_baseline_map(baseline_map)
             
             if success:
-                logger.info(f"Successfully saved baseline map for {state.repository}:{state.branch}")
-                state.current_step = "completed"
+                logger.info(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
+                state["current_step"] = "completed"
             else:
                 error_msg = "Failed to save baseline map to database"
                 logger.error(error_msg)
-                state.errors.append(error_msg)
+                state["errors"].append(error_msg)
             
         except Exception as e:
             error_msg = f"Error saving baseline map: {str(e)}"
             logger.error(error_msg)
-            state.errors.append(error_msg)
+            state["errors"].append(error_msg)
         
         return state
     
@@ -777,8 +771,6 @@ class BaselineMapCreatorWorkflow:
                 "section": "4.2.1"
             }
         ]
-    
-
     
     async def _generate_design_element_embeddings(self, design_elements: List[DesignElementModel]) -> None:
         """Generate embeddings for design elements"""

@@ -301,6 +301,13 @@ class DocurecoEmbeddingClient:
                 "cost_per_token": 0.00002  # Approximate cost
             }
 
+    def get_embedding_dimension(self) -> int:
+        """Get the dimension of embeddings produced by this client"""
+        if self.use_free:
+            return 384  # Sentence Transformers default
+        else:
+            return 1536  # OpenAI text-embedding-3-small
+
 def create_embedding_client(
     use_free: bool = True,
     embedding_type: str = "fast",
