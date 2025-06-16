@@ -10,6 +10,12 @@ import os
 import sys
 from typing import Optional
 
+# Add current directory and parent directory to Python path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, current_dir)
+sys.path.insert(0, parent_dir)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +63,7 @@ async def create_baseline_map(repository: str, branch: str = "main"):
         branch: Branch name
     """
     try:
-        from .workflows.baseline_map_creator import create_baseline_map_creator
+        from agent.workflows.baseline_map_creator import create_baseline_map_creator
         
         # Create workflow
         creator = create_baseline_map_creator()
