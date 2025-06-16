@@ -63,56 +63,12 @@ jobs:
     
     - name: Create baseline traceability map
       env:
-        FORCE_OVERWRITE: ${{ github.event.inputs.force_recreate == 'true' && 'true' || 'false' }}
+        REPOSITORY: ${{ github.event.inputs.repository }}
+        BRANCH: ${{ github.event.inputs.branch }}
+        FORCE_RECREATE: ${{ github.event.inputs.force_recreate == 'true' && 'true' || 'false' }}
         LOG_LEVEL: 'DEBUG'
       run: |
-        python -c "
-        import asyncio
-        import os
-        import sys
-        from agent.workflows.baseline_map_creator import create_baseline_map_creator
-        
-        async def main():
-            try:
-                print('🚀 Starting baseline map creation...')
-                
-                # Create workflow instance
-                creator = create_baseline_map_creator()
-                
-                # Execute baseline map creation
-                repository = '${{ github.event.inputs.repository }}'
-                branch = '${{ github.event.inputs.branch }}'
-                force_recreate = '${{ github.event.inputs.force_recreate }}' == 'true'
-                
-                print(f'📊 Analyzing repository: {repository}:{branch}')
-                
-                # Override existing check if force recreate is enabled
-                if force_recreate:
-                    print('⚠️  Force recreate enabled - will overwrite existing baseline map')
-                
-                result = await creator.execute(repository, branch)
-                
-                # Print results
-                print('\\n📈 Baseline Map Creation Results:')
-                print(f'Repository: {result[\"repository\"]}:{result[\"branch\"]}')
-                print(f'Requirements: {len(result[\"requirements\"])}')
-                print(f'Design Elements: {len(result[\"design_elements\"])}')
-                print(f'Code Components: {len(result[\"code_components\"])}')
-                print(f'Traceability Links: {len(result[\"traceability_links\"])}')
-                
-                if result[\"errors\"]:
-                    print('\\n⚠️  Errors encountered:')
-                    for error in result[\"errors\"]:
-                        print(f'  - {error}')
-                
-                print(f'\\n✅ Baseline map creation completed: {result[\"current_step\"]}')
-                
-            except Exception as e:
-                print(f'❌ Baseline map creation failed: {str(e)}')
-                sys.exit(1)
-        
-        asyncio.run(main())
-        "
+        python -u agent/baseline_map_creator.py
     
     - name: Upload baseline map artifacts
       if: always()

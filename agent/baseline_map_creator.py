@@ -26,20 +26,26 @@ def main():
     """Main function for baseline map creator"""
     try:
         # Get repository and branch from environment variables
-        repository = os.getenv("TARGET_REPOSITORY")
-        branch = os.getenv("TARGET_BRANCH", "main")
+        repository = os.getenv("REPOSITORY")
+        branch = os.getenv("BRANCH", "main")
+        force_recreate = os.getenv("FORCE_RECREATE", "false").lower() == "true"
         
         if not repository:
-            logger.error("TARGET_REPOSITORY environment variable is required")
+            print("❌ REPOSITORY environment variable is required")
             sys.exit(1)
         
-        logger.info(f"Starting baseline map creation for {repository}:{branch}")
+        print("🚀 Starting baseline map creation...")
+        print(f"📊 Analyzing repository: {repository}:{branch}")
+        
+        # Override existing check if force recreate is enabled
+        if force_recreate:
+            print("⚠️  Force recreate enabled - will overwrite existing baseline map")
         
         # Run the async workflow
         asyncio.run(create_baseline_map(repository, branch))
         
     except Exception as e:
-        logger.error(f"Baseline map creation failed: {str(e)}")
+        print(f"❌ Baseline map creation failed: {str(e)}")
         sys.exit(1)
 
 async def create_baseline_map(repository: str, branch: str = "main"):
@@ -59,25 +65,34 @@ async def create_baseline_map(repository: str, branch: str = "main"):
         # Execute workflow
         final_state = await creator.execute(repository, branch)
         
+        # Print results
+        print("\n📈 Baseline Map Creation Results:")
+        print(f"Repository: {final_state.repository}:{final_state.branch}")
+        
+        if hasattr(final_state, 'requirements'):
+            print(f"Requirements: {len(final_state.requirements)}")
+        if hasattr(final_state, 'design_elements'):
+            print(f"Design Elements: {len(final_state.design_elements)}")
+        if hasattr(final_state, 'code_components'):
+            print(f"Code Components: {len(final_state.code_components)}")
+        if hasattr(final_state, 'traceability_links'):
+            print(f"Traceability Links: {len(final_state.traceability_links)}")
+        
         if final_state.errors:
-            logger.error(f"Baseline map creation completed with errors: {final_state.errors}")
-            
-            # Print statistics
-            if final_state.processing_stats:
-                logger.info("Processing Statistics:")
-                for key, value in final_state.processing_stats.items():
-                    logger.info(f"  {key}: {value}")
-        else:
-            logger.info("Baseline map creation completed successfully!")
-            
-            # Print statistics
-            if final_state.processing_stats:
-                logger.info("Processing Statistics:")
-                for key, value in final_state.processing_stats.items():
-                    logger.info(f"  {key}: {value}")
+            print("\n⚠️  Errors encountered:")
+            for error in final_state.errors:
+                print(f"  - {error}")
+        
+        print(f"\n✅ Baseline map creation completed: {final_state.current_step}")
+        
+        # Print statistics if available
+        if final_state.processing_stats:
+            print("\n📊 Processing Statistics:")
+            for key, value in final_state.processing_stats.items():
+                print(f"  {key}: {value}")
         
     except Exception as e:
-        logger.error(f"Error in baseline map creation: {str(e)}")
+        print(f"❌ Error in baseline map creation: {str(e)}")
         raise
 
 if __name__ == "__main__":
