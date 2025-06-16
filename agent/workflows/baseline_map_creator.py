@@ -189,6 +189,8 @@ class BaselineMapCreatorWorkflow:
         """
         Scan repository for documentation and code files
         """
+        print("Scanning repository")
+        print(state)
         logger.info(f"Scanning repository {state['repository']}:{state['branch']}")
         state["current_step"] = "scanning_repository"
         
