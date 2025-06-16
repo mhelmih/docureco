@@ -88,7 +88,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           
           # Logging and Performance
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
           MAX_CONCURRENT_OPERATIONS: ${{ vars.MAX_CONCURRENT_OPERATIONS || '5' }}
           REQUEST_TIMEOUT_SECONDS: ${{ vars.REQUEST_TIMEOUT_SECONDS || '120' }}
           MAX_FILE_SIZE_MB: ${{ vars.MAX_FILE_SIZE_MB || '10' }}
@@ -138,7 +138,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
           TARGET_BRANCH: ${{ inputs.branch || 'main' }}
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
         run: |
           python -m agent.baseline_map_creator
         timeout-minutes: 30
@@ -200,7 +200,7 @@ jobs:
           TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
           TARGET_BRANCH: ${{ github.event.pull_request.base.ref || inputs.branch || 'main' }}
           MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
         run: |
           python -m agent.baseline_map_updater
         timeout-minutes: 20

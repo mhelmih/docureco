@@ -152,6 +152,7 @@ class BaselineMapCreatorWorkflow:
         try:
             # Check if baseline map already exists
             existing_map = await self.baseline_map_repo.get_baseline_map(repository, branch)
+            print(f"Existing map: {existing_map}")
             if existing_map:
                 logger.warning(f"Baseline map already exists for {repository}:{branch}")
                 choice = input("Baseline map exists. Overwrite? (y/N): ").strip().lower()
