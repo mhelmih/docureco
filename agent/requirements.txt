@@ -26,11 +26,6 @@ pyyaml==6.0.2
 jinja2==3.1.4
 numpy==1.26.4
 
-# Embedding models (free/open source)
-sentence-transformers==3.1.1
-torch==2.4.1
-transformers==4.45.2
-
 # Logging and monitoring
 structlog==24.4.0
 rich==13.9.2

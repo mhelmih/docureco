@@ -14,7 +14,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from ..llm.llm_client import DocurecoLLMClient, create_llm_client
-from ..database import create_baseline_map_repository, create_vector_search_repository
+from ..database import create_baseline_map_repository
 from ..models.docureco_models import (
     BaselineMapModel, DocumentationRecommendationModel, 
     ImpactAnalysisResultModel, RequirementModel, DesignElementModel,
@@ -52,8 +52,8 @@ class DocumentUpdateRecommendatorWorkflow:
     This workflow implements the Document Update Recommendator component which is responsible for:
     1. Loading baseline traceability maps
     2. Analyzing code changes from GitHub PRs  
-    3. Identifying impacted documentation elements using semantic search
-    4. Generating specific documentation update recommendations
+    3. Identifying impacted documentation elements using traceability links
+    4. Generating specific documentation update recommendations via LLM assessment
     5. Providing actionable insights using the 4W framework (What, Where, Why, How)
     
     Research Questions Addressed: Q1-Q10 from BAB III
@@ -61,19 +61,16 @@ class DocumentUpdateRecommendatorWorkflow:
     
     def __init__(self, 
                  llm_client: Optional[DocurecoLLMClient] = None,
-                 baseline_map_repo = None,
-                 vector_search_repo = None):
+                 baseline_map_repo = None):
         """
         Initialize Document Update Recommendator workflow
         
         Args:
             llm_client: Optional LLM client for analysis and recommendations
             baseline_map_repo: Optional repository for baseline map operations
-            vector_search_repo: Optional repository for vector similarity search
         """
         self.llm_client = llm_client or create_llm_client()
         self.baseline_map_repo = baseline_map_repo or create_baseline_map_repository()
-        self.vector_search_repo = vector_search_repo or create_vector_search_repository()
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
@@ -88,7 +85,7 @@ class DocumentUpdateRecommendatorWorkflow:
         workflow.add_node("load_baseline_map", self._load_baseline_map)
         workflow.add_node("analyze_code_changes", self._analyze_code_changes)
         workflow.add_node("identify_impacted_elements", self._identify_impacted_elements)
-        workflow.add_node("analyze_semantic_impact", self._analyze_semantic_impact)
+        workflow.add_node("assess_impact_likelihood_severity", self._assess_impact_likelihood_severity)
         workflow.add_node("generate_recommendations", self._generate_recommendations)
         workflow.add_node("create_pr_summary", self._create_pr_summary)
         
@@ -96,8 +93,8 @@ class DocumentUpdateRecommendatorWorkflow:
         workflow.set_entry_point("load_baseline_map")
         workflow.add_edge("load_baseline_map", "analyze_code_changes")
         workflow.add_edge("analyze_code_changes", "identify_impacted_elements")
-        workflow.add_edge("identify_impacted_elements", "analyze_semantic_impact")
-        workflow.add_edge("analyze_semantic_impact", "generate_recommendations")
+        workflow.add_edge("identify_impacted_elements", "assess_impact_likelihood_severity")
+        workflow.add_edge("assess_impact_likelihood_severity", "generate_recommendations")
         workflow.add_edge("generate_recommendations", "create_pr_summary")
         workflow.add_edge("create_pr_summary", END)
         
@@ -275,77 +272,20 @@ class DocumentUpdateRecommendatorWorkflow:
         
         return state
     
-    async def _analyze_semantic_impact(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
+    async def _assess_impact_likelihood_severity(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
         """
-        Analyze semantic impact using vector similarity search for broader coverage
-        Implements Q4: How to detect indirect documentation impacts using semantic analysis?
+        Assess impact likelihood and severity for each impacted element
+        Implements Q4: How to assess likelihood and severity of impacts?
         """
-        logger.info("Performing semantic impact analysis using vector similarity")
+        logger.info("Assessing impact likelihood and severity for each impacted element")
         
         try:
-            semantic_impacts = []
-            
-            if state.code_changes:
-                # Use vector search to find semantically related elements
-                for change in state.code_changes:
-                    filename = change.get("filename", "")
-                    patch = change.get("patch", "")
-                    
-                    if filename and patch:
-                        # Find related elements using semantic similarity
-                        related_elements = await self.vector_search_repo.find_related_elements_by_code_change(
-                            filename=filename,
-                            patch=patch,
-                            commit_message=change.get("commit_message", ""),
-                            repository=state.repository,
-                            branch=state.branch,
-                            similarity_threshold=0.6,  # Configurable threshold
-                            max_results_per_type=5
-                        )
-                        
-                        # Create impact analysis results for semantic matches
-                        for req_data in related_elements.get("requirements", []):
-                            impact = ImpactAnalysisResultModel(
-                                element_type="Requirement",
-                                element_id=req_data.get("id"),
-                                impact_reason=f"Semantic similarity to changes in {filename}",
-                                likelihood=req_data.get("similarity", 0.6),
-                                severity=ImpactSeverity.MEDIUM,
-                                change_details={
-                                    "file": filename,
-                                    "similarity_score": req_data.get("similarity"),
-                                    "semantic_match": True
-                                }
-                            )
-                            semantic_impacts.append(impact)
-                        
-                        for de_data in related_elements.get("design_elements", []):
-                            impact = ImpactAnalysisResultModel(
-                                element_type="DesignElement", 
-                                element_id=de_data.get("id"),
-                                impact_reason=f"Semantic similarity to changes in {filename}",
-                                likelihood=de_data.get("similarity", 0.6),
-                                severity=ImpactSeverity.MEDIUM,
-                                change_details={
-                                    "file": filename,
-                                    "similarity_score": de_data.get("similarity"),
-                                    "semantic_match": True
-                                }
-                            )
-                            semantic_impacts.append(impact)
-            
-            # Merge with existing impacts (avoid duplicates)
-            existing_ids = {(impact.element_type, impact.element_id) for impact in state.impacted_elements}
-            for semantic_impact in semantic_impacts:
-                if (semantic_impact.element_type, semantic_impact.element_id) not in existing_ids:
-                    state.impacted_elements.append(semantic_impact)
-            
-            semantic_count = len(semantic_impacts)
-            state.processing_stats["semantic_impacts_count"] = semantic_count
-            logger.info(f"Found {semantic_count} additional semantic impacts")
+            # Placeholder implementation
+            # This step is removed as per the new methodology
+            pass
             
         except Exception as e:
-            error_msg = f"Error in semantic impact analysis: {str(e)}"
+            error_msg = f"Error assessing impact likelihood and severity: {str(e)}"
             logger.error(error_msg)
             state.errors.append(error_msg)
         

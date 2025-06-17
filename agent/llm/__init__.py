@@ -8,15 +8,8 @@ from .llm_client import (
     create_llm_client
 )
 
-from .embedding_client import (
-    DocurecoEmbeddingClient,
-    create_embedding_client
-)
-
 __all__ = [
     "DocurecoLLMClient",
     "LLMResponse", 
-    "create_llm_client",
-    "DocurecoEmbeddingClient",
-    "create_embedding_client"
+    "create_llm_client"
 ] 

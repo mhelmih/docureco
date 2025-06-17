@@ -200,32 +200,32 @@ class DocumentationRecommendation:
 
 # Baseline Map Models (for FR-E requirements)
 
+@dataclass
 class RequirementModel(BaseModel):
-    """Requirement from SRS"""
+    """Requirement model for SRS elements"""
     id: str = Field(..., description="Unique requirement identifier")
     title: str = Field(..., description="Requirement title")
-    description: str = Field(..., description="Requirement description")
-    type: str = Field(..., description="Functional or Non-functional")
-    priority: str = Field(default="Medium", description="Requirement priority")
-    section: str = Field(..., description="SRS section containing this requirement")
-    embedding: Optional[List[float]] = Field(None, description="Vector embedding for similarity search")
+    description: str = Field(..., description="Detailed requirement description")
+    type: str = Field(..., description="Requirement type (Functional/Non-functional)")
+    priority: str = Field(default="Medium", description="Priority level")
+    section: str = Field(..., description="Source document section")
 
+@dataclass
 class DesignElementModel(BaseModel):
-    """Design element from SDD"""
+    """Design element model for SDD components"""
     id: str = Field(..., description="Unique design element identifier")
     name: str = Field(..., description="Design element name")
     description: str = Field(..., description="Design element description")
-    type: str = Field(..., description="Type of design element (class, module, component, etc.)")
-    section: str = Field(..., description="SDD section containing this element")
-    embedding: Optional[List[float]] = Field(None, description="Vector embedding for similarity search")
+    type: str = Field(..., description="Design element type")
+    section: str = Field(..., description="Source document section")
 
+@dataclass
 class CodeComponentModel(BaseModel):
-    """Code component (file, class, function)"""
+    """Code component model for source code elements"""
     id: str = Field(..., description="Unique code component identifier")
     path: str = Field(..., description="File path or component path")
-    type: str = Field(..., description="Type of component (file, class, function)")
+    type: str = Field(..., description="Component type")
     name: Optional[str] = Field(None, description="Component name if applicable")
-    embedding: Optional[List[float]] = Field(None, description="Vector embedding for similarity search")
 
 class TraceabilityLinkModel(BaseModel):
     """Traceability link between artifacts"""

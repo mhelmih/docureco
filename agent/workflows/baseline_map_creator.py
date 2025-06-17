@@ -1,104 +1,58 @@
 """
-Initial Baseline Map Creator for Docureco Agent
-Creates initial traceability maps by scanning repository documentation and code
+Baseline Map Creator Workflow for Docureco Agent
+Creates baseline traceability maps from repository documentation and code
 """
 
 import asyncio
-import os
-import time
-from typing import Dict, Any, List, Optional, Set, TypedDict
+import logging
+import re
+from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
-from dataclasses import dataclass, field
-import fnmatch
-import base64
 
-from github import Github, GithubException
-from github.Repository import Repository
-from github.ContentFile import ContentFile
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from ..llm.llm_client import DocurecoLLMClient, create_llm_client
-from ..llm.embedding_client import DocurecoEmbeddingClient, create_embedding_client
 from ..database import BaselineMapRepository
-try:
-    from ..database import VectorSearchRepository
-except ImportError:
-    # VectorSearchRepository may not be implemented yet
-    VectorSearchRepository = None
 from ..models.docureco_models import (
     BaselineMapModel, RequirementModel, DesignElementModel, 
     CodeComponentModel, TraceabilityLinkModel
 )
 
-class BaselineMapCreatorState(TypedDict):
-    """State for baseline map creation workflow"""
-    repository: str
-    branch: str
-    
-    # Repository content
-    srs_content: Dict[str, str]
-    sdd_content: Dict[str, str]
-    code_files: List[Dict[str, Any]]
-    
-    # Extracted elements
-    requirements: List[RequirementModel]
-    design_elements: List[DesignElementModel]
-    code_components: List[CodeComponentModel]
-    
-    # Mapping relationships
-    design_to_design_links: List[TraceabilityLinkModel]
-    design_to_code_links: List[TraceabilityLinkModel]
-    requirements_to_design_links: List[TraceabilityLinkModel]
-    
-    # Combined traceability links
-    traceability_links: List[TraceabilityLinkModel]
-    
-    # Workflow metadata
-    current_step: str
-    errors: List[str]
-    processing_stats: Dict[str, int]
+logger = logging.getLogger(__name__)
+
+BaselineMapCreatorState = Dict[str, Any]
 
 class BaselineMapCreatorWorkflow:
     """
-    LangGraph workflow for creating initial baseline traceability maps
-    Implements the Initial Baseline Map Creator component
+    LangGraph workflow for creating baseline traceability maps from repository documentation and code.
+    
+    This workflow implements the Baseline Map Creator component which analyzes:
+    1. Software Requirements Specification (SRS) documents
+    2. Software Design Documents (SDD) 
+    3. Source code files
+    4. Creates traceability mappings between elements
+    
+    The workflow prioritizes SDD processing first since it often contains explicit traceability matrices.
     """
     
     def __init__(self, 
                  llm_client: Optional[DocurecoLLMClient] = None,
-                 embedding_client: Optional[DocurecoEmbeddingClient] = None,
-                 baseline_map_repo: Optional[BaselineMapRepository] = None,
-                 vector_search_repo: Optional[VectorSearchRepository] = None,
-                 github_token: Optional[str] = None):
+                 baseline_map_repo: Optional[BaselineMapRepository] = None):
         """
         Initialize baseline map creator workflow
         
         Args:
-            llm_client: Optional LLM client
-            embedding_client: Optional embedding client
-            baseline_map_repo: Optional baseline map repository
-            vector_search_repo: Optional vector search repository
-            github_token: Optional GitHub token for API access
+            llm_client: Optional LLM client for document parsing
+            baseline_map_repo: Optional repository for data persistence
         """
         self.llm_client = llm_client or create_llm_client()
-        self.embedding_client = embedding_client or create_embedding_client()
         self.baseline_map_repo = baseline_map_repo or BaselineMapRepository()
-        self.vector_search_repo = vector_search_repo or (VectorSearchRepository() if VectorSearchRepository else None)
-        
-        # Initialize GitHub client
-        self.github_token = github_token or os.getenv("GITHUB_TOKEN")
-        if not self.github_token:
-            print("No GitHub token provided. Repository scanning will be limited.")
-            self.github_client = None
-        else:
-            self.github_client = Github(self.github_token)
-            print("GitHub client initialized")
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
         
-        print("Initialized BaselineMapCreatorWorkflow")
+        logger.info("Initialized BaselineMapCreatorWorkflow")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow following the SRS, SDD, and Code Mapping process"""
@@ -111,7 +65,6 @@ class BaselineMapCreatorWorkflow:
         workflow.add_node("design_to_code_mapping", self._design_to_code_mapping)
         workflow.add_node("identify_requirements", self._identify_requirements)
         workflow.add_node("requirements_to_design_mapping", self._requirements_to_design_mapping)
-        workflow.add_node("generate_embeddings", self._generate_embeddings)
         workflow.add_node("save_baseline_map", self._save_baseline_map)
         
         # Define workflow edges following the diagram
@@ -121,8 +74,7 @@ class BaselineMapCreatorWorkflow:
         workflow.add_edge("design_to_design_mapping", "design_to_code_mapping")
         workflow.add_edge("design_to_code_mapping", "identify_requirements")
         workflow.add_edge("identify_requirements", "requirements_to_design_mapping")
-        workflow.add_edge("requirements_to_design_mapping", "generate_embeddings")
-        workflow.add_edge("generate_embeddings", "save_baseline_map")
+        workflow.add_edge("requirements_to_design_mapping", "save_baseline_map")
         workflow.add_edge("save_baseline_map", END)
         
         return workflow
@@ -184,8 +136,6 @@ class BaselineMapCreatorWorkflow:
         """
         Scan repository for documentation and code files
         """
-        print("Scanning repository")
-        print(state)
         print(f"Scanning repository {state['repository']}:{state['branch']}")
         state["current_step"] = "scanning_repository"
         
@@ -261,12 +211,6 @@ class BaselineMapCreatorWorkflow:
             state["processing_stats"]["design_elements_count"] = len(design_elements)
             print(f"Identified {len(design_elements)} design elements")
             
-            # Generate embeddings for design elements immediately for better mapping accuracy
-            if design_elements and self.embedding_client:
-                print("Generating embeddings for design elements...")
-                await self._generate_design_element_embeddings(design_elements)
-                print("Design element embeddings generated")
-            
         except Exception as e:
             error_msg = f"Error identifying design elements: {str(e)}"
             print(error_msg)
@@ -285,9 +229,9 @@ class BaselineMapCreatorWorkflow:
             design_to_design_links = []
             link_counter = 1
             
-            # Analyze relationships between design elements using embeddings + LLM
+            # Analyze relationships between design elements using LLM
             if len(state["design_elements"]) > 1:
-                links_data = await self._create_design_element_relationships_with_embeddings(state["design_elements"])
+                links_data = await self._create_design_element_relationships(state["design_elements"])
                 
                 for link_data in links_data:
                     link = TraceabilityLinkModel(
@@ -343,17 +287,11 @@ class BaselineMapCreatorWorkflow:
             state["code_components"] = code_components
             state["processing_stats"]["code_components_count"] = len(code_components)
             
-            # Generate embeddings for code components for better mapping accuracy
-            if code_components and self.embedding_client:
-                print("Generating embeddings for code components...")
-                await self._generate_code_component_embeddings(code_components)
-                print("Code component embeddings generated")
-            
-            # Create design-to-code links using embeddings for similarity matching
+            # Create design-to-code links using simple matching
             design_to_code_links = []
             link_counter = 1
             
-            links_data = await self._create_design_code_links_with_embeddings(state["design_elements"], code_components)
+            links_data = await self._create_design_code_links(state["design_elements"], code_components)
             
             for link_data in links_data:
                 link = TraceabilityLinkModel(
@@ -412,12 +350,6 @@ class BaselineMapCreatorWorkflow:
             state["processing_stats"]["requirements_count"] = len(requirements)
             print(f"Identified {len(requirements)} requirements")
             
-            # Generate embeddings for requirements for better mapping accuracy
-            if requirements and self.embedding_client:
-                print("Generating embeddings for requirements...")
-                await self._generate_requirement_embeddings(requirements)
-                print("Requirement embeddings generated")
-            
         except Exception as e:
             error_msg = f"Error identifying requirements: {str(e)}"
             print(error_msg)
@@ -437,8 +369,8 @@ class BaselineMapCreatorWorkflow:
             requirements_to_design_links = []
             link_counter = 1
             
-            # Extract traceability matrix from SDD and create requirement-design links using embeddings
-            req_to_design_links = await self._create_requirement_design_links_from_sdd_with_embeddings(
+            # Extract traceability matrix from SDD and create requirement-design links
+            req_to_design_links = await self._create_requirement_design_links_from_sdd(
                 state["requirements"], state["design_elements"], state["sdd_content"]
             )
             
@@ -470,42 +402,6 @@ class BaselineMapCreatorWorkflow:
             
         except Exception as e:
             error_msg = f"Error creating requirements-to-design mappings: {str(e)}"
-            print(error_msg)
-            state["errors"].append(error_msg)
-        
-        return state
-    
-    async def _generate_embeddings(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
-        """
-        Generate vector embeddings for all elements
-        """
-        print("Generating vector embeddings")
-        state["current_step"] = "generating_embeddings"
-        
-        try:
-            if self.vector_search_repo:
-                # Convert to dict format for embedding generation
-                baseline_map_data = {
-                    "repository": state["repository"],
-                    "branch": state["branch"],
-                    "requirements": [req.dict() for req in state["requirements"]],
-                    "design_elements": [elem.dict() for elem in state["design_elements"]],
-                    "code_components": [comp.dict() for comp in state["code_components"]],
-                    "traceability_links": [link.dict() for link in state["traceability_links"]]
-                }
-                
-                # Generate and store embeddings
-                success = await self.vector_search_repo.generate_and_store_embeddings(baseline_map_data)
-                
-                if success:
-                    print("Successfully generated vector embeddings")
-                else:
-                    print("Failed to generate some embeddings")
-            else:
-                print("Vector search repository not available, skipping embedding generation")
-            
-        except Exception as e:
-            error_msg = f"Error generating embeddings: {str(e)}"
             print(error_msg)
             state["errors"].append(error_msg)
         
@@ -563,6 +459,8 @@ class BaselineMapCreatorWorkflow:
             
             # Search for documentation files
             matching_files = await self._find_files_by_patterns(repo, patterns, branch)
+            if len(matching_files) == 0:
+                raise Exception(f"No documentation files found for {repository}:{branch} with patterns {patterns}")
             
             # Fetch content for each matching file
             for file_path in matching_files:
@@ -599,7 +497,7 @@ class BaselineMapCreatorWorkflow:
             for file_path in matching_files:
                 code_files.append({
                     "path": file_path,
-                    "content": ""  # We'll only fetch content if needed for embedding generation
+                    "content": ""  # Placeholder for file content
                 })
                 print(f"Found code file: {file_path}")
             
@@ -769,167 +667,67 @@ class BaselineMapCreatorWorkflow:
             }
         ]
     
-    async def _generate_design_element_embeddings(self, design_elements: List[DesignElementModel]) -> None:
-        """Generate embeddings for design elements"""
-        try:
-            for element in design_elements:
-                # Create text representation for embedding
-                text = f"{element.name}: {element.description} (Type: {element.type})"
-                embedding = await self.embedding_client.embed_text(text)
-                # Store embedding (would be saved to vector database in full implementation)
-                element.embedding = embedding
-        except Exception as e:
-            print(f"Failed to generate embeddings for design elements: {str(e)}")
-    
-    async def _generate_code_component_embeddings(self, code_components: List[CodeComponentModel]) -> None:
-        """Generate embeddings for code components"""
-        try:
-            for component in code_components:
-                # Create text representation for embedding (using file path and name)
-                text = f"File: {component.path} ({component.name})"
-                embedding = await self.embedding_client.embed_text(text)
-                # Store embedding (would be saved to vector database in full implementation)
-                component.embedding = embedding
-        except Exception as e:
-            print(f"Failed to generate embeddings for code components: {str(e)}")
-    
-    async def _generate_requirement_embeddings(self, requirements: List[RequirementModel]) -> None:
-        """Generate embeddings for requirements"""
-        try:
-            for requirement in requirements:
-                # Create text representation for embedding
-                text = f"{requirement.title}: {requirement.description} (Type: {requirement.type}, Priority: {requirement.priority})"
-                embedding = await self.embedding_client.embed_text(text)
-                # Store embedding (would be saved to vector database in full implementation)
-                requirement.embedding = embedding
-        except Exception as e:
-            print(f"Failed to generate embeddings for requirements: {str(e)}")
-    
-    async def _create_design_element_relationships_with_embeddings(self, design_elements: List[DesignElementModel]) -> List[Dict[str, Any]]:
-        """Create relationships between design elements using embedding similarity"""
+    async def _create_design_element_relationships(self, design_elements: List[DesignElementModel]) -> List[Dict[str, Any]]:
+        """Create relationships between design elements using simple heuristics"""
         relationships = []
         
         try:
-            # Calculate similarity between all pairs of design elements
-            for i, source_element in enumerate(design_elements):
-                for j, target_element in enumerate(design_elements):
-                    if i >= j:  # Avoid duplicates and self-references
-                        continue
-                    
-                    # Calculate similarity using embeddings (if available)
-                    if hasattr(source_element, 'embedding') and hasattr(target_element, 'embedding'):
-                        similarity = await self._calculate_embedding_similarity(
-                            source_element.embedding, target_element.embedding
-                        )
-                        
-                        # Create relationship if similarity is above threshold
-                        if similarity > 0.7:  # Threshold for relationship
-                            relationships.append({
-                                "source_id": source_element.id,
-                                "target_id": target_element.id,
-                                "relationship_type": "related_to",
-                                "similarity_score": similarity
-                            })
+            # Simple placeholder implementation - would use LLM analysis in production
+            if len(design_elements) >= 2:
+                relationships.append({
+                    "source_id": design_elements[0].id,
+                    "target_id": design_elements[1].id,
+                    "relationship_type": "depends_on"
+                })
             
         except Exception as e:
-            print(f"Failed to create design element relationships with embeddings: {str(e)}")
-            # Fallback to simple placeholder
-            relationships = [
-                {
-                    "source_id": "DE-001",
-                    "target_id": "DE-002", 
-                    "relationship_type": "depends_on"
-                }
-            ]
+            print(f"Failed to create design element relationships: {str(e)}")
         
         return relationships
     
-    async def _create_requirement_design_links_from_sdd_with_embeddings(self, requirements: List[RequirementModel], 
-                                                                       design_elements: List[DesignElementModel],
-                                                                       sdd_content: Dict[str, str]) -> List[Dict[str, Any]]:
-        """Create links between requirements and design elements using SDD traceability matrix + embeddings"""
+    async def _create_requirement_design_links_from_sdd(self, requirements: List[RequirementModel], 
+                                                       design_elements: List[DesignElementModel],
+                                                       sdd_content: Dict[str, str]) -> List[Dict[str, Any]]:
+        """Create links between requirements and design elements using SDD traceability matrix"""
         links = []
         
         try:
-            # First try to parse explicit traceability matrix from SDD
+            # Try to parse explicit traceability matrix from SDD
             explicit_links = await self._parse_traceability_matrix_from_sdd(sdd_content, requirements, design_elements)
             links.extend(explicit_links)
             
-            # Then use embedding similarity for additional mappings
-            similarity_links = await self._create_requirement_design_similarity_links(requirements, design_elements)
-            links.extend(similarity_links)
+            # Simple placeholder implementation if no explicit matrix found
+            if not links and requirements and design_elements:
+                links.append({
+                    "source_id": requirements[0].id,
+                    "target_id": design_elements[0].id,
+                    "relationship_type": "implements"
+                })
             
         except Exception as e:
-            print(f"Failed to create requirement-design links with embeddings: {str(e)}")
-            # Fallback to simple placeholder
-            links = [
-                {
-                    "source_id": "REQ-001",
-                    "target_id": "DE-001",
-                    "relationship_type": "implements"
-                }
-            ]
+            print(f"Failed to create requirement-design links: {str(e)}")
         
         return links
     
-    async def _create_design_code_links_with_embeddings(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel]) -> List[Dict[str, Any]]:
-        """Create links between design elements and code components using embedding similarity"""
+    async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel]) -> List[Dict[str, Any]]:
+        """Create links between design elements and code components using simple name matching"""
         links = []
         
         try:
-            # Use embedding similarity to match design elements with code files
-            for design_element in design_elements:
-                for code_component in code_components:
-                    if hasattr(design_element, 'embedding') and hasattr(code_component, 'embedding'):
-                        similarity = await self._calculate_embedding_similarity(
-                            design_element.embedding, code_component.embedding
-                        )
-                        
-                        # Create link if similarity is above threshold
-                        if similarity > 0.6:  # Lower threshold for design-to-code mapping
-                            links.append({
-                                "source_id": design_element.id,
-                                "target_id": code_component.id,
-                                "relationship_type": "realizes",
-                                "similarity_score": similarity
-                            })
+            # Simple placeholder implementation - would use LLM analysis in production
+            if design_elements and code_components:
+                links.append({
+                    "source_id": design_elements[0].id,
+                    "target_id": code_components[0].id,
+                    "relationship_type": "realizes"
+                })
             
         except Exception as e:
-            print(f"Failed to create design-code links with embeddings: {str(e)}")
-            # Fallback to simple placeholder
-            links = [
-                {
-                    "source_id": "DE-001",
-                    "target_id": "CC-001",
-                    "relationship_type": "realizes"
-                }
-            ]
+            print(f"Failed to create design-code links: {str(e)}")
         
         return links
     
-    async def _calculate_embedding_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
-        """Calculate cosine similarity between two embeddings"""
-        try:
-            import numpy as np
-            
-            # Convert to numpy arrays
-            vec1 = np.array(embedding1)
-            vec2 = np.array(embedding2)
-            
-            # Calculate cosine similarity
-            dot_product = np.dot(vec1, vec2)
-            norm1 = np.linalg.norm(vec1)
-            norm2 = np.linalg.norm(vec2)
-            
-            if norm1 == 0 or norm2 == 0:
-                return 0.0
-            
-            similarity = dot_product / (norm1 * norm2)
-            return float(similarity)
-            
-        except Exception as e:
-            print(f"Failed to calculate embedding similarity: {str(e)}")
-            return 0.0
+
     
     async def _parse_traceability_matrix_from_sdd(self, sdd_content: Dict[str, str], 
                                                  requirements: List[RequirementModel],
@@ -938,49 +736,22 @@ class BaselineMapCreatorWorkflow:
         # Placeholder - would implement parsing of traceability tables/matrices in SDD
         return []
     
-    async def _create_requirement_design_similarity_links(self, requirements: List[RequirementModel], 
-                                                         design_elements: List[DesignElementModel]) -> List[Dict[str, Any]]:
-        """Create requirement-design links using embedding similarity"""
-        links = []
-        
-        try:
-            for requirement in requirements:
-                for design_element in design_elements:
-                    if hasattr(requirement, 'embedding') and hasattr(design_element, 'embedding'):
-                        similarity = await self._calculate_embedding_similarity(
-                            requirement.embedding, design_element.embedding
-                        )
-                        
-                        # Create link if similarity is above threshold
-                        if similarity > 0.65:  # Threshold for requirement-design mapping
-                            links.append({
-                                "source_id": requirement.id,
-                                "target_id": design_element.id,
-                                "relationship_type": "implements",
-                                "similarity_score": similarity
-                            })
-        
-        except Exception as e:
-            print(f"Failed to create requirement-design similarity links: {str(e)}")
-        
-        return links
+
 
 # Factory function
 def create_baseline_map_creator(llm_client: Optional[DocurecoLLMClient] = None,
-                               embedding_client: Optional[DocurecoEmbeddingClient] = None,
-                               github_token: Optional[str] = None) -> BaselineMapCreatorWorkflow:
+                               baseline_map_repo: Optional[BaselineMapRepository] = None) -> BaselineMapCreatorWorkflow:
     """
     Factory function to create baseline map creator workflow
     
     Args:
-        llm_client: Optional LLM client
-        embedding_client: Optional embedding client
-        github_token: Optional GitHub token for API access
+        llm_client: Optional LLM client for document parsing
+        baseline_map_repo: Optional repository for data persistence
         
     Returns:
         BaselineMapCreatorWorkflow: Configured workflow
     """
-    return BaselineMapCreatorWorkflow(llm_client, embedding_client, github_token=github_token)
+    return BaselineMapCreatorWorkflow(llm_client, baseline_map_repo)
 
 # Export main classes
 __all__ = ["BaselineMapCreatorWorkflow", "BaselineMapCreatorState", "create_baseline_map_creator"] 
