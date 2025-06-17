@@ -7,15 +7,24 @@ Implements the Document Update Recommendator component from the system architect
 import asyncio
 import logging
 import re
+import sys
+import os
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
+
+# Add parent directories to path for absolute imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+root_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, parent_dir)
+sys.path.insert(0, root_dir)
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from ..llm.llm_client import DocurecoLLMClient, create_llm_client
-from ..database import create_baseline_map_repository
-from ..models.docureco_models import (
+from agent.llm.llm_client import DocurecoLLMClient, create_llm_client
+from agent.database import create_baseline_map_repository
+from agent.models.docureco_models import (
     BaselineMapModel, DocumentationRecommendationModel, 
     ImpactAnalysisResultModel, RequirementModel, DesignElementModel,
     RecommendationType, ImpactSeverity, RecommendationStatus

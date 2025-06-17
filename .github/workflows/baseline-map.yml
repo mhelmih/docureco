@@ -77,8 +77,10 @@ jobs:
         BRANCH: ${{ github.event.inputs.branch }}
         FORCE_RECREATE: ${{ github.event.inputs.force_recreate == 'true' && 'true' || 'false' }}
         LOG_LEVEL: 'DEBUG'
+        PYTHONPATH: ${{ github.workspace }}
       run: |
-        python -u agent/baseline_map_creator.py
+        cd ${{ github.workspace }}
+        python -u -m agent.baseline_map_creator
     
     - name: Upload baseline map artifacts
       if: always()

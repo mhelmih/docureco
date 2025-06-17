@@ -22,85 +22,70 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Add current directory and parent directory to Python path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, current_dir)
+sys.path.insert(0, parent_dir)
+
 def main():
     """Main function for baseline map updater"""
     try:
-        # Get repository, branch, and PR number from environment variables
-        repository = os.getenv("TARGET_REPOSITORY")
-        branch = os.getenv("TARGET_BRANCH", "main")
-        merged_pr_number = os.getenv("MERGED_PR_NUMBER")
+        # Get parameters from environment variables
+        repository = os.getenv("REPOSITORY")
+        branch = os.getenv("BRANCH", "main")
         
         if not repository:
-            logger.error("TARGET_REPOSITORY environment variable is required")
+            print("❌ REPOSITORY environment variable is required")
             sys.exit(1)
         
-        pr_number = None
-        if merged_pr_number:
-            try:
-                pr_number = int(merged_pr_number)
-            except ValueError:
-                logger.warning(f"Invalid MERGED_PR_NUMBER: {merged_pr_number}")
-        
-        logger.info(f"Starting baseline map update for {repository}:{branch}")
-        if pr_number:
-            logger.info(f"Processing merged PR #{pr_number}")
+        print("🔄 Starting baseline map update...")
+        print(f"📊 Updating repository: {repository}:{branch}")
         
         # Run the async workflow
-        asyncio.run(update_baseline_map(repository, branch, pr_number))
+        asyncio.run(update_baseline_map(repository, branch))
         
     except Exception as e:
-        logger.error(f"Baseline map update failed: {str(e)}")
+        print(f"❌ Baseline map update failed: {str(e)}")
         sys.exit(1)
 
-async def update_baseline_map(repository: str, branch: str = "main", merged_pr_number: Optional[int] = None):
+async def update_baseline_map(repository: str, branch: str = "main"):
     """
-    Update baseline map for repository after PR merge
+    Update baseline map for repository
     
     Args:
         repository: Repository name (owner/repo)
         branch: Branch name
-        merged_pr_number: Merged PR number (if applicable)
     """
     try:
-        from .workflows.baseline_map_updater import create_baseline_map_updater
+        from agent.workflows.baseline_map_updater import create_baseline_map_updater
         
         # Create workflow
         updater = create_baseline_map_updater()
         
         # Execute workflow
-        final_state = await updater.execute(repository, branch, merged_pr_number)
+        final_state = await updater.execute(repository, branch)
         
-        if final_state.errors:
-            logger.error(f"Baseline map update completed with errors: {final_state.errors}")
-            
-            # Print update statistics
-            if final_state.update_stats:
-                logger.info("Update Statistics:")
-                for key, value in final_state.update_stats.items():
-                    logger.info(f"  {key}: {value}")
-        else:
-            logger.info("Baseline map update completed successfully!")
-            
-            # Print update statistics
-            if final_state.update_stats:
-                logger.info("Update Statistics:")
-                for key, value in final_state.update_stats.items():
-                    logger.info(f"  {key}: {value}")
-                    
-                # Log summary
-                new_elements = (
-                    final_state.update_stats.get("new_requirements", 0) +
-                    final_state.update_stats.get("new_design_elements", 0) +
-                    final_state.update_stats.get("new_code_components", 0)
-                )
-                
-                if new_elements > 0:
-                    logger.info(f"Added {new_elements} new elements and {final_state.update_stats.get('new_traceability_links', 0)} traceability links")
-                else:
-                    logger.info("No new elements detected in this update")
+        # Print results
+        print("\n📈 Baseline Map Update Results:")
+        print(f"Repository: {final_state.repository}:{final_state.branch}")
+        print(f"Current Step: {final_state.current_step}")
+        
+        if hasattr(final_state, 'processing_stats') and final_state.processing_stats:
+            print(f"New Requirements: {final_state.processing_stats.get('new_requirements', 0)}")
+            print(f"New Design Elements: {final_state.processing_stats.get('new_design_elements', 0)}")
+            print(f"New Code Components: {final_state.processing_stats.get('new_code_components', 0)}")
+            print(f"New Traceability Links: {final_state.processing_stats.get('new_traceability_links', 0)}")
+        
+        if hasattr(final_state, 'errors') and final_state.errors:
+            print("\n⚠️  Errors encountered:")
+            for error in final_state.errors:
+                print(f"  - {error}")
+        
+        print(f"\n✅ Baseline map update completed!")
         
     except Exception as e:
-        logger.error(f"Error in baseline map update: {str(e)}")
+        print(f"❌ Error in baseline map update: {str(e)}")
         raise
 
 if __name__ == "__main__":

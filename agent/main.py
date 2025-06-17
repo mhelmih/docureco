@@ -9,10 +9,15 @@ from typing import Dict, Any, List
 import requests
 from dotenv import load_dotenv
 
+# Add path for absolute imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
 # Import Docureco components
-from .llm import create_llm_client
-from .workflows import create_document_update_recommendator
-from .models import (
+from agent.llm import create_llm_client
+from agent.workflows import create_document_update_recommendator
+from agent.models import (
     PREventModel, FileChangeModel, RecommendationResponseModel,
     WorkflowStatusModel
 )
