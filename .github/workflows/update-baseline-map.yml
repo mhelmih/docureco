@@ -98,9 +98,7 @@ jobs:
       env:
         FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
         LOG_LEVEL: 'DEBUG'
-        PYTHONPATH: ${{ github.workspace }}
       run: |
-        cd ${{ github.workspace }}
         python -c "
         import asyncio
         import os

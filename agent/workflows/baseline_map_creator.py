@@ -8,6 +8,9 @@ import logging
 import re
 import sys
 import os
+import fnmatch
+import base64
+import time
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
@@ -17,6 +20,10 @@ parent_dir = os.path.dirname(current_dir)
 root_dir = os.path.dirname(parent_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, root_dir)
+
+from github import Github, GithubException
+from github.Repository import Repository
+from github.ContentFile import ContentFile
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -57,6 +64,15 @@ class BaselineMapCreatorWorkflow:
         """
         self.llm_client = llm_client or create_llm_client()
         self.baseline_map_repo = baseline_map_repo or BaselineMapRepository()
+        
+        # Initialize GitHub client
+        self.github_token = os.getenv("GITHUB_TOKEN")
+        if not self.github_token:
+            print("No GitHub token provided. Repository scanning will be limited.")
+            self.github_client = None
+        else:
+            self.github_client = Github(self.github_token)
+            print("GitHub client initialized")
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
