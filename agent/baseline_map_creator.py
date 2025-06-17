@@ -19,8 +19,8 @@ def main():
     try:
         # Get repository and branch from environment variables
         repository = os.getenv("REPOSITORY")
-        branch = os.getenv("BRANCH", "main")
-        force_recreate = os.getenv("FORCE_RECREATE", "false").lower() == "true"
+        branch = os.getenv("BRANCH")
+        force_recreate = os.getenv("FORCE_RECREATE").lower() == "true"
         
         if not repository:
             print("❌ REPOSITORY environment variable is required")

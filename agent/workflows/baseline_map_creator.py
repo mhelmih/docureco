@@ -160,12 +160,11 @@ class BaselineMapCreatorWorkflow:
         try:
             # Check if baseline map already exists
             existing_map = await self.baseline_map_repo.get_baseline_map(repository, branch)
-            if existing_map:
-                print(f"Baseline map already exists for {repository}:{branch}")
-                force_overwrite = os.getenv("FORCE_OVERWRITE", "false").lower() == "true"
-                if not force_overwrite:
-                    print("Baseline map exists. Exiting...")
-                    return initial_state
+            force_recreate = os.getenv("FORCE_RECREATE").lower() == "true"
+            print(f"Baseline map already exists for {repository}:{branch}")
+            if existing_map and not force_recreate:
+                print("Baseline map exists. Exiting...")
+                return initial_state
             
             # Compile and run workflow
             app = self.workflow.compile(checkpointer=self.memory)
