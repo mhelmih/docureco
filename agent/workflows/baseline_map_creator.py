@@ -197,8 +197,8 @@ class BaselineMapCreatorWorkflow:
             
         except Exception as e:
             error_msg = f"Error scanning repository: {str(e)}"
-            print(error_msg)
             state["errors"].append(error_msg)
+            raise e
         
         return state
     
@@ -473,10 +473,6 @@ class BaselineMapCreatorWorkflow:
         """Fetch documentation files from repository using GitHub API"""
         documentation_files = {}
         
-        if not self.github_client:
-            print("GitHub client not available. Returning empty documentation files.")
-            return documentation_files
-        
         try:
             # Get repository
             repo = self.github_client.get_repo(repository)
@@ -496,9 +492,11 @@ class BaselineMapCreatorWorkflow:
                         print(f"Fetched documentation file: {file_path}")
                 except Exception as e:
                     print(f"Failed to fetch content for {file_path}: {str(e)}")
+                    raise e
             
         except Exception as e:
             print(f"Error fetching documentation files: {str(e)}")
+            raise e
         
         return documentation_files
     
