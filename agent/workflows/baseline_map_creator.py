@@ -195,7 +195,7 @@ class BaselineMapCreatorWorkflow:
             Dict containing repository structure and file contents
         """
         with tempfile.TemporaryDirectory() as temp_dir:
-            output_file = os.path.join(temp_dir, "repo_scan.json")
+            output_file = os.path.join(temp_dir, "repo_scan.xml")
             
             # Convert repository format to URL if needed
             if "/" in repository and not repository.startswith("http"):
@@ -224,6 +224,10 @@ class BaselineMapCreatorWorkflow:
                 with open(output_file, 'r', encoding='utf-8') as f:
                     xml_content = f.read()
                 
+                # Debug: Print first 500 characters to see format
+                print(f"Debug: First 500 characters of output:")
+                print(repr(xml_content[:500]))
+                
                 repo_data = self._parse_repomix_xml(xml_content)
                 
                 print(f"Repomix scan completed successfully")
@@ -244,12 +248,22 @@ class BaselineMapCreatorWorkflow:
         Returns:
             Dict with files structure compatible with existing code
         """
+        # First check if this is actually XML
+        if not xml_content.strip().startswith('<'):
+            print("Warning: Content doesn't appear to be XML, using fallback parsing")
+            return self._parse_repomix_fallback(xml_content)
+            
         try:
             root = ET.fromstring(xml_content)
             files = []
             
-            # Find all file elements in the XML
+            # Try different XML structures
+            # Structure 1: <files><file path="...">content</file></files>
             file_elements = root.findall(".//file")
+            
+            if not file_elements:
+                # Structure 2: Direct file elements
+                file_elements = root.findall("file")
             
             for file_elem in file_elements:
                 file_path = file_elem.get("path", "")
@@ -260,7 +274,9 @@ class BaselineMapCreatorWorkflow:
                         "path": file_path,
                         "content": file_content
                     })
+                    print(f"Debug: Found XML file {file_path} with {len(file_content)} characters")
                     
+            print(f"Debug: XML parsing found {len(files)} files")
             return {"files": files}
             
         except ET.ParseError as e:
@@ -284,38 +300,60 @@ class BaselineMapCreatorWorkflow:
         current_content = []
         in_code_block = False
         
+        print(f"Debug: Parsing {len(lines)} lines of content")
+        
         for i, line in enumerate(lines):
-            # Look for file headers: ## path/to/file
-            if line.startswith('## ') and '/' in line:
+            # Look for file headers: ## path/to/file (must contain a file extension or be in recognizable directory)
+            if line.startswith('## ') and ('/' in line or '.' in line):
                 # Save previous file if exists
                 if current_file and current_content:
-                    files.append({
-                        "path": current_file,
-                        "content": '\n'.join(current_content).strip()
-                    })
+                    file_content = '\n'.join(current_content).strip()
+                    if file_content:  # Only add if there's actual content
+                        files.append({
+                            "path": current_file,
+                            "content": file_content
+                        })
+                        print(f"Debug: Saved file {current_file} with {len(file_content)} characters")
                 
-                # Extract file path (remove ## prefix)
-                current_file = line[3:].strip()
-                current_content = []
-                in_code_block = False
+                # Extract file path (remove ## prefix and clean up)
+                potential_file = line[3:].strip()
+                
+                # Filter out non-file headers (like "## Purpose:", "## File Format:", etc.)
+                if not any(skip in potential_file.lower() for skip in ['purpose', 'file format', 'usage', 'notes', 'additional']):
+                    current_file = potential_file
+                    current_content = []
+                    in_code_block = False
+                    print(f"Debug: Found file header: {current_file}")
                 
             elif current_file:
                 # Handle code blocks
                 if line.startswith('```'):
-                    in_code_block = not in_code_block
-                    # Skip the opening ``` line with language
+                    if not in_code_block:
+                        # Starting code block
+                        in_code_block = True
+                        print(f"Debug: Starting code block for {current_file}")
+                    else:
+                        # Ending code block
+                        in_code_block = False
+                        print(f"Debug: Ending code block for {current_file}")
                     continue
                 elif in_code_block:
                     current_content.append(line)
         
         # Save last file
         if current_file and current_content:
-            files.append({
-                "path": current_file,
-                "content": '\n'.join(current_content).strip()
-            })
+            file_content = '\n'.join(current_content).strip()
+            if file_content:
+                files.append({
+                    "path": current_file,
+                    "content": file_content
+                })
+                print(f"Debug: Saved final file {current_file} with {len(file_content)} characters")
         
-        print(f"Parsed {len(files)} files from Repomix output")
+        print(f"Debug: Successfully parsed {len(files)} files from Repomix output")
+        for f in files[:3]:  # Show first 3 files for debugging
+            print(f"Debug: File {f['path']}: {len(f['content'])} characters")
+            
         return {"files": files}
     
     def _extract_documentation_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> Dict[str, str]:
