@@ -270,7 +270,7 @@ class BaselineMapCreatorWorkflow:
     
     def _parse_repomix_fallback(self, content: str) -> Dict[str, Any]:
         """
-        Fallback parser for Repomix output if XML parsing fails
+        Fallback parser for Repomix Markdown-style output
         
         Args:
             content: Raw content from Repomix
@@ -282,38 +282,40 @@ class BaselineMapCreatorWorkflow:
         lines = content.split('\n')
         current_file = None
         current_content = []
+        in_code_block = False
         
-        for line in lines:
-            # Look for file path indicators
-            if line.startswith('File: ') or 'path=' in line:
+        for i, line in enumerate(lines):
+            # Look for file headers: ## path/to/file
+            if line.startswith('## ') and '/' in line:
                 # Save previous file if exists
-                if current_file:
+                if current_file and current_content:
                     files.append({
                         "path": current_file,
-                        "content": '\n'.join(current_content)
+                        "content": '\n'.join(current_content).strip()
                     })
                 
-                # Extract file path
-                if line.startswith('File: '):
-                    current_file = line.replace('File: ', '').strip()
-                elif 'path=' in line:
-                    # Try to extract from path="..." format
-                    import re
-                    match = re.search(r'path="([^"]*)"', line)
-                    if match:
-                        current_file = match.group(1)
-                
+                # Extract file path (remove ## prefix)
+                current_file = line[3:].strip()
                 current_content = []
+                in_code_block = False
+                
             elif current_file:
-                current_content.append(line)
+                # Handle code blocks
+                if line.startswith('```'):
+                    in_code_block = not in_code_block
+                    # Skip the opening ``` line with language
+                    continue
+                elif in_code_block:
+                    current_content.append(line)
         
         # Save last file
-        if current_file:
+        if current_file and current_content:
             files.append({
                 "path": current_file,
-                "content": '\n'.join(current_content)
+                "content": '\n'.join(current_content).strip()
             })
         
+        print(f"Parsed {len(files)} files from Repomix output")
         return {"files": files}
     
     def _extract_documentation_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> Dict[str, str]:
