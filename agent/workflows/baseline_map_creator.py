@@ -9,8 +9,9 @@ import re
 import sys
 import os
 import fnmatch
-import base64
-import time
+import subprocess
+import json
+import tempfile
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
@@ -20,10 +21,6 @@ parent_dir = os.path.dirname(current_dir)
 root_dir = os.path.dirname(parent_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, root_dir)
-
-from github import Github, GithubException
-from github.Repository import Repository
-from github.ContentFile import ContentFile
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -50,6 +47,7 @@ class BaselineMapCreatorWorkflow:
     4. Creates traceability mappings between elements
     
     The workflow prioritizes SDD processing first since it often contains explicit traceability matrices.
+    Uses Repomix for fast and efficient repository scanning without API limitations.
     """
     
     def __init__(self, 
@@ -65,19 +63,17 @@ class BaselineMapCreatorWorkflow:
         self.llm_client = llm_client or create_llm_client()
         self.baseline_map_repo = baseline_map_repo or BaselineMapRepository()
         
-        # Initialize GitHub client
-        self.github_token = os.getenv("GITHUB_TOKEN")
-        if not self.github_token:
-            print("No GitHub token provided. Repository scanning will be limited.")
-            self.github_client = None
-        else:
-            self.github_client = Github(self.github_token)
-            print("GitHub client initialized")
+        # Check if Repomix is available
+        try:
+            subprocess.run(["repomix", "--version"], capture_output=True, check=True)
+            print("Repomix is available for repository scanning")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            raise RuntimeError("Repomix is not installed. Please install it with: npm install -g repomix")
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
         
-        logger.info("Initialized BaselineMapCreatorWorkflow")
+        logger.info("Initialized BaselineMapCreatorWorkflow with Repomix")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow following the SRS, SDD, and Code Mapping process"""
@@ -130,482 +126,166 @@ class BaselineMapCreatorWorkflow:
             "requirements_to_design_links": [],
             "traceability_links": [],
             "current_step": "initializing",
-            "errors": [],
             "processing_stats": {}
         }
         
-        try:
-            # Check if baseline map already exists
-            existing_map = await self.baseline_map_repo.get_baseline_map(repository, branch)
-            force_recreate = os.getenv("FORCE_RECREATE").lower() == "true"
+        # Check if baseline map already exists
+        existing_map = await self.baseline_map_repo.get_baseline_map(repository, branch)
+        force_recreate = os.getenv("FORCE_RECREATE", "false").lower() == "true"
+        
+        if existing_map and not force_recreate:
             print(f"Baseline map already exists for {repository}:{branch}")
-            if existing_map and not force_recreate:
-                print("Baseline map exists. Exiting...")
-                return initial_state
-            
-            # Compile and run workflow
-            app = self.workflow.compile(checkpointer=self.memory)
-            config = {"configurable": {"thread_id": f"baseline_{repository.replace('/', '_')}_{branch}"}}
-            
-            final_state = await app.ainvoke(initial_state, config=config)
-            
-            print(f"Baseline map creation completed for {repository}:{branch}")
-            return final_state
-            
-        except Exception as e:
-            print(f"Baseline map creation failed: {str(e)}")
-            initial_state["errors"].append(str(e))
-            raise
+            print("Use FORCE_RECREATE=true to overwrite existing map")
+            return initial_state
+        
+        # Compile and run workflow
+        app = self.workflow.compile(checkpointer=self.memory)
+        config = {"configurable": {"thread_id": f"baseline_{repository.replace('/', '_')}_{branch}"}}
+        
+        final_state = await app.ainvoke(initial_state, config=config)
+        
+        print(f"Baseline map creation completed for {repository}:{branch}")
+        return final_state
     
     async def _scan_repository(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
         """
-        Scan repository for documentation and code files
+        Scan repository for documentation and code files using Repomix
         """
-        print(f"Scanning repository {state['repository']}:{state['branch']}")
+        print(f"Scanning repository {state['repository']}:{state['branch']} with Repomix")
         state["current_step"] = "scanning_repository"
         
         try:
-            # In a full implementation, this would use GitHub API to fetch files
-            # For now, we'll simulate the repository scanning
+            # Use Repomix to scan the repository
+            repo_data = await self._scan_repository_with_repomix(state["repository"], state["branch"])
             
-            # Look for SDD files first (priority since they contain traceability matrices)
-            sdd_patterns = [
+            # Extract files by type
+            state["sdd_content"] = self._extract_documentation_files(repo_data, [
                 "design.md", "sdd.md", "software-design.md", "architecture.md",
                 "docs/design.md", "docs/sdd.md", "docs/architecture.md",
                 "traceability.md", "traceability-matrix.md"
-            ]
+            ])
             
-            # Look for SRS files (common patterns)
-            srs_patterns = [
+            state["srs_content"] = self._extract_documentation_files(repo_data, [
                 "requirements.md", "srs.md", "software-requirements.md",
                 "docs/requirements.md", "docs/srs.md", "documentation/requirements.md"
-            ]
+            ])
             
-            # Look for code files (common patterns)
-            code_patterns = ["*.py", "*.java", "*.js", "*.ts", "*.cpp", "*.h"]
-            
-            # Scan SDD first (contains traceability matrix)
-            print("Scanning SDD files (priority for traceability matrix)...")
-            state["sdd_content"] = await self._fetch_documentation_files(state["repository"], sdd_patterns, state["branch"])
-            
-            # Then scan SRS and code files
-            print("Scanning SRS and code files...")
-            state["srs_content"] = await self._fetch_documentation_files(state["repository"], srs_patterns, state["branch"])
-            state["code_files"] = await self._fetch_code_files(state["repository"], code_patterns, state["branch"])
+            state["code_files"] = self._extract_code_files(repo_data, [
+                "*.py", "*.java", "*.js", "*.ts", "*.cpp", "*.h"
+            ])
             
             print(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
             
         except Exception as e:
-            error_msg = f"Error scanning repository: {str(e)}"
-            state["errors"].append(error_msg)
+            print(f"Error scanning repository: {str(e)}")
             raise e
         
         return state
     
-    async def _identify_design_elements(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+    async def _scan_repository_with_repomix(self, repository: str, branch: str) -> Dict[str, Any]:
         """
-        Identify design elements from SDD documentation using LLM
-        SDD is processed first as it contains the traceability matrix between design elements and requirements
-        """
-        print("Identifying design elements from SDD")
-        state["current_step"] = "identifying_design_elements"
+        Scan repository using Repomix
         
-        try:
-            design_elements = []
-            elem_counter = 1
+        Args:
+            repository: Repository URL or path (owner/repo format)
+            branch: Branch name
             
-            for file_path, content in state["sdd_content"].items():
-                if not content.strip():
-                    continue
-                
-                # Use LLM to extract design elements
-                extracted_elements = await self._llm_extract_design_elements(content, file_path)
-                
-                for elem_data in extracted_elements:
-                    design_element = DesignElementModel(
-                        id=f"DE-{elem_counter:03d}",
-                        name=elem_data.get("name", f"DesignElement{elem_counter}"),
-                        description=elem_data.get("description", ""),
-                        type=elem_data.get("type", "Component"),
-                        section=elem_data.get("section", file_path)
-                    )
-                    design_elements.append(design_element)
-                    elem_counter += 1
-            
-            state["design_elements"] = design_elements
-            state["processing_stats"]["design_elements_count"] = len(design_elements)
-            print(f"Identified {len(design_elements)} design elements")
-            
-        except Exception as e:
-            error_msg = f"Error identifying design elements: {str(e)}"
-            print(error_msg)
-            state["errors"].append(error_msg)
-        
-        return state
-    
-    async def _design_to_design_mapping(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+        Returns:
+            Dict containing repository structure and file contents
         """
-        Create mappings between design elements (internal relationships)
-        """
-        print("Creating design-to-design mappings")
-        state["current_step"] = "design_to_design_mapping"
-        
-        try:
-            design_to_design_links = []
-            link_counter = 1
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "repo_scan.json")
             
-            # Analyze relationships between design elements using LLM
-            if len(state["design_elements"]) > 1:
-                links_data = await self._create_design_element_relationships(state["design_elements"])
-                
-                for link_data in links_data:
-                    link = TraceabilityLinkModel(
-                        id=f"DD-{link_counter:03d}",
-                        source_type="DesignElement",
-                        source_id=link_data["source_id"],
-                        target_type="DesignElement", 
-                        target_id=link_data["target_id"],
-                        relationship_type=link_data["relationship_type"]
-                    )
-                    design_to_design_links.append(link)
-                    link_counter += 1
-            
-            state["design_to_design_links"] = design_to_design_links
-            state["processing_stats"]["design_to_design_links_count"] = len(design_to_design_links)
-            print(f"Created {len(design_to_design_links)} design-to-design mappings")
-            
-        except Exception as e:
-            error_msg = f"Error creating design-to-design mappings: {str(e)}"
-            print(error_msg)
-            state["errors"].append(error_msg)
-        
-        return state
-    
-    async def _design_to_code_mapping(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
-        """
-        Create mappings between design elements and code components
-        """
-        print("Creating design-to-code mappings")
-        state["current_step"] = "design_to_code_mapping"
-        
-        try:
-            # Create code components from file paths (simplified approach)
-            code_components = []
-            comp_counter = 1
-            
-            for file_info in state["code_files"]:
-                file_path = file_info.get("path", "")
-                
-                if not file_path:
-                    continue
-                
-                # Create a code component for each file path
-                code_component = CodeComponentModel(
-                    id=f"CC-{comp_counter:03d}",
-                    path=file_path,
-                    type="File",
-                    name=Path(file_path).name  # Use full filename instead of stem
-                )
-                code_components.append(code_component)
-                comp_counter += 1
-            
-            state["code_components"] = code_components
-            state["processing_stats"]["code_components_count"] = len(code_components)
-            
-            # Create design-to-code links using simple matching
-            design_to_code_links = []
-            link_counter = 1
-            
-            links_data = await self._create_design_code_links(state["design_elements"], code_components)
-            
-            for link_data in links_data:
-                link = TraceabilityLinkModel(
-                    id=f"DC-{link_counter:03d}",
-                    source_type="DesignElement",
-                    source_id=link_data["source_id"],
-                    target_type="CodeComponent",
-                    target_id=link_data["target_id"],
-                    relationship_type=link_data["relationship_type"]
-                )
-                design_to_code_links.append(link)
-                link_counter += 1
-            
-            state["design_to_code_links"] = design_to_code_links
-            state["processing_stats"]["design_to_code_links_count"] = len(design_to_code_links)
-            print(f"Created {len(design_to_code_links)} design-to-code mappings")
-            
-        except Exception as e:
-            error_msg = f"Error creating design-to-code mappings: {str(e)}"
-            print(error_msg)
-            state["errors"].append(error_msg)
-        
-        return state
-    
-    async def _identify_requirements(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
-        """
-        Identify requirements from SRS documentation using LLM
-        """
-        print("Identifying requirements from SRS")
-        state["current_step"] = "identifying_requirements"
-        
-        try:
-            requirements = []
-            req_counter = 1
-            
-            for file_path, content in state["srs_content"].items():
-                if not content.strip():
-                    continue
-                
-                # Use LLM to extract requirements
-                extracted_reqs = await self._llm_extract_requirements(content, file_path)
-                
-                for req_data in extracted_reqs:
-                    requirement = RequirementModel(
-                        id=f"REQ-{req_counter:03d}",
-                        title=req_data.get("title", f"Requirement {req_counter}"),
-                        description=req_data.get("description", ""),
-                        type=req_data.get("type", "Functional"),
-                        priority=req_data.get("priority", "Medium"),
-                        section=req_data.get("section", file_path)
-                    )
-                    requirements.append(requirement)
-                    req_counter += 1
-            
-            state["requirements"] = requirements
-            state["processing_stats"]["requirements_count"] = len(requirements)
-            print(f"Identified {len(requirements)} requirements")
-            
-        except Exception as e:
-            error_msg = f"Error identifying requirements: {str(e)}"
-            print(error_msg)
-            state["errors"].append(error_msg)
-        
-        return state
-    
-    async def _requirements_to_design_mapping(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
-        """
-        Create mappings between requirements and design elements
-        Uses the traceability matrix from SDD documentation
-        """
-        print("Creating requirements-to-design mappings")
-        state["current_step"] = "requirements_to_design_mapping"
-        
-        try:
-            requirements_to_design_links = []
-            link_counter = 1
-            
-            # Extract traceability matrix from SDD and create requirement-design links
-            req_to_design_links = await self._create_requirement_design_links_from_sdd(
-                state["requirements"], state["design_elements"], state["sdd_content"]
-            )
-            
-            for link_data in req_to_design_links:
-                link = TraceabilityLinkModel(
-                    id=f"RD-{link_counter:03d}",
-                    source_type="Requirement",
-                    source_id=link_data["source_id"],
-                    target_type="DesignElement",
-                    target_id=link_data["target_id"],
-                    relationship_type=link_data["relationship_type"]
-                )
-                requirements_to_design_links.append(link)
-                link_counter += 1
-            
-            state["requirements_to_design_links"] = requirements_to_design_links
-            state["processing_stats"]["requirements_to_design_links_count"] = len(requirements_to_design_links)
-            
-            # Combine all traceability links
-            state["traceability_links"] = (
-                state["design_to_design_links"] + 
-                state["design_to_code_links"] + 
-                state["requirements_to_design_links"]
-            )
-            state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
-            
-            print(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
-            print(f"Total traceability links: {len(state['traceability_links'])}")
-            
-        except Exception as e:
-            error_msg = f"Error creating requirements-to-design mappings: {str(e)}"
-            print(error_msg)
-            state["errors"].append(error_msg)
-        
-        return state
-    
-    async def _save_baseline_map(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
-        """
-        Save baseline map to database
-        """
-        print("Saving baseline map to database")
-        state["current_step"] = "saving_baseline_map"
-        
-        try:
-            # Create baseline map model
-            baseline_map = BaselineMapModel(
-                repository=state["repository"],
-                branch=state["branch"],
-                requirements=state["requirements"],
-                design_elements=state["design_elements"],
-                code_components=state["code_components"],
-                traceability_links=state["traceability_links"]
-            )
-            
-            # Save to database
-            success = await self.baseline_map_repo.save_baseline_map(baseline_map)
-            
-            if success:
-                print(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
-                state["current_step"] = "completed"
+            # Convert repository format to URL if needed
+            if "/" in repository and not repository.startswith("http"):
+                repo_url = f"https://github.com/{repository}.git"
             else:
-                error_msg = "Failed to save baseline map to database"
-                print(error_msg)
-                state["errors"].append(error_msg)
+                repo_url = repository
             
-        except Exception as e:
-            error_msg = f"Error saving baseline map: {str(e)}"
-            print(error_msg)
-            state["errors"].append(error_msg)
-        
-        return state
+            try:
+                # Run Repomix to scan the repository
+                cmd = [
+                    "repomix",
+                    repo_url,
+                    "--output", output_file,
+                    "--style", "json",
+                    "--git-branch", branch,
+                    "--exclude", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage"
+                ]
+                
+                print(f"Running Repomix: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    raise RuntimeError(f"Repomix failed: {result.stderr}")
+                
+                # Read the output file
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    repo_data = json.load(f)
+                
+                print(f"Repomix scan completed successfully")
+                print(f"Repomix scan output: {repo_data}")
+                return repo_data
+                
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Repomix scan timed out after 5 minutes")
+            except Exception as e:
+                raise RuntimeError(f"Failed to scan repository with Repomix: {str(e)}")
     
-    # Helper methods for GitHub API integration
-    async def _fetch_documentation_files(self, repository: str, patterns: List[str], branch: str) -> Dict[str, str]:
-        """Fetch documentation files from repository using GitHub API"""
+    def _extract_documentation_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> Dict[str, str]:
+        """
+        Extract documentation files from Repomix output
+        
+        Args:
+            repo_data: Repomix output data
+            patterns: File patterns to match
+            
+        Returns:
+            Dict mapping file paths to their content
+        """
         documentation_files = {}
         
-        try:
-            # Get repository
-            repo = self.github_client.get_repo(repository)
-            print(f"Fetching documentation files from {repository}:{branch}")
+        if "files" not in repo_data:
+            return documentation_files
+        
+        for file_info in repo_data["files"]:
+            file_path = file_info.get("path", "")
+            file_content = file_info.get("content", "")
             
-            # Search for documentation files
-            matching_files = await self._find_files_by_patterns(repo, patterns, branch)
-            if len(matching_files) == 0:
-                raise Exception(f"No documentation files found for {repository}:{branch} with patterns {patterns}")
-            
-            # Fetch content for each matching file
-            for file_path in matching_files:
-                try:
-                    content = await self._get_file_content(repo, file_path, branch)
-                    if content:
-                        documentation_files[file_path] = content
-                        print(f"Fetched documentation file: {file_path}")
-                except Exception as e:
-                    print(f"Failed to fetch content for {file_path}: {str(e)}")
-                    raise e
-            
-        except Exception as e:
-            print(f"Error fetching documentation files: {str(e)}")
-            raise e
+            if self._matches_patterns(file_path, patterns):
+                documentation_files[file_path] = file_content
+                print(f"Found documentation file: {file_path}")
         
         return documentation_files
     
-    async def _fetch_code_files(self, repository: str, patterns: List[str], branch: str) -> List[Dict[str, Any]]:
-        """Fetch code files from repository using GitHub API"""
+    def _extract_code_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> List[Dict[str, Any]]:
+        """
+        Extract code files from Repomix output
+        
+        Args:
+            repo_data: Repomix output data
+            patterns: File patterns to match
+            
+        Returns:
+            List of code file info dictionaries
+        """
         code_files = []
         
-        if not self.github_client:
-            print("GitHub client not available. Returning empty code files.")
+        if "files" not in repo_data:
             return code_files
         
-        try:
-            # Get repository
-            repo = self.github_client.get_repo(repository)
-            print(f"Fetching code files from {repository}:{branch}")
+        for file_info in repo_data["files"]:
+            file_path = file_info.get("path", "")
+            file_content = file_info.get("content", "")
             
-            # Search for code files
-            matching_files = await self._find_files_by_patterns(repo, patterns, branch)
-            
-            # Create file info for each matching file (without content for performance)
-            for file_path in matching_files:
+            if self._matches_patterns(file_path, patterns):
                 code_files.append({
                     "path": file_path,
-                    "content": ""  # Placeholder for file content
+                    "content": file_content
                 })
                 print(f"Found code file: {file_path}")
-            
-            print(f"Found {len(code_files)} code files")
-            
-        except Exception as e:
-            print(f"Error fetching code files: {str(e)}")
         
         return code_files
-    
-    async def _find_files_by_patterns(self, repo: Repository, patterns: List[str], branch: str) -> List[str]:
-        """Find files in repository matching the given patterns"""
-        matching_files = []
-        
-        try:
-            # Check rate limit before making API calls
-            await self._check_rate_limit()
-            
-            # Get all files in the repository
-            contents = repo.get_contents("", ref=branch)
-            
-            # Recursively search through directory structure
-            matching_files = await self._search_files_recursive(repo, contents, patterns, branch)
-            
-        except GithubException as e:
-            if e.status == 403:
-                print("GitHub API rate limit exceeded. Please wait and try again.")
-            elif e.status == 404:
-                print(f"Repository or branch not found: {repo.full_name}:{branch}")
-            else:
-                print(f"GitHub API error: {str(e)}")
-        except Exception as e:
-            print(f"Error searching files: {str(e)}")
-        
-        return matching_files
-    
-    async def _search_files_recursive(self, repo: Repository, contents: List[ContentFile], 
-                                    patterns: List[str], branch: str, current_path: str = "", 
-                                    max_depth: int = 5, current_depth: int = 0) -> List[str]:
-        """Recursively search for files matching patterns with depth limit"""
-        matching_files = []
-        
-        # Prevent infinite recursion and limit API calls
-        if current_depth > max_depth:
-            print(f"Maximum search depth ({max_depth}) reached at {current_path}")
-            return matching_files
-        
-        for content in contents:
-            full_path = f"{current_path}/{content.path}" if current_path else content.path
-            
-            if content.type == "dir":
-                # Skip common directories that usually don't contain documentation
-                skip_dirs = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'env', 
-                           'target', 'build', 'dist', '.next', 'coverage'}
-                
-                if content.name.lower() in skip_dirs:
-                    print(f"Skipping directory: {content.path}")
-                    continue
-                
-                # Recursively search directories
-                try:
-                    # Check rate limit before each directory access
-                    await self._check_rate_limit()
-                    
-                    sub_contents = repo.get_contents(content.path, ref=branch)
-                    sub_matches = await self._search_files_recursive(
-                        repo, sub_contents, patterns, branch, current_path, max_depth, current_depth + 1
-                    )
-                    matching_files.extend(sub_matches)
-                    
-                except GithubException as e:
-                    if e.status == 403:
-                        print(f"Rate limit hit while accessing {content.path}")
-                        await asyncio.sleep(1)  # Brief pause
-                    else:
-                        print(f"Failed to access directory {content.path}: {str(e)}")
-                except Exception as e:
-                    print(f"Failed to access directory {content.path}: {str(e)}")
-            else:
-                # Check if file matches any pattern
-                if self._matches_patterns(content.path, patterns):
-                    matching_files.append(content.path)
-                    print(f"Found matching file: {content.path}")
-        
-        return matching_files
     
     def _matches_patterns(self, file_path: str, patterns: List[str]) -> bool:
         """Check if file path matches any of the given patterns"""
@@ -621,49 +301,233 @@ class BaselineMapCreatorWorkflow:
         
         return False
     
-    async def _get_file_content(self, repo: Repository, file_path: str, branch: str) -> Optional[str]:
-        """Get the content of a specific file from the repository"""
-        try:
-            file_content = repo.get_contents(file_path, ref=branch)
-            
-            # Handle single file (not a list)
-            if isinstance(file_content, list):
-                if len(file_content) > 0:
-                    file_content = file_content[0]
-                else:
-                    return None
-            
-            # Decode content
-            if file_content.encoding == "base64":
-                content = base64.b64decode(file_content.content).decode('utf-8')
-            else:
-                content = file_content.content
-            
-            return content
-            
-        except Exception as e:
-            print(f"Failed to get content for {file_path}: {str(e)}")
-            return None
-    
-    async def _check_rate_limit(self):
-        """Check GitHub API rate limit and wait if necessary"""
-        if not self.github_client:
-            return
+    async def _identify_design_elements(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+        """
+        Identify design elements from SDD documentation using LLM
+        SDD is processed first as it contains the traceability matrix between design elements and requirements
+        """
+        print("Identifying design elements from SDD")
+        state["current_step"] = "identifying_design_elements"
         
-        try:
-            rate_limit = self.github_client.get_rate_limit()
-            core_remaining = rate_limit.core.remaining
+        design_elements = []
+        elem_counter = 1
+        
+        for file_path, content in state["sdd_content"].items():
+            if not content.strip():
+                continue
             
-            if core_remaining < 10:  # Less than 10 requests remaining
-                reset_time = rate_limit.core.reset.timestamp()
-                wait_time = max(0, reset_time - time.time())
-                
-                if wait_time > 0:
-                    print(f"GitHub API rate limit low ({core_remaining} remaining). Waiting {wait_time:.1f} seconds...")
-                    await asyncio.sleep(wait_time)
+            # Use LLM to extract design elements
+            extracted_elements = await self._llm_extract_design_elements(content, file_path)
             
-        except Exception as e:
-            print(f"Failed to check rate limit: {str(e)}")
+            for elem_data in extracted_elements:
+                design_element = DesignElementModel(
+                    id=f"DE-{elem_counter:03d}",
+                    name=elem_data.get("name", f"DesignElement{elem_counter}"),
+                    description=elem_data.get("description", ""),
+                    type=elem_data.get("type", "Component"),
+                    section=elem_data.get("section", file_path)
+                )
+                design_elements.append(design_element)
+                elem_counter += 1
+        
+        state["design_elements"] = design_elements
+        state["processing_stats"]["design_elements_count"] = len(design_elements)
+        print(f"Identified {len(design_elements)} design elements")
+        
+        return state
+    
+    async def _design_to_design_mapping(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+        """
+        Create mappings between design elements (internal relationships)
+        """
+        print("Creating design-to-design mappings")
+        state["current_step"] = "design_to_design_mapping"
+        
+        design_to_design_links = []
+        link_counter = 1
+        
+        # Create relationships between design elements using LLM analysis
+        if len(state["design_elements"]) > 1:
+            links_data = await self._create_design_element_relationships(state["design_elements"])
+            
+            for link_data in links_data:
+                link = TraceabilityLinkModel(
+                    id=f"DD-{link_counter:03d}",
+                    source_type="DesignElement",
+                    source_id=link_data["source_id"],
+                    target_type="DesignElement", 
+                    target_id=link_data["target_id"],
+                    relationship_type=link_data["relationship_type"]
+                )
+                design_to_design_links.append(link)
+                link_counter += 1
+        
+        state["design_to_design_links"] = design_to_design_links
+        state["processing_stats"]["design_to_design_links_count"] = len(design_to_design_links)
+        print(f"Created {len(design_to_design_links)} design-to-design mappings")
+        
+        return state
+    
+    async def _design_to_code_mapping(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+        """
+        Create mappings between design elements and code components
+        """
+        print("Creating design-to-code mappings")
+        state["current_step"] = "design_to_code_mapping"
+        
+        # Create code components from file paths (simplified approach)
+        code_components = []
+        comp_counter = 1
+        
+        for file_info in state["code_files"]:
+            file_path = file_info.get("path", "")
+            
+            if not file_path:
+                continue
+            
+            # Create a code component for each file path
+            code_component = CodeComponentModel(
+                id=f"CC-{comp_counter:03d}",
+                path=file_path,
+                type="File",
+                name=Path(file_path).name  # Use full filename instead of stem
+            )
+            code_components.append(code_component)
+            comp_counter += 1
+        
+        state["code_components"] = code_components
+        state["processing_stats"]["code_components_count"] = len(code_components)
+        
+        # Create design-to-code links using simple matching
+        design_to_code_links = []
+        link_counter = 1
+        
+        links_data = await self._create_design_code_links(state["design_elements"], code_components)
+        
+        for link_data in links_data:
+            link = TraceabilityLinkModel(
+                id=f"DC-{link_counter:03d}",
+                source_type="DesignElement",
+                source_id=link_data["source_id"],
+                target_type="CodeComponent",
+                target_id=link_data["target_id"],
+                relationship_type=link_data["relationship_type"]
+            )
+            design_to_code_links.append(link)
+            link_counter += 1
+        
+        state["design_to_code_links"] = design_to_code_links
+        state["processing_stats"]["design_to_code_links_count"] = len(design_to_code_links)
+        print(f"Created {len(design_to_code_links)} design-to-code mappings")
+        
+        return state
+    
+    async def _identify_requirements(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+        """
+        Identify requirements from SRS documentation using LLM
+        """
+        print("Identifying requirements from SRS")
+        state["current_step"] = "identifying_requirements"
+        
+        requirements = []
+        req_counter = 1
+        
+        for file_path, content in state["srs_content"].items():
+            if not content.strip():
+                continue
+            
+            # Use LLM to extract requirements
+            extracted_reqs = await self._llm_extract_requirements(content, file_path)
+            
+            for req_data in extracted_reqs:
+                requirement = RequirementModel(
+                    id=f"REQ-{req_counter:03d}",
+                    title=req_data.get("title", f"Requirement {req_counter}"),
+                    description=req_data.get("description", ""),
+                    type=req_data.get("type", "Functional"),
+                    priority=req_data.get("priority", "Medium"),
+                    section=req_data.get("section", file_path)
+                )
+                requirements.append(requirement)
+                req_counter += 1
+        
+        state["requirements"] = requirements
+        state["processing_stats"]["requirements_count"] = len(requirements)
+        print(f"Identified {len(requirements)} requirements")
+        
+        return state
+    
+    async def _requirements_to_design_mapping(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+        """
+        Create mappings between requirements and design elements
+        Uses the traceability matrix from SDD documentation
+        """
+        print("Creating requirements-to-design mappings")
+        state["current_step"] = "requirements_to_design_mapping"
+        
+        requirements_to_design_links = []
+        link_counter = 1
+        
+        # Extract traceability matrix from SDD and create requirement-design links
+        req_to_design_links = await self._create_requirement_design_links_from_sdd(
+            state["requirements"], state["design_elements"], state["sdd_content"]
+        )
+        
+        for link_data in req_to_design_links:
+            link = TraceabilityLinkModel(
+                id=f"RD-{link_counter:03d}",
+                source_type="Requirement",
+                source_id=link_data["source_id"],
+                target_type="DesignElement",
+                target_id=link_data["target_id"],
+                relationship_type=link_data["relationship_type"]
+            )
+            requirements_to_design_links.append(link)
+            link_counter += 1
+        
+        state["requirements_to_design_links"] = requirements_to_design_links
+        state["processing_stats"]["requirements_to_design_links_count"] = len(requirements_to_design_links)
+        
+        # Combine all traceability links
+        state["traceability_links"] = (
+            state["design_to_design_links"] + 
+            state["design_to_code_links"] + 
+            state["requirements_to_design_links"]
+        )
+        state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
+        
+        print(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
+        print(f"Total traceability links: {len(state['traceability_links'])}")
+        
+        return state
+    
+    async def _save_baseline_map(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
+        """
+        Save baseline map to database
+        """
+        print("Saving baseline map to database")
+        state["current_step"] = "saving_baseline_map"
+        
+        # Create baseline map model
+        baseline_map = BaselineMapModel(
+            repository=state["repository"],
+            branch=state["branch"],
+            requirements=state["requirements"],
+            design_elements=state["design_elements"],
+            code_components=state["code_components"],
+            traceability_links=state["traceability_links"]
+        )
+        
+        # Save to database
+        success = await self.baseline_map_repo.save_baseline_map(baseline_map)
+        
+        if not success:
+            raise Exception("Failed to save baseline map to database")
+        
+        print(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
+        state["current_step"] = "completed"
+        
+        return state
     
     async def _llm_extract_requirements(self, content: str, file_path: str) -> List[Dict[str, Any]]:
         """Extract requirements using LLM"""
@@ -749,8 +613,6 @@ class BaselineMapCreatorWorkflow:
             print(f"Failed to create design-code links: {str(e)}")
         
         return links
-    
-
     
     async def _parse_traceability_matrix_from_sdd(self, sdd_content: Dict[str, str], 
                                                  requirements: List[RequirementModel],
