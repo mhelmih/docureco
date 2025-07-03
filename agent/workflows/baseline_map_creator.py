@@ -12,7 +12,6 @@ import fnmatch
 import subprocess
 import json
 import tempfile
-import xml.etree.ElementTree as ET
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
@@ -240,48 +239,83 @@ class BaselineMapCreatorWorkflow:
     
     def _parse_repomix_xml(self, xml_content: str) -> Dict[str, Any]:
         """
-        Parse Repomix XML output into structured data
+        Parse Repomix XML-like output into structured data
         
         Args:
-            xml_content: Raw XML content from Repomix
+            xml_content: Raw content from Repomix (not valid XML, but uses XML-like tags)
             
         Returns:
             Dict with files structure compatible with existing code
         """
-        # First check if this is actually XML
-        if not xml_content.strip().startswith('<'):
-            print("Warning: Content doesn't appear to be XML, using fallback parsing")
-            return self._parse_repomix_fallback(xml_content)
-            
+        files = []
+        
         try:
-            root = ET.fromstring(xml_content)
-            files = []
+            # Repomix uses <file path="..."> tags but it's not valid XML
+            # We need to parse it manually using regex/string parsing
             
-            # Try different XML structures
-            # Structure 1: <files><file path="...">content</file></files>
-            file_elements = root.findall(".//file")
+            # Find all <file path="..."> sections
+            import re
             
-            if not file_elements:
-                # Structure 2: Direct file elements
-                file_elements = root.findall("file")
+            # Pattern to match <file path="..."> and capture path and content
+            file_pattern = r'<file path="([^"]*)">\s*(.*?)\s*</file>'
             
-            for file_elem in file_elements:
-                file_path = file_elem.get("path", "")
-                file_content = file_elem.text or ""
-                
-                if file_path:
+            matches = re.findall(file_pattern, xml_content, re.DOTALL)
+            
+            for file_path, file_content in matches:
+                if file_path and file_content.strip():
                     files.append({
                         "path": file_path,
-                        "content": file_content
+                        "content": file_content.strip()
                     })
-                    print(f"Debug: Found XML file {file_path} with {len(file_content)} characters")
-                    
-            print(f"Debug: XML parsing found {len(files)} files")
-            return {"files": files}
+                    print(f"Debug: Parsed file: {file_path} ({len(file_content.strip())} chars)")
             
-        except ET.ParseError as e:
-            # If XML parsing fails, try to extract files from plain text format
-            print(f"Warning: XML parsing failed ({e}), attempting fallback parsing")
+            if not matches:
+                # Try alternative approach: split by <file path=" and parse manually
+                sections = xml_content.split('<file path="')
+                
+                for i, section in enumerate(sections):
+                    if i == 0:  # Skip the first section (header/metadata)
+                        continue
+                        
+                    # Extract file path from the opening tag
+                    if '">' not in section:
+                        continue
+                        
+                    path_end = section.find('">')
+                    if path_end == -1:
+                        continue
+                        
+                    file_path = section[:path_end]
+                    
+                    # Extract content until the closing </file> tag
+                    content_start = path_end + 2  # Skip ">
+                    
+                    # Find the closing tag
+                    closing_tag = '</file>'
+                    content_end = section.find(closing_tag)
+                    
+                    if content_end == -1:
+                        # If no closing tag, take everything until next <file or end
+                        next_file = section.find('<file path="', content_start)
+                        if next_file != -1:
+                            file_content = section[content_start:next_file].strip()
+                        else:
+                            file_content = section[content_start:].strip()
+                    else:
+                        file_content = section[content_start:content_end].strip()
+                    
+                    if file_path and file_content:
+                        files.append({
+                            "path": file_path,
+                            "content": file_content
+                        })
+                        print(f"Debug: Parsed file: {file_path} ({len(file_content)} chars)")
+            
+            print(f"Debug: Successfully parsed {len(files)} files from Repomix XML format")
+            return {"files": files}
+                
+        except Exception as e:
+            print(f"Warning: Repomix XML parsing failed ({e}), attempting fallback parsing")
             return self._parse_repomix_fallback(xml_content)
     
     def _parse_repomix_fallback(self, content: str) -> Dict[str, Any]:
@@ -302,28 +336,39 @@ class BaselineMapCreatorWorkflow:
         
         print(f"Debug: Parsing {len(lines)} lines of content")
         
+        # Count headers that start with ##
+        header_count = sum(1 for line in lines if line.startswith('## '))
+        print(f"Debug: Found {header_count} headers starting with '##'")
+        
         for i, line in enumerate(lines):
             # Look for file headers: ## path/to/file (must contain a file extension or be in recognizable directory)
-            if line.startswith('## ') and ('/' in line or '.' in line):
-                # Save previous file if exists
-                if current_file and current_content:
-                    file_content = '\n'.join(current_content).strip()
-                    if file_content:  # Only add if there's actual content
-                        files.append({
-                            "path": current_file,
-                            "content": file_content
-                        })
-                        print(f"Debug: Saved file {current_file} with {len(file_content)} characters")
+            if line.startswith('## '):
+                print(f"Debug: Line {i}: Processing header: {repr(line[:50])}")
                 
-                # Extract file path (remove ## prefix and clean up)
-                potential_file = line[3:].strip()
-                
-                # Filter out non-file headers (like "## Purpose:", "## File Format:", etc.)
-                if not any(skip in potential_file.lower() for skip in ['purpose', 'file format', 'usage', 'notes', 'additional']):
-                    current_file = potential_file
-                    current_content = []
-                    in_code_block = False
-                    print(f"Debug: Found file header: {current_file}")
+                if '/' in line or '.' in line:
+                    # Save previous file if exists
+                    if current_file and current_content:
+                        file_content = '\n'.join(current_content).strip()
+                        if file_content:  # Only add if there's actual content
+                            files.append({
+                                "path": current_file,
+                                "content": file_content
+                            })
+                            print(f"Debug: Saved file {current_file} with {len(file_content)} characters")
+                    
+                    # Extract file path (remove ## prefix and clean up)
+                    potential_file = line[3:].strip()
+                    
+                    # Filter out non-file headers - files should have extensions or be in directories
+                    if ('.' in potential_file or '/' in potential_file) and not potential_file.endswith(':'):
+                        current_file = potential_file
+                        current_content = []
+                        in_code_block = False
+                        print(f"Debug: Found file header: {current_file}")
+                    else:
+                        print(f"Debug: Skipping non-file header: {potential_file}")
+                else:
+                    print(f"Debug: Skipping header without '/' or '.': {line[3:].strip()}")
                 
             elif current_file:
                 # Handle code blocks
