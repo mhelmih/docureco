@@ -12,6 +12,7 @@ import fnmatch
 import subprocess
 import json
 import tempfile
+import xml.etree.ElementTree as ET
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
@@ -209,7 +210,7 @@ class BaselineMapCreatorWorkflow:
                     "--remote", repo_url,
                     "--remote-branch", branch,
                     "--output", output_file,
-                    "--style", "json",
+                    "--style", "xml",
                     "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage"
                 ]
                 
@@ -219,18 +220,101 @@ class BaselineMapCreatorWorkflow:
                 if result.returncode != 0:
                     raise RuntimeError(f"Repomix failed: {result.stderr}")
                 
-                # Read the output file
+                # Read and parse the XML output file
                 with open(output_file, 'r', encoding='utf-8') as f:
-                    repo_data = json.load(f)
+                    xml_content = f.read()
+                
+                repo_data = self._parse_repomix_xml(xml_content)
                 
                 print(f"Repomix scan completed successfully")
-                print(f"Repomix scan output: {repo_data}")
                 return repo_data
                 
             except subprocess.TimeoutExpired:
                 raise RuntimeError("Repomix scan timed out after 5 minutes")
             except Exception as e:
                 raise RuntimeError(f"Failed to scan repository with Repomix: {str(e)}")
+    
+    def _parse_repomix_xml(self, xml_content: str) -> Dict[str, Any]:
+        """
+        Parse Repomix XML output into structured data
+        
+        Args:
+            xml_content: Raw XML content from Repomix
+            
+        Returns:
+            Dict with files structure compatible with existing code
+        """
+        try:
+            root = ET.fromstring(xml_content)
+            files = []
+            
+            # Find all file elements in the XML
+            file_elements = root.findall(".//file")
+            
+            for file_elem in file_elements:
+                file_path = file_elem.get("path", "")
+                file_content = file_elem.text or ""
+                
+                if file_path:
+                    files.append({
+                        "path": file_path,
+                        "content": file_content
+                    })
+                    
+            return {"files": files}
+            
+        except ET.ParseError as e:
+            # If XML parsing fails, try to extract files from plain text format
+            print(f"Warning: XML parsing failed ({e}), attempting fallback parsing")
+            return self._parse_repomix_fallback(xml_content)
+    
+    def _parse_repomix_fallback(self, content: str) -> Dict[str, Any]:
+        """
+        Fallback parser for Repomix output if XML parsing fails
+        
+        Args:
+            content: Raw content from Repomix
+            
+        Returns:
+            Dict with files structure
+        """
+        files = []
+        lines = content.split('\n')
+        current_file = None
+        current_content = []
+        
+        for line in lines:
+            # Look for file path indicators
+            if line.startswith('File: ') or 'path=' in line:
+                # Save previous file if exists
+                if current_file:
+                    files.append({
+                        "path": current_file,
+                        "content": '\n'.join(current_content)
+                    })
+                
+                # Extract file path
+                if line.startswith('File: '):
+                    current_file = line.replace('File: ', '').strip()
+                elif 'path=' in line:
+                    # Try to extract from path="..." format
+                    import re
+                    match = re.search(r'path="([^"]*)"', line)
+                    if match:
+                        current_file = match.group(1)
+                
+                current_content = []
+            elif current_file:
+                current_content.append(line)
+        
+        # Save last file
+        if current_file:
+            files.append({
+                "path": current_file,
+                "content": '\n'.join(current_content)
+            })
+        
+        return {"files": files}
     
     def _extract_documentation_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> Dict[str, str]:
         """
