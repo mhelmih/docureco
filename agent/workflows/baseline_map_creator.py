@@ -206,11 +206,11 @@ class BaselineMapCreatorWorkflow:
                 # Run Repomix to scan the repository
                 cmd = [
                     "repomix",
-                    repo_url,
+                    "--remote", repo_url,
+                    "--remote-branch", branch,
                     "--output", output_file,
                     "--style", "json",
-                    "--git-branch", branch,
-                    "--exclude", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage"
+                    "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage"
                 ]
                 
                 print(f"Running Repomix: {' '.join(cmd)}")
