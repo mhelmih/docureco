@@ -210,7 +210,7 @@ class BaselineMapCreatorWorkflow:
                     "--remote-branch", branch,
                     "--output", output_file,
                     "--style", "xml",
-                    "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage"
+                    "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage, agent, .github, .vscode, .env, .env.local, .env.development.local, .env.test.local, .env.production.local"
                 ]
                 
                 print(f"Running Repomix: {' '.join(cmd)}")
@@ -222,10 +222,6 @@ class BaselineMapCreatorWorkflow:
                 # Read and parse the XML output file
                 with open(output_file, 'r', encoding='utf-8') as f:
                     xml_content = f.read()
-                
-                # Debug: Print first 500 characters to see format
-                print(f"Debug: First 500 characters of output:")
-                print(repr(xml_content[:500]))
                 
                 repo_data = self._parse_repomix_xml(xml_content)
                 
@@ -267,7 +263,6 @@ class BaselineMapCreatorWorkflow:
                         "path": file_path,
                         "content": file_content.strip()
                     })
-                    print(f"Debug: Parsed file: {file_path} ({len(file_content.strip())} chars)")
             
             if not matches:
                 # Try alternative approach: split by <file path=" and parse manually
@@ -309,9 +304,7 @@ class BaselineMapCreatorWorkflow:
                             "path": file_path,
                             "content": file_content
                         })
-                        print(f"Debug: Parsed file: {file_path} ({len(file_content)} chars)")
-            
-            print(f"Debug: Successfully parsed {len(files)} files from Repomix XML format")
+
             return {"files": files}
                 
         except Exception as e:
@@ -334,16 +327,9 @@ class BaselineMapCreatorWorkflow:
         current_content = []
         in_code_block = False
         
-        print(f"Debug: Parsing {len(lines)} lines of content")
-        
-        # Count headers that start with ##
-        header_count = sum(1 for line in lines if line.startswith('## '))
-        print(f"Debug: Found {header_count} headers starting with '##'")
-        
         for i, line in enumerate(lines):
             # Look for file headers: ## path/to/file (must contain a file extension or be in recognizable directory)
             if line.startswith('## '):
-                print(f"Debug: Line {i}: Processing header: {repr(line[:50])}")
                 
                 if '/' in line or '.' in line:
                     # Save previous file if exists
@@ -354,7 +340,6 @@ class BaselineMapCreatorWorkflow:
                                 "path": current_file,
                                 "content": file_content
                             })
-                            print(f"Debug: Saved file {current_file} with {len(file_content)} characters")
                     
                     # Extract file path (remove ## prefix and clean up)
                     potential_file = line[3:].strip()
@@ -364,11 +349,6 @@ class BaselineMapCreatorWorkflow:
                         current_file = potential_file
                         current_content = []
                         in_code_block = False
-                        print(f"Debug: Found file header: {current_file}")
-                    else:
-                        print(f"Debug: Skipping non-file header: {potential_file}")
-                else:
-                    print(f"Debug: Skipping header without '/' or '.': {line[3:].strip()}")
                 
             elif current_file:
                 # Handle code blocks
@@ -376,11 +356,9 @@ class BaselineMapCreatorWorkflow:
                     if not in_code_block:
                         # Starting code block
                         in_code_block = True
-                        print(f"Debug: Starting code block for {current_file}")
                     else:
                         # Ending code block
                         in_code_block = False
-                        print(f"Debug: Ending code block for {current_file}")
                     continue
                 elif in_code_block:
                     current_content.append(line)
@@ -393,11 +371,6 @@ class BaselineMapCreatorWorkflow:
                     "path": current_file,
                     "content": file_content
                 })
-                print(f"Debug: Saved final file {current_file} with {len(file_content)} characters")
-        
-        print(f"Debug: Successfully parsed {len(files)} files from Repomix output")
-        for f in files[:3]:  # Show first 3 files for debugging
-            print(f"Debug: File {f['path']}: {len(f['content'])} characters")
             
         return {"files": files}
     
@@ -424,6 +397,9 @@ class BaselineMapCreatorWorkflow:
             if self._matches_patterns(file_path, patterns):
                 documentation_files[file_path] = file_content
                 print(f"Found documentation file: {file_path}")
+        
+        if len(documentation_files) == 0:
+            raise Exception("No documentation files found")
         
         return documentation_files
     
