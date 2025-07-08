@@ -51,11 +51,30 @@ jobs:
       with:
         python-version: '3.11'
         cache: 'pip'
+        cache-dependency-path: 'agent/requirements.txt'
     
-    - name: Install dependencies
+    - name: Set up Node.js (for Repomix)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install Repomix
       run: |
-        cd agent
-        pip install -r requirements.txt
+        npm install -g repomix
+        repomix --version
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('agent/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install Python dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r agent/requirements.txt
     
     - name: Determine repositories to update
       id: repos
@@ -86,15 +105,17 @@ jobs:
         fi
     
     - name: Update baseline traceability map
+      env:
+        FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
+        LOG_LEVEL: 'DEBUG'
       run: |
-        cd agent
         python -c "
         import asyncio
         import os
         import sys
         import json
-        from workflows.baseline_map_creator import create_baseline_map_creator
-        from database.baseline_map_repository import BaselineMapRepository
+        from agent.workflows.baseline_map_creator import create_baseline_map_creator
+        from agent.database.baseline_map_repository import BaselineMapRepository
         
         async def update_single_repository(repository, branch='main', strategy='incremental'):
             try:
@@ -110,7 +131,7 @@ jobs:
                     print('💡 Tip: Run the \"Create Baseline Map\" workflow first')
                     return False
                 
-                print(f'✅ Found existing baseline map with {len(existing_map.requirements)} requirements')
+                print(f'✅ Found existing baseline map with {len(existing_map[\"requirements\"])} requirements')
                 
                 # Create workflow instance
                 creator = create_baseline_map_creator()
@@ -143,19 +164,19 @@ jobs:
                 
                 # Print results
                 print('\\n📊 Baseline Map Update Results:')
-                print(f'Repository: {result.repository}:{result.branch}')
-                print(f'Requirements: {len(result.requirements)}')
-                print(f'Design Elements: {len(result.design_elements)}')
-                print(f'Code Components: {len(result.code_components)}')
-                print(f'Traceability Links: {len(result.traceability_links)}')
+                print(f'Repository: {result[\"repository\"]}:{result[\"branch\"]}')
+                print(f'Requirements: {len(result[\"requirements\"])}')
+                print(f'Design Elements: {len(result[\"design_elements\"])}')
+                print(f'Code Components: {len(result[\"code_components\"])}')
+                print(f'Traceability Links: {len(result[\"traceability_links\"])}')
                 
-                if result.errors:
+                if result[\"errors\"]:
                     print('\\n⚠️  Errors encountered:')
-                    for error in result.errors:
+                    for error in result[\"errors\"]:
                         print(f'  - {error}')
                     return False
                 
-                print(f'\\n✅ Baseline map update completed: {result.current_step}')
+                print(f'\\n✅ Baseline map update completed: {result[\"current_step\"]}')
                 return True
                 
             except Exception as e:

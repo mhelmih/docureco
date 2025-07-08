@@ -9,10 +9,15 @@ from typing import Dict, Any, List
 import requests
 from dotenv import load_dotenv
 
+# Add path for absolute imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
 # Import Docureco components
-from .llm import create_llm_client
-from .workflows import create_document_update_recommendator
-from .models import (
+from agent.llm import create_llm_client
+from agent.workflows import create_document_update_recommendator
+from agent.models import (
     PREventModel, FileChangeModel, RecommendationResponseModel,
     WorkflowStatusModel
 )
@@ -134,12 +139,12 @@ async def fetch_pr_details(pr_info: Dict[str, Any], github_token: str) -> Dict[s
     
     try:
         response = requests.get(
-            pr_url,
+                pr_url,
             headers={
                 "Authorization": f"Bearer {github_token}", 
                 "Accept": "application/vnd.github.v3+json"
             }
-        )
+            )
         response.raise_for_status()
         pr_data = response.json()
         
@@ -166,7 +171,7 @@ async def fetch_pr_details(pr_info: Dict[str, Any], github_token: str) -> Dict[s
         
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch PR details: {e}")
-        return {}
+    return {}
 
 async def fetch_changed_files(pr_info: Dict[str, Any], github_token: str) -> List[FileChangeModel]:
     """Fetch list of changed files in the PR"""
@@ -178,12 +183,12 @@ async def fetch_changed_files(pr_info: Dict[str, Any], github_token: str) -> Lis
     
     try:
         response = requests.get(
-            files_url,
-            headers={
+                files_url,
+                headers={
                 "Authorization": f"Bearer {github_token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-        )
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
         response.raise_for_status()
         files_data = response.json()
         
@@ -334,7 +339,7 @@ async def update_check_status(
                 if getattr(r, 'priority', r.get('priority', '')) in ["High", "Major", "Fundamental"]
             ]
             status = "action_required" if high_priority else "success"
-        else:
+    else:
             status = "success"
     
     # Map internal status to GitHub status

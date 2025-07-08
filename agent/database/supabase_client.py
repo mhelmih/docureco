@@ -48,8 +48,8 @@ class SupabaseClient:
     def _test_connection(self) -> None:
         """Test database connection"""
         try:
-            # Simple query to test connection
-            response = self.client.table("repositories").select("id").limit(1).execute()
+            # Simple query to test connection using baseline_maps table
+            response = self.client.table("baseline_maps").select("id").limit(1).execute()
             logger.debug("Database connection test successful")
         except Exception as e:
             logger.warning(f"Database connection test failed: {str(e)}")

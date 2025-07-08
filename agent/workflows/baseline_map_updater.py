@@ -1,22 +1,29 @@
 """
-Baseline Map Updater for Docureco Agent
-Updates baseline traceability maps when PRs are merged
+Baseline Map Updater Workflow for Docureco Agent
+Updates existing baseline traceability maps based on repository changes
 """
 
 import asyncio
 import logging
+import sys
 import os
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass, field
 from pathlib import Path
-from dataclasses import dataclass
+
+# Add parent directories to path for absolute imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+root_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, parent_dir)
+sys.path.insert(0, root_dir)
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from ..llm.llm_client import DocurecoLLMClient, create_llm_client
-from ..llm.embedding_client import DocurecoEmbeddingClient, create_embedding_client
-from ..database import BaselineMapRepository, VectorSearchRepository
-from ..models.docureco_models import (
+from agent.llm.llm_client import DocurecoLLMClient, create_llm_client
+from agent.database import BaselineMapRepository
+from agent.models.docureco_models import (
     BaselineMapModel, RequirementModel, DesignElementModel, 
     CodeComponentModel, TraceabilityLinkModel
 )
@@ -25,59 +32,54 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BaselineMapUpdaterState:
-    """State for baseline map update workflow"""
+    """State for baseline map updater workflow"""
     repository: str
-    branch: str
-    merged_pr_number: Optional[int] = None
+    branch: str = "main"
     
     # Current baseline map
     current_baseline_map: Optional[BaselineMapModel] = None
     
-    # PR content and changes
-    pr_changes: List[Dict[str, Any]] = None
-    changed_files: Set[str] = None
-    commit_messages: List[str] = None
+    # Change analysis
+    changed_files: List[str] = field(default_factory=list)
+    commit_messages: List[str] = field(default_factory=list)
+    pr_changes: List[Dict[str, Any]] = field(default_factory=list)
     
     # Impact analysis results
-    impacted_requirements: List[RequirementModel] = None
-    impacted_design_elements: List[DesignElementModel] = None
-    impacted_code_components: List[CodeComponentModel] = None
+    impacted_requirements: List[RequirementModel] = field(default_factory=list)
+    impacted_design_elements: List[DesignElementModel] = field(default_factory=list)
+    impacted_code_components: List[CodeComponentModel] = field(default_factory=list)
     
-    # New/updated elements
-    new_requirements: List[RequirementModel] = None
-    new_design_elements: List[DesignElementModel] = None
-    new_code_components: List[CodeComponentModel] = None
-    new_traceability_links: List[TraceabilityLinkModel] = None
+    # New elements to add
+    new_requirements: List[RequirementModel] = field(default_factory=list)
+    new_design_elements: List[DesignElementModel] = field(default_factory=list)
+    new_code_components: List[CodeComponentModel] = field(default_factory=list)
+    new_traceability_links: List[TraceabilityLinkModel] = field(default_factory=list)
+    
+    # Updated baseline map
+    updated_baseline_map: Optional[BaselineMapModel] = None
     
     # Workflow metadata
-    current_step: str = "initializing"
-    errors: List[str] = None
-    update_stats: Dict[str, int] = None
+    current_step: str = ""
+    errors: List[str] = field(default_factory=list)
+    processing_stats: Dict[str, int] = field(default_factory=dict)
 
 class BaselineMapUpdaterWorkflow:
     """
-    LangGraph workflow for updating baseline traceability maps after PR merges
-    Implements the Baseline Map Updater component
+    Workflow for updating baseline traceability maps based on repository changes
     """
     
     def __init__(self, 
                  llm_client: Optional[DocurecoLLMClient] = None,
-                 embedding_client: Optional[DocurecoEmbeddingClient] = None,
-                 baseline_map_repo: Optional[BaselineMapRepository] = None,
-                 vector_search_repo: Optional[VectorSearchRepository] = None):
+                 baseline_map_repo: Optional[BaselineMapRepository] = None):
         """
         Initialize baseline map updater workflow
         
         Args:
-            llm_client: Optional LLM client
-            embedding_client: Optional embedding client
+            llm_client: Optional LLM client for analysis
             baseline_map_repo: Optional baseline map repository
-            vector_search_repo: Optional vector search repository
         """
         self.llm_client = llm_client or create_llm_client()
-        self.embedding_client = embedding_client or create_embedding_client()
         self.baseline_map_repo = baseline_map_repo or BaselineMapRepository()
-        self.vector_search_repo = vector_search_repo or VectorSearchRepository()
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
@@ -94,7 +96,6 @@ class BaselineMapUpdaterWorkflow:
         workflow.add_node("identify_impacts", self._identify_impacts)
         workflow.add_node("extract_new_elements", self._extract_new_elements)
         workflow.add_node("update_traceability_links", self._update_traceability_links)
-        workflow.add_node("update_embeddings", self._update_embeddings)
         workflow.add_node("save_updated_map", self._save_updated_map)
         
         # Define workflow edges
@@ -103,23 +104,20 @@ class BaselineMapUpdaterWorkflow:
         workflow.add_edge("analyze_pr_changes", "identify_impacts")
         workflow.add_edge("identify_impacts", "extract_new_elements")
         workflow.add_edge("extract_new_elements", "update_traceability_links")
-        workflow.add_edge("update_traceability_links", "update_embeddings")
-        workflow.add_edge("update_embeddings", "save_updated_map")
+        workflow.add_edge("update_traceability_links", "save_updated_map")
         workflow.add_edge("save_updated_map", END)
         
         return workflow
     
     async def execute(self, 
                      repository: str, 
-                     branch: str = "main", 
-                     merged_pr_number: Optional[int] = None) -> BaselineMapUpdaterState:
+                     branch: str = "main") -> BaselineMapUpdaterState:
         """
         Execute baseline map update workflow
         
         Args:
             repository: Repository name (owner/repo)
             branch: Branch name
-            merged_pr_number: Merged PR number (if applicable)
             
         Returns:
             BaselineMapUpdaterState: Final workflow state
@@ -128,9 +126,8 @@ class BaselineMapUpdaterWorkflow:
         initial_state = BaselineMapUpdaterState(
             repository=repository,
             branch=branch,
-            merged_pr_number=merged_pr_number,
             pr_changes=[],
-            changed_files=set(),
+            changed_files=[],
             commit_messages=[],
             impacted_requirements=[],
             impacted_design_elements=[],
@@ -140,13 +137,13 @@ class BaselineMapUpdaterWorkflow:
             new_code_components=[],
             new_traceability_links=[],
             errors=[],
-            update_stats={}
+            processing_stats={}
         )
         
         try:
             # Compile and run workflow
             app = self.workflow.compile(checkpointer=self.memory)
-            config = {"configurable": {"thread_id": f"update_{repository.replace('/', '_')}_{branch}_{merged_pr_number}"}}
+            config = {"configurable": {"thread_id": f"update_{repository.replace('/', '_')}_{branch}"}}
             
             final_state = await app.ainvoke(initial_state, config=config)
             
@@ -191,16 +188,16 @@ class BaselineMapUpdaterWorkflow:
         """
         Analyze PR changes to understand what was modified
         """
-        logger.info(f"Analyzing PR #{state.merged_pr_number} changes")
+        logger.info(f"Analyzing PR changes for {state.repository}:{state.branch}")
         state.current_step = "analyzing_pr_changes"
         
         try:
             # Fetch PR details and changes
-            pr_data = await self._fetch_pr_data(state.repository, state.merged_pr_number)
+            pr_data = await self._fetch_pr_data(state.repository)
             
             if pr_data:
                 state.pr_changes = pr_data.get("changes", [])
-                state.changed_files = set(change.get("filename", "") for change in state.pr_changes)
+                state.changed_files = [change.get("filename", "") for change in state.pr_changes]
                 state.commit_messages = pr_data.get("commit_messages", [])
                 
                 logger.info(f"Found {len(state.pr_changes)} file changes across {len(state.changed_files)} files")
@@ -230,40 +227,6 @@ class BaselineMapUpdaterWorkflow:
             for code_component in state.current_baseline_map.code_components:
                 if code_component.path in state.changed_files:
                     impacted_code_components.append(code_component)
-            
-            # Use vector search to find semantically related elements
-            if state.pr_changes:
-                for change in state.pr_changes:
-                    filename = change.get("filename", "")
-                    patch = change.get("patch", "")
-                    
-                    if filename and patch:
-                        # Find related elements using semantic similarity
-                        related_elements = await self.vector_search_repo.find_related_elements_by_code_change(
-                            filename=filename,
-                            patch=patch,
-                            commit_message=" ".join(state.commit_messages),
-                            repository=state.repository,
-                            branch=state.branch,
-                            similarity_threshold=0.6,
-                            max_results_per_type=10
-                        )
-                        
-                        # Convert to models and add to impacted lists
-                        for req_data in related_elements.get("requirements", []):
-                            req = RequirementModel(**req_data)
-                            if req not in impacted_requirements:
-                                impacted_requirements.append(req)
-                        
-                        for de_data in related_elements.get("design_elements", []):
-                            de = DesignElementModel(**de_data)
-                            if de not in impacted_design_elements:
-                                impacted_design_elements.append(de)
-                        
-                        for cc_data in related_elements.get("code_components", []):
-                            cc = CodeComponentModel(**cc_data)
-                            if cc not in impacted_code_components:
-                                impacted_code_components.append(cc)
             
             state.impacted_requirements = impacted_requirements
             state.impacted_design_elements = impacted_design_elements
@@ -392,40 +355,6 @@ class BaselineMapUpdaterWorkflow:
         
         return state
     
-    async def _update_embeddings(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
-        """
-        Update vector embeddings for new and modified elements
-        """
-        logger.info("Updating vector embeddings")
-        state.current_step = "updating_embeddings"
-        
-        try:
-            # Create updated baseline map for embedding generation
-            updated_baseline_map = {
-                "repository": state.repository,
-                "branch": state.branch,
-                "requirements": [req.dict() for req in (state.current_baseline_map.requirements + state.new_requirements)],
-                "design_elements": [elem.dict() for elem in (state.current_baseline_map.design_elements + state.new_design_elements)],
-                "code_components": [comp.dict() for comp in (state.current_baseline_map.code_components + state.new_code_components)],
-                "traceability_links": [link.dict() for link in (state.current_baseline_map.traceability_links + state.new_traceability_links)]
-            }
-            
-            # Generate embeddings for new elements only (to avoid regenerating everything)
-            if state.new_requirements or state.new_design_elements or state.new_code_components:
-                success = await self.vector_search_repo.generate_and_store_embeddings(updated_baseline_map)
-                
-                if success:
-                    logger.info("Successfully updated vector embeddings")
-                else:
-                    logger.warning("Failed to update some embeddings")
-            
-        except Exception as e:
-            error_msg = f"Error updating embeddings: {str(e)}"
-            logger.error(error_msg)
-            state.errors.append(error_msg)
-        
-        return state
-    
     async def _save_updated_map(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         """
         Save updated baseline map to database
@@ -452,7 +381,7 @@ class BaselineMapUpdaterWorkflow:
                 state.current_step = "completed"
                 
                 # Update statistics
-                state.update_stats = {
+                state.processing_stats = {
                     "new_requirements": len(state.new_requirements),
                     "new_design_elements": len(state.new_design_elements),
                     "new_code_components": len(state.new_code_components),
@@ -475,7 +404,7 @@ class BaselineMapUpdaterWorkflow:
         return state
     
     # Helper methods (placeholders for actual implementations)
-    async def _fetch_pr_data(self, repository: str, pr_number: int) -> Optional[Dict[str, Any]]:
+    async def _fetch_pr_data(self, repository: str) -> Optional[Dict[str, Any]]:
         """Fetch PR data from GitHub API"""
         # Placeholder - would implement GitHub API calls
         return {
@@ -532,18 +461,18 @@ class BaselineMapUpdaterWorkflow:
 
 # Factory function
 def create_baseline_map_updater(llm_client: Optional[DocurecoLLMClient] = None,
-                               embedding_client: Optional[DocurecoEmbeddingClient] = None) -> BaselineMapUpdaterWorkflow:
+                               baseline_map_repo: Optional[BaselineMapRepository] = None) -> BaselineMapUpdaterWorkflow:
     """
     Factory function to create baseline map updater workflow
     
     Args:
-        llm_client: Optional LLM client
-        embedding_client: Optional embedding client
+        llm_client: Optional LLM client for analysis
+        baseline_map_repo: Optional baseline map repository
         
     Returns:
         BaselineMapUpdaterWorkflow: Configured workflow
     """
-    return BaselineMapUpdaterWorkflow(llm_client, embedding_client)
+    return BaselineMapUpdaterWorkflow(llm_client, baseline_map_repo)
 
 # Export main classes
 __all__ = ["BaselineMapUpdaterWorkflow", "BaselineMapUpdaterState", "create_baseline_map_updater"] 

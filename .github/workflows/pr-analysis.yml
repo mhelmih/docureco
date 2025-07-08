@@ -68,7 +68,7 @@ jobs:
           
           # LLM Configuration
           DOCURECO_LLM_PROVIDER: ${{ vars.DOCURECO_LLM_PROVIDER || 'grok' }}
-          DOCURECO_LLM_MODEL: ${{ vars.DOCURECO_LLM_MODEL || 'grok-3-mini-reasoning-high' }}
+          DOCURECO_LLM_MODEL: ${{ vars.DOCURECO_LLM_MODEL || 'grok-3-mini' }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           GROK_BASE_URL: ${{ vars.GROK_BASE_URL || 'https://api.x.ai/v1' }}
           
@@ -88,14 +88,13 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           
           # Logging and Performance
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
           MAX_CONCURRENT_OPERATIONS: ${{ vars.MAX_CONCURRENT_OPERATIONS || '5' }}
           REQUEST_TIMEOUT_SECONDS: ${{ vars.REQUEST_TIMEOUT_SECONDS || '120' }}
           MAX_FILE_SIZE_MB: ${{ vars.MAX_FILE_SIZE_MB || '10' }}
           
         run: |
-          cd agent
-          python -m main
+          python -m agent.main
         timeout-minutes: 10
 
       - name: Upload logs on failure
@@ -124,7 +123,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Set up Node.js (for Repomix)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Repomix
+        run: |
+          npm install -g repomix
+          repomix --version
+
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install -r agent/requirements.txt
@@ -139,10 +148,10 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
           TARGET_BRANCH: ${{ inputs.branch || 'main' }}
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+          FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
         run: |
-          cd agent
-          python -m baseline_map_creator
+          python -m agent.baseline_map_creator
         timeout-minutes: 30
 
       - name: Upload baseline map creation logs
@@ -186,7 +195,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Set up Node.js (for Repomix)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Repomix
+        run: |
+          npm install -g repomix
+          repomix --version
+
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install -r agent/requirements.txt
@@ -202,10 +221,10 @@ jobs:
           TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
           TARGET_BRANCH: ${{ github.event.pull_request.base.ref || inputs.branch || 'main' }}
           MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+          FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
         run: |
-          cd agent
-          python -m baseline_map_updater
+          python -m agent.baseline_map_updater
         timeout-minutes: 20
 
       - name: Upload baseline map update logs

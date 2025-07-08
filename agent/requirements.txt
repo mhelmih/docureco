@@ -15,8 +15,8 @@ supabase==2.8.1
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.35
 
-# GitHub API and Git operations
-PyGithub==2.4.0
+# Git operations (Repomix handles repository scanning)
+# Note: Repomix must be installed globally: npm install -g repomix
 GitPython==3.1.43
 
 # Data processing and utilities

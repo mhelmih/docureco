@@ -15,8 +15,10 @@ class LLMProvider(str, Enum):
 
 class LLMConfig(BaseModel):
     """LLM Configuration model"""
+    model_config = {"protected_namespaces": ()}
+    
     provider: LLMProvider = Field(default=LLMProvider.GROK)
-    model_name: str = Field(default="grok-3-mini-reasoning-high")
+    llm_model: str = Field(default="grok-3-mini")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
@@ -73,7 +75,7 @@ def get_llm_config() -> LLMConfig:
         # Grok 3 configuration
         config = LLMConfig(
             provider=provider,
-            model_name=os.getenv("DOCURECO_LLM_MODEL", "grok-3-mini-reasoning-high"),
+            llm_model=os.getenv("DOCURECO_LLM_MODEL", "grok-3-mini"),
             api_key=os.getenv("GROK_API_KEY"),
             base_url=os.getenv("GROK_BASE_URL", "https://api.x.ai/v1"),
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
@@ -85,7 +87,7 @@ def get_llm_config() -> LLMConfig:
         # OpenAI fallback configuration
         config = LLMConfig(
             provider=provider,
-            model_name=os.getenv("DOCURECO_LLM_MODEL", "gpt-4o-mini"),
+            llm_model=os.getenv("DOCURECO_LLM_MODEL", "gpt-4o-mini"),
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=os.getenv("OPENAI_BASE_URL"),
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
