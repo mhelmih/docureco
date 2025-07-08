@@ -649,27 +649,42 @@ _(This section refers to the UI mockup for the "Edit Note" pop-up/modal.)_
 
 ---
 
-## 6\. Traceability Matrix
+## 6. Traceability Matrix
 
 ### 6.1 Requirements Traceability
 
-| Functional Req. ID | Module(s)                         |
-| :----------------- | :-------------------------------- |
-| F01                | Add Book Module                   |
-| F02                | View Book List Module             |
-| F03                | View & Modify Book Details Module |
-| F04                | View & Modify Book Details Module |
-| F05                | Manage Reading Progress Module    |
-| F06                | View Notes Module                 |
-| F07                | Manage Notes Module               |
+| Functional Req. ID | Module ID | Module Name                       |
+| :----------------- | :-------- | :-------------------------------- |
+| F01                | M02       | Add Book Module                   |
+| F02                | M01       | View Book List Module             |
+| F03                | M03       | View & Modify Book Details Module |
+| F04                | M03       | View & Modify Book Details Module |
+| F05                | M04       | Manage Reading Progress Module    |
+| F06                | M05       | View Notes Module                 |
+| F07                | M06       | Manage Notes Module               |
 
 ### 6.2 Use Case to Class Traceability
 
-| Use Case ID | Related Classes                                                                                          |
-| :---------- | :------------------------------------------------------------------------------------------------------- |
-| UC01        | `FormDisplay`, `AddBookDisplay`, `FormAddBook`, `BookCollection`, `ReadingProgressCollection`, `Book` |
-| UC02        | `FormDisplay`, `Display`, `BookCollection`, `Book`                                                       |
-| UC03        | `FormDisplay`, `FormDetailBuku`, `BookCollection`, `Book`, `ReadingProgress`                             |
-| UC04        | `FormDetailBuku`, `BookCollection`, `ReadingProgressCollection`, `Book`, `ReadingProgress`               |
-| UC05        | `FormDetailBuku`, `NoteCollection`, `Note`                                                               |
-| UC06        | `FormDisplay`, `AddNoteDisplay`, `FormCatatan`, `NoteCollection`, `Note`                                 |
+| Use Case ID | Related Design Classes                                                                               |
+| :---------- | :--------------------------------------------------------------------------------------------------- |
+| UC01        | `ReadBuddy`, `AddBook`, `MainRouter`, `BookCollection`, `ReadingProgressCollection`, `Book`          |
+| UC02        | `ReadBuddy`, `BookDisplay`, `BookCollectionDisplay`, `MainRouter`, `BookCollection`, `Book`          |
+| UC03        | `BookDetail`, `MainRouter`, `BookCollection`, `ReadingProgressCollection`, `Book`, `ReadingProgress` |
+| UC04        | `BookDetail`, `BookCollection`, `ReadingProgressCollection`, `Book`, `ReadingProgress`               |
+| UC05        | `BookDetail`, `NoteDisplay`, `MainRouter`, `BookCollection`, `NoteCollection`, `Note`                |
+| UC06        | `NoteDisplay`, `EditNoteForm`, `MainRouter`, `NoteCollection`, `Note`                                |
+
+### 6.3 Analysis Classes to Design Classes Traceability
+
+| Analysis Class ID | Analysis Class Name | Design Class(es)                                                  | Class Type |
+| :---------------- | :------------------ | :---------------------------------------------------------------- | :--------- |
+| C01               | AddBookForm         | `AddBook`                                                         | Boundary   |
+| C02               | UpdateProgressForm  | `RecordReadingProgress`, `BookDetail`                             | Boundary   |
+| C03               | UpdateNoteForm      | `EditNoteForm`, `NoteDisplay`                                     | Boundary   |
+| C04               | BookTitleDisplay    | `ReadBuddy`, `BookDisplay`, `BookCollectionDisplay`, `MainRouter` | Boundary   |
+| C05               | UpdateBook          | `BookCollection`                                                  | Controller |
+| C06               | UpdateProgress      | `ReadingProgressCollection`                                       | Controller |
+| C07               | UpdateNote          | `NoteCollection`                                                  | Controller |
+| C08               | Book                | `Book`                                                            | Entity     |
+| C09               | ReadingProgress     | `ReadingProgress`                                                 | Entity     |
+| C10               | Note                | `Note`                                                            | Entity     |
