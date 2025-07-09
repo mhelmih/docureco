@@ -129,6 +129,29 @@ def get_llm_config() -> LLMConfig:
     
     return config
 
+def setup_langsmith() -> None:
+    """
+    Configure LangSmith for LLM observability and monitoring
+    
+    Environment variables required:
+    - LANGCHAIN_API_KEY: LangSmith API key
+    - LANGCHAIN_PROJECT: Project name (optional, defaults to 'docureco-agent')
+    """
+    langchain_api_key = os.getenv("LANGCHAIN_API_KEY")
+    
+    if langchain_api_key:
+        # Enable LangSmith tracing
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        
+        # Set project name if not already set
+        if not os.getenv("LANGCHAIN_PROJECT"):
+            os.environ["LANGCHAIN_PROJECT"] = "docureco-agent"
+        
+        print(f"✅ LangSmith enabled for project: {os.getenv('LANGCHAIN_PROJECT')}")
+        print(f"🔍 Tracing enabled - view runs at: https://smith.langchain.com/")
+    else:
+        print("⚠️  LangSmith not configured - set LANGCHAIN_API_KEY to enable tracing")
+
 def get_task_config() -> TaskSpecificConfig:
     """
     Get task-specific LLM configurations
@@ -139,4 +162,4 @@ def get_task_config() -> TaskSpecificConfig:
     return TaskSpecificConfig()
 
 # Export configurations
-__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config"] 
+__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith"] 
