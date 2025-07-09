@@ -68,6 +68,9 @@ class DocurecoLLMClient:
         if not self.config.api_key:
             raise ValueError("GROK_API_KEY environment variable is required for Grok 3")
         
+        print(f"Initializing Grok with base_url: {self.config.base_url}")
+        print(f"Grok API key starts with: {self.config.api_key[:10]}...")
+        
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
@@ -90,6 +93,9 @@ class DocurecoLLMClient:
         """
         if not self.config.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI")
+        
+        print(f"Initializing OpenAI with base_url: {self.config.base_url}")
+        print(f"OpenAI API key starts with: {self.config.api_key[:10]}...")
         
         return ChatOpenAI(
             model=self.config.llm_model,
@@ -172,6 +178,7 @@ class DocurecoLLMClient:
         
         # Override configuration for specific task
         if self.config.provider == LLMProvider.GROK:
+            print(f"Configuring Grok for task '{task_type}' with base_url: {self.config.base_url}")
             return ChatOpenAI(
                 model=self.config.llm_model,
                 api_key=self.config.api_key,
@@ -185,6 +192,7 @@ class DocurecoLLMClient:
                 presence_penalty=self.config.presence_penalty
             )
         else:
+            print(f"Configuring OpenAI for task '{task_type}' with base_url: {self.config.base_url}")
             return ChatOpenAI(
                 model=self.config.llm_model,
                 api_key=self.config.api_key,

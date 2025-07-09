@@ -65,36 +65,61 @@ class TaskSpecificConfig(BaseModel):
 def get_llm_config() -> LLMConfig:
     """
     Get LLM configuration from environment variables
+    Auto-detects provider based on API key format if not explicitly set
     
     Returns:
         LLMConfig: Configured LLM settings
     """
-    provider = LLMProvider(os.getenv("DOCURECO_LLM_PROVIDER", "grok"))
+    # Check for API keys to auto-detect provider
+    grok_api_key = os.getenv("GROK_API_KEY")
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    
+    # Auto-detect provider based on available keys and key format
+    provider_env = os.getenv("DOCURECO_LLM_PROVIDER", "").lower()
+    
+    if provider_env == "openai":
+        provider = LLMProvider.OPENAI
+    elif provider_env == "grok":
+        provider = LLMProvider.GROK
+    elif grok_api_key and grok_api_key.startswith("xai-"):
+        # Auto-detect Grok/xAI based on key format
+        provider = LLMProvider.GROK
+        print(f"Auto-detected Grok provider based on xAI API key format")
+    elif openai_api_key and openai_api_key.startswith("sk-"):
+        # Auto-detect OpenAI based on key format
+        provider = LLMProvider.OPENAI
+        print(f"Auto-detected OpenAI provider based on key format")
+    else:
+        # Default to Grok as specified in requirements
+        provider = LLMProvider.GROK
+        print(f"Using default Grok provider")
     
     if provider == LLMProvider.GROK:
         # Grok 3 configuration
         config = LLMConfig(
             provider=provider,
             llm_model=os.getenv("DOCURECO_LLM_MODEL", "grok-3-mini"),
-            api_key=os.getenv("GROK_API_KEY"),
+            api_key=grok_api_key,
             base_url=os.getenv("GROK_BASE_URL", "https://api.x.ai/v1"),
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "10000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120"))
         )
+        print(f"Configured Grok provider with base_url: {config.base_url}")
     else:
         # OpenAI fallback configuration
         config = LLMConfig(
             provider=provider,
             llm_model=os.getenv("DOCURECO_LLM_MODEL", "gpt-4o-mini"),
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=openai_api_key,
             base_url=os.getenv("OPENAI_BASE_URL"),
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "4000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120"))
         )
+        print(f"Configured OpenAI provider with base_url: {config.base_url}")
     
     return config
 
