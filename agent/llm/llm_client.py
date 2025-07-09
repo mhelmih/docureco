@@ -68,13 +68,16 @@ class DocurecoLLMClient:
         if not self.config.api_key:
             raise ValueError("GROK_API_KEY environment variable is required for Grok 3")
         
-        print(f"Initializing Grok with base_url: {self.config.base_url}")
+        # Ensure base_url is always set for Grok
+        base_url = self.config.base_url or "https://api.x.ai/v1"
+        
+        print(f"Initializing Grok with base_url: {base_url}")
         print(f"Grok API key starts with: {self.config.api_key[:10]}...")
         
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
-            base_url=self.config.base_url,
+            base_url=base_url,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
@@ -178,11 +181,13 @@ class DocurecoLLMClient:
         
         # Override configuration for specific task
         if self.config.provider == LLMProvider.GROK:
-            print(f"Configuring Grok for task '{task_type}' with base_url: {self.config.base_url}")
+            # Ensure base_url is always set for Grok
+            base_url = self.config.base_url or "https://api.x.ai/v1"
+            print(f"Configuring Grok for task '{task_type}' with base_url: {base_url}")
             return ChatOpenAI(
                 model=self.config.llm_model,
                 api_key=self.config.api_key,
-                base_url=self.config.base_url,
+                base_url=base_url,
                 temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
                 max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
                 max_retries=self.config.max_retries,

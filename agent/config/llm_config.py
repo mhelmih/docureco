@@ -96,11 +96,14 @@ def get_llm_config() -> LLMConfig:
     
     if provider == LLMProvider.GROK:
         # Grok 3 configuration
+        # Ensure base_url is never empty - ignore empty env vars
+        grok_base_url = os.getenv("GROK_BASE_URL") or "https://api.x.ai/v1"
+        
         config = LLMConfig(
             provider=provider,
             llm_model=os.getenv("DOCURECO_LLM_MODEL", "grok-3-mini"),
             api_key=grok_api_key,
-            base_url=os.getenv("GROK_BASE_URL", "https://api.x.ai/v1"),
+            base_url=grok_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "10000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
@@ -109,11 +112,14 @@ def get_llm_config() -> LLMConfig:
         print(f"Configured Grok provider with base_url: {config.base_url}")
     else:
         # OpenAI fallback configuration
+        # For OpenAI, base_url can be None (uses default)
+        openai_base_url = os.getenv("OPENAI_BASE_URL") or None
+        
         config = LLMConfig(
             provider=provider,
             llm_model=os.getenv("DOCURECO_LLM_MODEL", "gpt-4o-mini"),
             api_key=openai_api_key,
-            base_url=os.getenv("OPENAI_BASE_URL"),
+            base_url=openai_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "4000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
