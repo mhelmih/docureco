@@ -22,7 +22,7 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=4000, gt=0)
+    max_tokens: int = Field(default=10000, gt=0)
     max_retries: int = Field(default=3, ge=0)
     request_timeout: int = Field(default=120, gt=0)
     
@@ -79,7 +79,7 @@ def get_llm_config() -> LLMConfig:
             api_key=os.getenv("GROK_API_KEY"),
             base_url=os.getenv("GROK_BASE_URL", "https://api.x.ai/v1"),
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
-            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "4000")),
+            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "10000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120"))
         )

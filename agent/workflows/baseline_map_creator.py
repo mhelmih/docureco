@@ -175,6 +175,11 @@ class BaselineMapCreatorWorkflow:
             ])
             
             print(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
+            print("="*100)
+            print(state["sdd_content"])
+            print("="*100)
+            print(state["srs_content"])
+            print("="*100)
             
         except Exception as e:
             print(f"Error scanning repository: {str(e)}")
@@ -676,28 +681,155 @@ class BaselineMapCreatorWorkflow:
     
     async def _llm_extract_requirements(self, content: str, file_path: str) -> List[Dict[str, Any]]:
         """Extract requirements using LLM"""
-        # Placeholder - would implement LLM extraction
-        return [
-            {
-                "title": "User Authentication",
-                "description": "System must provide secure user authentication",
-                "type": "Functional",
-                "priority": "High",
-                "section": "3.1.1"
-            }
-        ]
+        try:
+            # Prepare system prompt for requirements extraction
+            system_message = """You are an expert business analyst analyzing Software Requirements Specification (SRS) documents. Your task is to extract functional and non-functional requirements such as:
+
+- Functional Requirements: Features, behaviors, functions the system must provide
+- Non-Functional Requirements: Performance, security, usability, reliability constraints
+- Business Requirements: High-level business goals and objectives
+- User Requirements: What users need to accomplish
+- System Requirements: Technical constraints and specifications
+
+For each requirement found, provide:
+- title: Clear, concise title of the requirement
+- description: Detailed description of what is required
+- type: Category (Functional, Non-Functional, Business, User, System, etc.)
+- priority: Importance level (High, Medium, Low)
+- section: Section reference from the document (if available)
+
+Return a JSON array of requirements. If no requirements are found, return an empty array."""
+
+            # Prepare human prompt with the content
+            human_prompt = f"""Analyze the following Software Requirements Specification content and extract all requirements:
+
+File: {file_path}
+
+Content:
+{content}
+
+Extract requirements and return them as a JSON array."""
+
+            # Generate LLM response
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                system_message=system_message,
+                task_type="code_analysis",
+                output_format="json",
+                temperature=0.1  # Low temperature for consistent extraction
+            )
+
+            # Parse JSON response
+            requirements = response.content
+            
+            # Validate the response format
+            if not isinstance(requirements, list):
+                print(f"LLM returned non-list response for {file_path}, using empty list")
+                return []
+            
+            # Validate each requirement has required fields
+            validated_requirements = []
+            for req in requirements:
+                if isinstance(req, dict) and "title" in req:
+                    validated_req = {
+                        "title": req.get("title", "Unknown Requirement"),
+                        "description": req.get("description", ""),
+                        "type": req.get("type", "Functional"),
+                        "priority": req.get("priority", "Medium"),
+                        "section": req.get("section", file_path)
+                    }
+                    validated_requirements.append(validated_req)
+            
+            print(f"Extracted {len(validated_requirements)} requirements from {file_path}")
+            return validated_requirements
+            
+        except Exception as e:
+            print(f"Error extracting requirements from {file_path}: {str(e)}")
+            # Return fallback requirement on error
+            return [
+                {
+                    "title": f"Requirement from {Path(file_path).stem}",
+                    "description": f"Requirement extracted from {file_path}",
+                    "type": "Functional",
+                    "priority": "Medium",
+                    "section": file_path
+                }
+            ]
     
     async def _llm_extract_design_elements(self, content: str, file_path: str) -> List[Dict[str, Any]]:
         """Extract design elements using LLM"""
-        # Placeholder - would implement LLM extraction
-        return [
-            {
-                "name": "AuthService",
-                "description": "Authentication service component",
-                "type": "Service",
-                "section": "4.2.1"
-            }
-        ]
+        try:
+            # Prepare system prompt for design element extraction
+            system_message = """You are an expert software architect analyzing Software Design Documents (SDD). Your task is to extract design elements such as:
+
+- Components: Services, modules, libraries, frameworks
+- Classes: Entity classes, controller classes, service classes
+- Interfaces: API interfaces, contracts, protocols  
+- Database Elements: Tables, schemas, data models
+- UI Elements: Pages, forms, dialogs, components
+- Architectural Elements: Layers, patterns, architectural components
+
+For each design element found, provide:
+- name: Clear, descriptive name of the design element
+- description: Brief description of purpose/functionality
+- type: Category (Service, Class, Interface, Component, Database, UI, etc.)
+- section: Section reference from the document (if available)
+
+Return a JSON array of design elements. If no design elements are found, return an empty array."""
+
+            # Prepare human prompt with the content
+            human_prompt = f"""Analyze the following Software Design Document content and extract all design elements:
+
+File: {file_path}
+
+Content:
+{content}
+
+Extract design elements and return them as a JSON array."""
+
+            # Generate LLM response
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                system_message=system_message,
+                task_type="code_analysis",
+                output_format="json",
+                temperature=0.1  # Low temperature for consistent extraction
+            )
+
+            # Parse JSON response
+            design_elements = response.content
+            
+            # Validate the response format
+            if not isinstance(design_elements, list):
+                print(f"LLM returned non-list response for {file_path}, using empty list")
+                return []
+            
+            # Validate each element has required fields
+            validated_elements = []
+            for element in design_elements:
+                if isinstance(element, dict) and "name" in element:
+                    validated_element = {
+                        "name": element.get("name", "Unknown"),
+                        "description": element.get("description", ""),
+                        "type": element.get("type", "Component"),
+                        "section": element.get("section", file_path)
+                    }
+                    validated_elements.append(validated_element)
+            
+            print(f"Extracted {len(validated_elements)} design elements from {file_path}")
+            return validated_elements
+            
+        except Exception as e:
+            print(f"Error extracting design elements from {file_path}: {str(e)}")
+            # Return fallback elements on error
+            return [
+                {
+                    "name": f"Component_{Path(file_path).stem}",
+                    "description": f"Component extracted from {file_path}",
+                    "type": "Component",
+                    "section": file_path
+                }
+            ]
     
     async def _create_design_element_relationships(self, design_elements: List[DesignElementModel]) -> List[Dict[str, Any]]:
         """Create relationships between design elements using simple heuristics"""
