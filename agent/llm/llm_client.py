@@ -34,12 +34,11 @@ class DocurecoLLMClient:
     """
     
     def __init__(self, config: Optional[LLMConfig] = None):
-        """
-        Initialize LLM client
+        """Initialize LLM client with LangSmith integration"""
+        # Set up LangSmith tracing
+        from ..config.llm_config import setup_langsmith
+        setup_langsmith()
         
-        Args:
-            config: LLM configuration, defaults to environment-based config
-        """
         self.config = config or get_llm_config()
         self.task_config = get_task_config()
         self.llm = self._initialize_llm()
@@ -340,4 +339,4 @@ def create_llm_client(config: Optional[LLMConfig] = None) -> DocurecoLLMClient:
     return DocurecoLLMClient(config)
 
 # Export main classes and functions
-__all__ = ["DocurecoLLMClient", "LLMResponse", "create_llm_client"] 
+__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith"] 
