@@ -1,11 +1,11 @@
 import flet as ft
 import datetime as dt
 from flet_route import Routing, path
-from DetailBuku_page import DetailBuku
-from DisplayCatatan import DisplayCatatan
-from tambahBuku import Tambah_Buku
-from CatatProgressPembacaan_page import CatatProgresPembacaan
-from Main_Page import main
+from book_detail import BookDetail
+from note_display import NoteDisplay
+from add_book import AddBook
+from record_reading_progress import RecordReadingProgress
+from Main_Page import ReadBuddy
 
 import sys
 
@@ -14,26 +14,26 @@ sys.path.append('./src')
 
 def MainRouter(page: ft.Page):
     
-    def display_catatan_view(page: ft.Page, params, basket):
-        id_buku = int(params.get("id_buku"))
-        display_catatan = DisplayCatatan(id_buku, page)
+    def display_note_view(page: ft.Page, params, basket):
+        book_id = int(params.get("id_buku"))
+        note_display = NoteDisplay(book_id, page)
 
         view = ft.View(
             "/DisplayCatatan/:id_buku",
-            controls = display_catatan.page.controls
+            controls = note_display.page.controls
         )
         return view
     
-    detail_buku = DetailBuku()
-    tambah_buku = Tambah_Buku()
-    catat_progres_pembacaan = CatatProgresPembacaan()
+    book_detail = BookDetail()
+    add_book = AddBook()
+    record_reading_progress = RecordReadingProgress()
 
     app_routes = [
-        path(url="/", clear = True, view = main),
-        path(url="/DetailBuku/:id_buku", clear = True, view = detail_buku.detail_buku),
-        path(url="/DisplayCatatan/:id_buku", clear = True, view = display_catatan_view),
-        path(url="/TambahBuku/", clear = True, view = tambah_buku.display_tambah_buku),
-        path(url="/CatatProgresPembacaan/:id_buku", clear = True, view = catat_progres_pembacaan.catat_progress_pembacaan)
+        path(url="/", clear = True, view = ReadBuddy),
+        path(url="/DetailBuku/:id_buku", clear = True, view = book_detail.detail_book),
+        path(url="/DisplayCatatan/:id_buku", clear = True, view = display_note_view),
+        path(url="/TambahBuku/", clear = True, view = add_book.display_add_book),
+        path(url="/CatatProgresPembacaan/:id_buku", clear = True, view = record_reading_progress.record_reading_progress)
     ]
 
     Routing(page=page, app_routes=app_routes)

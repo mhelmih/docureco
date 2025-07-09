@@ -1,16 +1,16 @@
 import pytest
-from src.catatan.KumpulanCatatan import *
+from src.note.note_collection import *
 
 
 def test_catatan_constructor():
-    catatan = Catatan(1, 1, 1, "hello")
+    catatan = Note(1, 1, 1, "hello")
     assert catatan.get_idCatatan() == 1
     assert catatan.get_idBuku() == 1
     assert catatan.get_halamanBuku() == 1
     assert catatan.get_kontenCatatan() == "hello"
 
 def test_catatan_setter():
-    catatan = Catatan(1, 1, 1, "hello")
+    catatan = Note(1, 1, 1, "hello")
 
     catatan.set_idCatatan(5)
     assert catatan.get_idCatatan() == 5
@@ -26,13 +26,13 @@ def test_catatan_setter():
 
 
 def test_kumpulan_catatan_insert():
-    kc = KumpulanCatatan()
+    kc = NoteCollection()
     kc.set_db("tests/testing_db.db")
     kc.clear_all()
-    catatan1 = Catatan(0, 1, 1, "hello")
-    catatan1EQ = Catatan(0, 1, 1, "hello")
+    catatan1 = Note(0, 1, 1, "hello")
+    catatan1EQ = Note(0, 1, 1, "hello")
     assert catatan1 == catatan1EQ
-    catatan2 = Catatan(0, 2, 2, "world")
+    catatan2 = Note(0, 2, 2, "world")
 
     kc.insert(catatan1)
     kc.insert(catatan2)
@@ -42,16 +42,16 @@ def test_kumpulan_catatan_insert():
 
 
 def test_kumpulan_catatan_delete():
-    kc = KumpulanCatatan()
+    kc = NoteCollection()
     kc.set_db("tests/testing_db.db")
 
     kc.clear_all()
 
-    catatan1 = Catatan(1, 1, 1, "hello")
+    catatan1 = Note(1, 1, 1, "hello")
 
     kc.insert(catatan1)
 
-    kc.insert(Catatan(1, 2, 2, "world"))
+    kc.insert(Note(1, 2, 2, "world"))
 
     kc.delete_catatan(1,2)
 

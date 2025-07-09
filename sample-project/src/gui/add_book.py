@@ -7,17 +7,17 @@ import shutil
 sys.path.append('.')
 sys.path.append('./src')
 
-from src.buku.buku import Buku
-from src.buku.kumpulanBuku import KumpulanBuku
-from src.progresBaca.ProgresBaca import ProgresBaca
-from src.progresBaca.KumpulanProgresBaca import KumpulanProgresBaca
+from src.book.book import Book
+from src.book.book_collection import BookCollection
+from src.reading_progress.reading_progress import ReadingProgress
+from src.reading_progress.reading_progress_collection import ReadingProgressCollection
 
-class Tambah_Buku:
+class AddBook:
     def __init__(self):
-        self.kb = KumpulanBuku()
-        self.kb.set_db("read_buddy.db")
-        self.kbp = KumpulanProgresBaca()
-        self.kbp.set_db("read_buddy.db")
+        self.book_collection = BookCollection()
+        self.book_collection.set_db("read_buddy.db")
+        self.reading_progress_collection = ReadingProgressCollection()
+        self.reading_progress_collection.set_db("read_buddy.db")
         self.file_picker = ft.FilePicker(on_result=self.save_result)
         self.has_upload_cover = False
 
@@ -38,37 +38,37 @@ class Tambah_Buku:
         )
         self.thePage.update()
 
-    def save_cover(self, idBuku) :
+    def save_cover(self, bookId) :
         if (self.file_picker.result != None) :
-            shutil.copyfile(self.file_picker.result.files[0].path, f"img/bookCover/cover{idBuku}.{self.file_picker.result.files[0].path[-3:]}")
+            shutil.copyfile(self.file_picker.result.files[0].path, f"img/bookCover/cover{bookId}.{self.file_picker.result.files[0].path[-3:]}")
         else :
-            shutil.copyfile("img/bookCover/nullCover.jpg", f"img/bookCover/cover{idBuku}.jpg")
+            shutil.copyfile("img/bookCover/nullCover.jpg", f"img/bookCover/cover{bookId}.jpg")
 
 
     def submit_clicked(self, e) :
-        if (self.judul_field.value == ""):
+        if (self.book_title_field.value == ""):
             self.error_text.value = "Judul buku harus diisi"
-        elif (self.halaman_field.value == ""):
+        elif (self.page_count_field.value == ""):
             self.error_text.value = "Halaman buku harus diisi"
         else:
             try:
-                halamanBuku = int(self.halaman_field.value)
-                if (halamanBuku <= 0):
+                page_count = int(self.page_count_field.value)
+                if (page_count <= 0):
                     self.error_text.value = "Halaman buku harus bilangan positif"
                 else:
-                    buku = Buku(None, self.judul_field.value, self.status_buku_dropdown.value.lower(), halamanBuku)
-                    self.kb.insert(buku)
+                    book = Book(None, self.book_title_field.value, self.book_status_dropdown.value.lower(), page_count)
+                    self.book_collection.insert(book)
 
-                    progresBaca = ProgresBaca(buku.get_idBuku(), 0, 0, dt.datetime(1970, 1, 1))
+                    reading_progress = ReadingProgress(book.get_bookId(), 0, 0, dt.datetime(1970, 1, 1))
 
-                    if (self.status_buku_dropdown.value.lower() == 'sedang dibaca') :
-                        progresBaca.setPembacaanKe(1)
-                        progresBaca.setTanggalMulai(dt.datetime.now())
+                    if (self.book_status_dropdown.value.lower() == 'sedang dibaca') :
+                        reading_progress.setReadingSession(1)
+                        reading_progress.setStartDate(dt.datetime.now())
 
                     self.error_text.value = "Tambah buku berhasil"
-                    self.kbp.insert(progresBaca)
+                    self.reading_progress_collection.insert(reading_progress)
 
-                    self.save_cover(buku.get_idBuku())
+                    self.save_cover(book.get_bookId())
 
                     self.page.go("/")
             except:
@@ -78,17 +78,17 @@ class Tambah_Buku:
             
         self.error_text.update()
     
-    def display_tambah_buku(self, page: ft.Page, params : Params, basket : Basket):
+    def display_add_book(self, page: ft.Page, params : Params, basket : Basket):
         # Headers
         self.page = page
         page.controls.clear()
-        judul_page = ft.Text(value="TAMBAH BUKU", size=30, weight=15)
-        nama_aplikasi = ft.Text(value="READ BUDDY")
-        button_kembali = ft.ElevatedButton(text="Kembali", on_click=lambda _: page.go("/"))
+        page_title = ft.Text(value="TAMBAH BUKU", size=30, weight=15)
+        app_name = ft.Text(value="READ BUDDY")
+        back_button = ft.ElevatedButton(text="Kembali", on_click=lambda _: page.go("/"))
 
         # Buttons
-        button_tambah_buku = ft.ElevatedButton(text="Tambah Buku", width=150, on_click=self.submit_clicked)
-        button_upload = ft.ElevatedButton(
+        add_book_button = ft.ElevatedButton(text="Tambah Buku", width=150, on_click=self.submit_clicked)
+        upload_button = ft.ElevatedButton(
             "Click to upload file",
             width=300,
             height=500,
@@ -101,7 +101,7 @@ class Tambah_Buku:
         )
 
         # Fields
-        self.status_buku_dropdown = ft.Dropdown(
+        self.book_status_dropdown = ft.Dropdown(
             width=500,
             label = "Status Buku",
             hint_text="Status Buku",
@@ -111,9 +111,9 @@ class Tambah_Buku:
             ],
             autofocus=True,
         )
-        self.status_buku_dropdown.value = "Sedang Dibaca"
-        self.judul_field = ft.TextField(hint_text="Judul Buku", width=500)
-        self.halaman_field = ft.TextField(hint_text="Jumlah Halaman", width=500)
+        self.book_status_dropdown.value = "Sedang Dibaca"
+        self.book_title_field = ft.TextField(hint_text="Judul Buku", width=500)
+        self.page_count_field = ft.TextField(hint_text="Jumlah Halaman", width=500)
 
         # Text
         self.error_text = ft.Text(value="")
@@ -128,9 +128,9 @@ class Tambah_Buku:
                 [
                     ft.Row(
                         [
-                            nama_aplikasi,
-                            judul_page,
-                            button_kembali
+                            app_name,
+                            page_title,
+                            back_button
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER
@@ -145,9 +145,9 @@ class Tambah_Buku:
         self.detail_row = ft.Container(
             content=ft.Column(
                 [
-                    self.judul_field,
-                    self.halaman_field,
-                    self.status_buku_dropdown,
+                    self.book_title_field,
+                    self.page_count_field,
+                    self.book_status_dropdown,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_AROUND
             ),
@@ -158,7 +158,7 @@ class Tambah_Buku:
         main_container = ft.Container(
             content=ft.Row(
                 [
-                    ft.Container(content=button_upload, padding=ft.Padding(0, 0, 40, 0)),
+                    ft.Container(content=upload_button, padding=ft.Padding(0, 0, 40, 0)),
                     ft.Container(content=self.detail_row, padding=ft.Padding(40, 0, 0, 0)),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_AROUND,
@@ -172,7 +172,7 @@ class Tambah_Buku:
             content=ft.Row(
                 [
                     self.error_text,
-                    button_tambah_buku,
+                    add_book_button,
                 ],
                 alignment=ft.MainAxisAlignment.END,
                 vertical_alignment=ft.CrossAxisAlignment.END
