@@ -175,12 +175,7 @@ class BaselineMapCreatorWorkflow:
             ])
             
             print(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
-            print("="*100)
-            print(state["sdd_content"])
-            print("="*100)
-            print(state["srs_content"])
-            print("="*100)
-            
+
         except Exception as e:
             print(f"Error scanning repository: {str(e)}")
             raise e

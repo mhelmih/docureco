@@ -81,10 +81,8 @@ class DocurecoLLMClient:
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
-            request_timeout=self.config.request_timeout,
-            top_p=self.config.top_p,
-            frequency_penalty=self.config.frequency_penalty,
-            presence_penalty=self.config.presence_penalty
+            request_timeout=self.config.request_timeout
+            # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
     def _initialize_openai(self) -> ChatOpenAI:
@@ -183,7 +181,7 @@ class DocurecoLLMClient:
         if self.config.provider == LLMProvider.GROK:
             # Ensure base_url is always set for Grok
             base_url = self.config.base_url or "https://api.x.ai/v1"
-            print(f"Configuring Grok for task '{task_type}' with base_url: {base_url}")
+            # Grok doesn't support all OpenAI parameters, so we exclude unsupported ones
             return ChatOpenAI(
                 model=self.config.llm_model,
                 api_key=self.config.api_key,
@@ -191,13 +189,10 @@ class DocurecoLLMClient:
                 temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
                 max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
                 max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout,
-                top_p=self.config.top_p,
-                frequency_penalty=self.config.frequency_penalty,
-                presence_penalty=self.config.presence_penalty
+                request_timeout=self.config.request_timeout
+                # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
             )
         else:
-            print(f"Configuring OpenAI for task '{task_type}' with base_url: {self.config.base_url}")
             return ChatOpenAI(
                 model=self.config.llm_model,
                 api_key=self.config.api_key,
