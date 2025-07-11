@@ -117,7 +117,7 @@ class BaselineMapCreatorWorkflow:
         logger.info("Initialized BaselineMapCreatorWorkflow with Repomix")
     
     def _build_workflow(self) -> StateGraph:
-        """Build the LangGraph workflow following the SRS, SDD, and Code Mapping process"""
+        """Build the LangGraph workflow with conditional routing based on available data"""
         workflow = StateGraph(BaselineMapCreatorState)
         
         # Add nodes for each major process step
@@ -129,24 +129,84 @@ class BaselineMapCreatorWorkflow:
         workflow.add_node("design_to_code_mapping", self._design_to_code_mapping)
         workflow.add_node("save_baseline_map", self._save_baseline_map)
         
-        # Define workflow edges following this sequence:
-        # 1. Scan repository
-        # 2. Identify design elements from SDD (with traceability matrix)
-        # 3. Identify requirements from SRS (using traceability matrix context)
-        # 4. Create D<->D links
-        # 5. Create R<->D links
-        # 6. Create D<->C links
-        # 7. Save baseline map
+        # Define conditional workflow routing
         workflow.set_entry_point("scan_repository")
-        workflow.add_edge("scan_repository", "identify_design_elements")
-        workflow.add_edge("identify_design_elements", "identify_requirements")
-        workflow.add_edge("identify_requirements", "design_to_design_mapping")  
+        
+        # After scanning: check if documentation exists
+        workflow.add_conditional_edges(
+            "scan_repository",
+            self._route_after_scan,
+            {
+                "identify_design_elements": "identify_design_elements",
+                "end": END
+            }
+        )
+        
+        # After design elements: check if any were found
+        workflow.add_conditional_edges(
+            "identify_design_elements", 
+            self._route_after_design_elements,
+            {
+                "identify_requirements": "identify_requirements",
+                "end": END
+            }
+        )
+        
+        # After requirements: check if any were found  
+        workflow.add_conditional_edges(
+            "identify_requirements",
+            self._route_after_requirements,
+            {
+                "design_to_design_mapping": "design_to_design_mapping",
+                "end": END
+            }
+        )
+        
+        # Linear flow for the rest
         workflow.add_edge("design_to_design_mapping", "requirements_to_design_mapping")
         workflow.add_edge("requirements_to_design_mapping", "design_to_code_mapping")
         workflow.add_edge("design_to_code_mapping", "save_baseline_map")
         workflow.add_edge("save_baseline_map", END)
         
         return workflow
+    
+    def _route_after_scan(self, state: BaselineMapCreatorState) -> str:
+        """Route after repository scan based on whether documentation was found"""
+        has_sdd = len(state.get("sdd_content", {})) > 0
+        has_srs = len(state.get("srs_content", {})) > 0
+        
+        if not has_sdd and not has_srs:
+            print("❌ No SDD or SRS documentation found. Workflow will terminate.")
+            print(f"   - SDD files: {len(state.get('sdd_content', {}))}")
+            print(f"   - SRS files: {len(state.get('srs_content', {}))}")
+            return "end"
+        
+        print(f"✅ Documentation found - proceeding to design element identification")
+        print(f"   - SDD files: {len(state.get('sdd_content', {}))}")
+        print(f"   - SRS files: {len(state.get('srs_content', {}))}")
+        return "identify_design_elements"
+    
+    def _route_after_design_elements(self, state: BaselineMapCreatorState) -> str:
+        """Route after design element identification based on whether any were found"""
+        design_elements_count = len(state.get("design_elements", []))
+        
+        if design_elements_count == 0:
+            print("❌ No design elements extracted. Workflow will terminate.")
+            return "end"
+        
+        print(f"✅ Found {design_elements_count} design elements - proceeding to requirements identification")
+        return "identify_requirements"
+    
+    def _route_after_requirements(self, state: BaselineMapCreatorState) -> str:
+        """Route after requirements identification based on whether any were found"""
+        requirements_count = len(state.get("requirements", []))
+        
+        if requirements_count == 0:
+            print("❌ No requirements extracted. Workflow will terminate.")
+            return "end"
+        
+        print(f"✅ Found {requirements_count} requirements - proceeding with full workflow")
+        return "design_to_design_mapping"
     
     async def execute(self, repository: str, branch: str = "main") -> BaselineMapCreatorState:
         """
@@ -193,7 +253,14 @@ class BaselineMapCreatorWorkflow:
         
         final_state = await app.ainvoke(initial_state, config=config)
         
-        print(f"Baseline map creation completed for {repository}:{branch}")
+        # Print completion summary
+        current_step = final_state.get("current_step", "unknown")
+        if current_step == "completed":
+            print(f"✅ Baseline map creation completed successfully for {repository}:{branch}")
+        else:
+            print(f"⚠️  Baseline map creation terminated early at step: {current_step}")
+            print(f"   Repository: {repository}:{branch}")
+            
         return final_state
     
     async def _scan_repository(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
@@ -446,8 +513,9 @@ class BaselineMapCreatorWorkflow:
                 documentation_files[file_path] = file_content
                 print(f"Found documentation file: {file_path}")
         
+        # Allow empty documentation files - will be handled by conditional workflow
         if len(documentation_files) == 0:
-            raise Exception("No documentation files found")
+            print(f"No documentation files found matching patterns: {patterns}")
         
         return documentation_files
     
@@ -736,26 +804,26 @@ class BaselineMapCreatorWorkflow:
         print("Saving baseline map to database")
         state["current_step"] = "saving_baseline_map"
         
-        # Combine all traceability links before saving
+        # Combine all traceability links before saving (handle empty lists gracefully)
         state["traceability_links"] = (
-            state["design_to_design_links"] + 
-            state["design_to_code_links"] + 
-            state["requirements_to_design_links"]
+            state.get("design_to_design_links", []) + 
+            state.get("design_to_code_links", []) + 
+            state.get("requirements_to_design_links", [])
         )
         state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
         
         print(f"Total traceability links: {len(state['traceability_links'])}")
-        print(f"  - Design-to-design: {len(state['design_to_design_links'])}")
-        print(f"  - Design-to-code: {len(state['design_to_code_links'])}")
-        print(f"  - Requirements-to-design: {len(state['requirements_to_design_links'])}")
+        print(f"  - Design-to-design: {len(state.get('design_to_design_links', []))}")
+        print(f"  - Design-to-code: {len(state.get('design_to_code_links', []))}")
+        print(f"  - Requirements-to-design: {len(state.get('requirements_to_design_links', []))}")
         
-        # Create baseline map model
+        # Create baseline map model (handle potentially empty state values)
         baseline_map = BaselineMapModel(
             repository=state["repository"],
             branch=state["branch"],
-            requirements=state["requirements"],
-            design_elements=state["design_elements"],
-            code_components=state["code_components"],
+            requirements=state.get("requirements", []),
+            design_elements=state.get("design_elements", []),
+            code_components=state.get("code_components", []),
             traceability_links=state["traceability_links"]
         )
         
