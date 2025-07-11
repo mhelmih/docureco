@@ -1,19 +1,18 @@
 """
 Baseline Map Creator Workflow for Docureco Agent
-Main LangGraph workflow that creates baseline traceability maps from repository documentation and code
+Creates baseline traceability maps from repository documentation and code
 """
 
-import asyncio
 import logging
+import sys
 import os
+import fnmatch
 import subprocess
 import sys
 import tempfile
-import shutil
 from pathlib import Path
-from typing import Dict, Any, List, Optional, TypedDict
-from dataclasses import field
-import json
+from typing import Dict, Any, List, Optional
+
 
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
