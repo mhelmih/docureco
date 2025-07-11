@@ -725,16 +725,7 @@ class BaselineMapCreatorWorkflow:
         state["requirements_to_design_links"] = requirements_to_design_links
         state["processing_stats"]["requirements_to_design_links_count"] = len(requirements_to_design_links)
         
-        # Combine all traceability links
-        state["traceability_links"] = (
-            state["design_to_design_links"] + 
-            state["design_to_code_links"] + 
-            state["requirements_to_design_links"]
-        )
-        state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
-        
         print(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
-        print(f"Total traceability links: {len(state['traceability_links'])}")
         
         return state
     
@@ -744,6 +735,19 @@ class BaselineMapCreatorWorkflow:
         """
         print("Saving baseline map to database")
         state["current_step"] = "saving_baseline_map"
+        
+        # Combine all traceability links before saving
+        state["traceability_links"] = (
+            state["design_to_design_links"] + 
+            state["design_to_code_links"] + 
+            state["requirements_to_design_links"]
+        )
+        state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
+        
+        print(f"Total traceability links: {len(state['traceability_links'])}")
+        print(f"  - Design-to-design: {len(state['design_to_design_links'])}")
+        print(f"  - Design-to-code: {len(state['design_to_code_links'])}")
+        print(f"  - Requirements-to-design: {len(state['requirements_to_design_links'])}")
         
         # Create baseline map model
         baseline_map = BaselineMapModel(
