@@ -790,6 +790,7 @@ class BaselineMapCreatorWorkflow:
 
         # Parse the JSON response into Pydantic model
         extraction_result = output_parser.parse(response.content)
+        print(extraction_result)
 
         # Add source_file to each traceability matrix entry
         for matrix_entry in extraction_result.traceability_matrix:
@@ -821,6 +822,7 @@ class BaselineMapCreatorWorkflow:
 
         # Parse the JSON response into Pydantic model
         extraction_result = output_parser.parse(response.content)
+        print(extraction_result)
 
         print(f"Extracted {len(extraction_result.requirements)} requirements and {len(extraction_result.design_elements)} design elements from {file_path} with traceability matrix context")
         return extraction_result
@@ -860,6 +862,7 @@ class BaselineMapCreatorWorkflow:
 
         # Parse the JSON response into Pydantic model
         llm_relationships = output_parser.parse(response.content)
+        print(llm_relationships)
 
         # Validate relationships
         validated_relationships = []
