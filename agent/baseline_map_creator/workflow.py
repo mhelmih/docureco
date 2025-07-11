@@ -379,7 +379,6 @@ class BaselineMapCreatorWorkflow:
         for i, line in enumerate(lines):
             # Look for file headers: ## path/to/file (must contain a file extension or be in recognizable directory)
             if line.startswith('## '):
-                
                 if '/' in line or '.' in line:
                     # Save previous file if exists
                     if current_file and current_content:
@@ -515,7 +514,7 @@ class BaselineMapCreatorWorkflow:
             extraction_result = await self._llm_extract_design_elements_with_matrix(content, file_path)
             
             # Process design elements
-            for elem_data in extraction_result.design_elements:
+            for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
                     name=elem_data.name,
@@ -656,7 +655,7 @@ class BaselineMapCreatorWorkflow:
             )
             
             # Process requirements
-            for req_data in extraction_result.requirements:
+            for req_data in extraction_result['requirements']:
                 requirement = RequirementModel(
                     id=f"REQ-{req_counter:03d}",
                     title=req_data.title,
@@ -669,7 +668,7 @@ class BaselineMapCreatorWorkflow:
                 req_counter += 1
         
             # Process additional design elements found in SRS
-            for elem_data in extraction_result.design_elements:
+            for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
                     name=elem_data.name,
@@ -1023,8 +1022,8 @@ class BaselineMapCreatorWorkflow:
         
         # Validate each relationship has required fields
         validated_relationships = []
-        valid_design_ids = {elem.id for elem in design_elements}
-        valid_code_ids = {comp.id for comp in code_components}
+        valid_design_ids = {elem['id'] for elem in design_elements}
+        valid_code_ids = {comp['id'] for comp in code_components}
         
         for rel in llm_relationships:
             if not isinstance(rel, dict):
