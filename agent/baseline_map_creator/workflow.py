@@ -845,41 +845,43 @@ class BaselineMapCreatorWorkflow:
         system_message = prompts.design_element_relationships_system_prompt()
         human_prompt = prompts.design_element_relationships_human_prompt(elements_data, sdd_traceability_matrix)
 
-        # Create output parser for JSON format
-        output_parser = JsonOutputParser(pydantic_object=List[RelationshipOutput])
-
-        # Generate JSON response (avoid generate_structured_response as it forces function calling)
+        # Generate JSON response (use auto-parsing since we don't need full Pydantic validation)
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
-            system_message=system_message + "\n" + output_parser.get_format_instructions(),
+            system_message=system_message,
             task_type="traceability_mapping",
-            output_format="text",  # Use text so we can parse into Pydantic model
+            output_format="json",  # Auto-parses JSON
             temperature=0.15  # Low-medium temperature for consistent but thoughtful analysis
         )
 
-        # Parse the JSON response into Pydantic model
-        llm_relationships = output_parser.parse(response.content)
+        # Response content is already parsed as JSON (list of dicts)
+        llm_relationships = response.content
 
         # Validate relationships
         validated_relationships = []
         valid_element_ids = {elem.id for elem in design_elements}
         
         for relationship in llm_relationships:
-            # Validate that source and target IDs exist
-            if relationship.source_id not in valid_element_ids:
-                print(f"Warning: Invalid source_id '{relationship.source_id}' in design element relationship")
+            # Validate that relationship has required fields
+            if not isinstance(relationship, dict) or not all(key in relationship for key in ["source_id", "target_id", "relationship_type"]):
+                print(f"Warning: Invalid relationship format: {relationship}")
                 continue
                 
-            if relationship.target_id not in valid_element_ids:
-                print(f"Warning: Invalid target_id '{relationship.target_id}' in design element relationship")
+            # Validate that source and target IDs exist
+            if relationship["source_id"] not in valid_element_ids:
+                print(f"Warning: Invalid source_id '{relationship['source_id']}' in design element relationship")
+                continue
+                
+            if relationship["target_id"] not in valid_element_ids:
+                print(f"Warning: Invalid target_id '{relationship['target_id']}' in design element relationship")
                 continue
                 
             # Validate relationship type
-            if relationship.relationship_type not in ["refines", "realizes", "depends_on"]:
-                print(f"Warning: Invalid relationship_type '{relationship.relationship_type}' for design element relationship")
+            if relationship["relationship_type"] not in ["refines", "realizes", "depends_on"]:
+                print(f"Warning: Invalid relationship_type '{relationship['relationship_type']}' for design element relationship")
                 continue
                 
-            validated_relationships.append(relationship.dict())
+            validated_relationships.append(relationship)
         
         print(f"Created {len(validated_relationships)} validated design element relationships")
         return validated_relationships
