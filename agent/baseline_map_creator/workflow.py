@@ -527,9 +527,9 @@ class BaselineMapCreatorWorkflow:
                 elem_counter += 1
             
             # Process traceability matrix (without relationship types initially)
-            for matrix_entry in extraction_result.traceability_matrix:
-                matrix_entry.source_file = file_path  # Track which file it came from
-                sdd_traceability_matrix.append(matrix_entry.model_dump())
+            for matrix_entry in extraction_result['traceability_matrix']:
+                matrix_entry['source_file'] = file_path  # Track which file it came from
+                sdd_traceability_matrix.append(matrix_entry)
         
         state["design_elements"] = design_elements
         state["sdd_traceability_matrix"] = sdd_traceability_matrix
@@ -790,13 +790,12 @@ class BaselineMapCreatorWorkflow:
 
         # Parse the JSON response into Pydantic model
         extraction_result = output_parser.parse(response.content)
-        print(extraction_result)
 
         # Add source_file to each traceability matrix entry
-        for matrix_entry in extraction_result.traceability_matrix:
-            matrix_entry.source_file = file_path
+        for matrix_entry in extraction_result['traceability_matrix']:
+            matrix_entry['source_file'] = file_path
 
-        print(f"Extracted {len(extraction_result.design_elements)} design elements and {len(extraction_result.traceability_matrix)} traceability matrix entries from {file_path}")
+        print(f"Extracted {len(extraction_result['design_elements'])} design elements and {len(extraction_result['traceability_matrix'])} traceability matrix entries from {file_path}")
         return extraction_result
     
     async def _llm_extract_requirements_with_design_elements(self, content: str, file_path: str, sdd_traceability_matrix: List[Dict[str, Any]]) -> RequirementsWithDesignElementsOutput:
@@ -822,9 +821,8 @@ class BaselineMapCreatorWorkflow:
 
         # Parse the JSON response into Pydantic model
         extraction_result = output_parser.parse(response.content)
-        print(extraction_result)
 
-        print(f"Extracted {len(extraction_result.requirements)} requirements and {len(extraction_result.design_elements)} design elements from {file_path} with traceability matrix context")
+        print(f"Extracted {len(extraction_result['requirements'])} requirements and {len(extraction_result['design_elements'])} design elements from {file_path} with traceability matrix context")
         return extraction_result
     
     async def _create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -862,28 +860,27 @@ class BaselineMapCreatorWorkflow:
 
         # Parse the JSON response into Pydantic model
         llm_relationships = output_parser.parse(response.content)
-        print(llm_relationships)
 
         # Validate relationships
         validated_relationships = []
-        valid_element_ids = {elem.id for elem in design_elements}
+        valid_element_ids = {elem['id'] for elem in design_elements}
         
         for relationship in llm_relationships:
             # Validate that source and target IDs exist
-            if relationship.source_id not in valid_element_ids:
-                print(f"Warning: Invalid source_id '{relationship.source_id}' in design element relationship")
+            if relationship['source_id'] not in valid_element_ids:
+                print(f"Warning: Invalid source_id '{relationship['source_id']}' in design element relationship")
                 continue
                 
-            if relationship.target_id not in valid_element_ids:
-                print(f"Warning: Invalid target_id '{relationship.target_id}' in design element relationship")
+            if relationship['target_id'] not in valid_element_ids:
+                print(f"Warning: Invalid target_id '{relationship['target_id']}' in design element relationship")
                 continue
                 
             # Validate relationship type
-            if relationship.relationship_type not in ["refines", "realizes", "depends_on"]:
-                print(f"Warning: Invalid relationship_type '{relationship.relationship_type}' for design element relationship")
+            if relationship['relationship_type'] not in ["refines", "realizes", "depends_on"]:
+                print(f"Warning: Invalid relationship_type '{relationship['relationship_type']}' for design element relationship")
                 continue
                 
-            validated_relationships.append(relationship.dict())
+            validated_relationships.append(relationship)
         
         print(f"Created {len(validated_relationships)} validated design element relationships")
         return validated_relationships
