@@ -4,6 +4,7 @@ Supports Grok 3 Mini Reasoning (High) as specified in Q10 analysis
 """
 
 import os
+import logging
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -152,6 +153,34 @@ def setup_langsmith() -> None:
     else:
         print("⚠️  LangSmith not configured - set LANGCHAIN_API_KEY to enable tracing")
 
+def setup_logging(level: str = "INFO") -> None:
+    """
+    Setup logging configuration for the application
+    
+    Args:
+        level: Logging level (DEBUG, INFO, WARNING, ERROR)
+    """
+    # Convert string level to logging constant
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    
+    # Configure logging
+    logging.basicConfig(
+        level=numeric_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Set specific logger levels for better debugging
+    if level.upper() == "DEBUG":
+        # Enable debug logging for our modules
+        logging.getLogger("agent").setLevel(logging.DEBUG)
+        logging.getLogger("langchain").setLevel(logging.INFO)  # Keep langchain less verbose
+    else:
+        # Normal operation - keep langchain quiet
+        logging.getLogger("langchain").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 def get_task_config() -> TaskSpecificConfig:
     """
     Get task-specific LLM configurations
@@ -162,4 +191,4 @@ def get_task_config() -> TaskSpecificConfig:
     return TaskSpecificConfig()
 
 # Export configurations
-__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith"] 
+__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith", "setup_logging"] 
