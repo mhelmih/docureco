@@ -38,28 +38,28 @@ class TaskSpecificConfig(BaseModel):
     # For Code Change Classification (FR-B1)
     code_analysis: Dict[str, Any] = Field(default_factory=lambda: {
         "temperature": 0.1,  # Low temperature for consistent classification
-        "max_tokens": 2000,
+        "max_tokens": 100000,
         "system_prompt_template": "code_change_classifier"
     })
     
     # For Traceability Mapping (FR-C1, FR-C2)
     traceability_mapping: Dict[str, Any] = Field(default_factory=lambda: {
         "temperature": 0.2,
-        "max_tokens": 3000,
+        "max_tokens": 100000,
         "system_prompt_template": "traceability_mapper"
     })
     
     # For Impact Analysis (FR-C4)
     impact_assessment: Dict[str, Any] = Field(default_factory=lambda: {
         "temperature": 0.15,
-        "max_tokens": 2500,
+        "max_tokens": 100000,
         "system_prompt_template": "impact_assessor"
     })
     
     # For Recommendation Generation (FR-D1)
     recommendation_generation: Dict[str, Any] = Field(default_factory=lambda: {
         "temperature": 0.3,  # Slightly higher for creative recommendation text
-        "max_tokens": 4000,
+        "max_tokens": 100000,
         "system_prompt_template": "recommendation_generator"
     })
 
