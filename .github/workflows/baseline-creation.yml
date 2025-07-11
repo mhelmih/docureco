@@ -75,7 +75,6 @@ jobs:
         echo "Branch: ${{ github.event.inputs.branch }}"
         echo "Force recreate: ${{ github.event.inputs.force_recreate }}"
         
-        # Validate repository format
         if [[ ! "${{ github.event.inputs.repository }}" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
           echo "Error: Repository must be in format 'owner/repo'"
           exit 1
@@ -83,12 +82,13 @@ jobs:
     
     - name: Create baseline traceability map
       env:
-        REPOSITORY: ${{ github.event.inputs.repository }}
-        BRANCH: ${{ github.event.inputs.branch }}
-        FORCE_RECREATE: ${{ github.event.inputs.force_recreate == 'true' && 'true' || 'false' }}
-        LOG_LEVEL: 'DEBUG'
+        LOG_LEVEL: 'INFO'
       run: |
-        python -u agent/baseline_map_creator.py
+        python -m agent baseline-map-creator \
+          ${{ github.event.inputs.repository }} \
+          --branch ${{ github.event.inputs.branch }} \
+          ${{ github.event.inputs.force_recreate == 'true' && '--force' || '' }} \
+          --log-level INFO
     
     - name: Upload baseline map artifacts
       if: always()
@@ -98,6 +98,7 @@ jobs:
         path: |
           agent/logs/
           agent/output/
+          *.log
         retention-days: 30
     
     - name: Create summary

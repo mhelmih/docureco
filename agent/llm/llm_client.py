@@ -180,7 +180,6 @@ class DocurecoLLMClient:
         if self.config.provider == LLMProvider.GROK:
             # Ensure base_url is always set for Grok
             base_url = self.config.base_url or "https://api.x.ai/v1"
-            # Grok doesn't support all OpenAI parameters, so we exclude unsupported ones
             return ChatOpenAI(
                 model=self.config.llm_model,
                 api_key=self.config.api_key,

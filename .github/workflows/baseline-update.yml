@@ -11,15 +11,10 @@ on:
         description: 'Branch name to analyze'
         required: true
         default: 'main'
-      update_strategy:
-        description: 'Update strategy'
-        required: true
-        default: 'incremental'
-        type: choice
-        options:
-          - incremental  # Update only changed elements
-          - full_refresh # Complete regeneration
-          - merge        # Merge new elements with existing
+      since:
+        description: 'Update since commit hash or date (optional)'
+        required: false
+        default: ''
   schedule:
     # Run weekly on Sundays at 3 AM UTC to keep baseline maps current
     - cron: '0 3 * * 0'
@@ -76,19 +71,19 @@ jobs:
         pip install --upgrade pip
         pip install -r agent/requirements.txt
     
-    - name: Determine repositories to update
-      id: repos
+    - name: Determine update parameters
+      id: params
       run: |
         if [ "${{ github.event_name }}" = "schedule" ]; then
-          # For scheduled runs, update all repositories with existing baseline maps
           echo "mode=scheduled" >> $GITHUB_OUTPUT
-          echo "repositories=[]" >> $GITHUB_OUTPUT  # Will be populated by querying database
+          echo "repository=${{ github.repository }}" >> $GITHUB_OUTPUT
+          echo "branch=main" >> $GITHUB_OUTPUT
+          echo "since=1 week ago" >> $GITHUB_OUTPUT
         else
-          # For manual runs, use specified repository
           echo "mode=manual" >> $GITHUB_OUTPUT
-          echo "repositories=[\"${{ github.event.inputs.repository }}\"]" >> $GITHUB_OUTPUT
+          echo "repository=${{ github.event.inputs.repository }}" >> $GITHUB_OUTPUT
           echo "branch=${{ github.event.inputs.branch }}" >> $GITHUB_OUTPUT
-          echo "strategy=${{ github.event.inputs.update_strategy }}" >> $GITHUB_OUTPUT
+          echo "since=${{ github.event.inputs.since }}" >> $GITHUB_OUTPUT
         fi
     
     - name: Validate inputs (manual trigger only)
@@ -96,7 +91,7 @@ jobs:
       run: |
         echo "Repository: ${{ github.event.inputs.repository }}"
         echo "Branch: ${{ github.event.inputs.branch }}"
-        echo "Update Strategy: ${{ github.event.inputs.update_strategy }}"
+        echo "Since: ${{ github.event.inputs.since }}"
         
         # Validate repository format
         if [[ ! "${{ github.event.inputs.repository }}" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
@@ -106,140 +101,20 @@ jobs:
     
     - name: Update baseline traceability map
       env:
-        FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
-        LOG_LEVEL: 'DEBUG'
+        LOG_LEVEL: 'INFO'
       run: |
-        python -c "
-        import asyncio
-        import os
-        import sys
-        import json
-        from agent.workflows.baseline_map_creator import create_baseline_map_creator
-        from agent.database.baseline_map_repository import BaselineMapRepository
-        
-        async def update_single_repository(repository, branch='main', strategy='incremental'):
-            try:
-                print(f'🔄 Updating baseline map for {repository}:{branch}')
-                print(f'📋 Strategy: {strategy}')
-                
-                # Check if baseline map exists
-                repo_client = BaselineMapRepository()
-                existing_map = await repo_client.get_baseline_map(repository, branch)
-                
-                if not existing_map:
-                    print(f'❌ No existing baseline map found for {repository}:{branch}')
-                    print('💡 Tip: Run the \"Create Baseline Map\" workflow first')
-                    return False
-                
-                print(f'✅ Found existing baseline map with {len(existing_map[\"requirements\"])} requirements')
-                
-                # Create workflow instance
-                creator = create_baseline_map_creator()
-                
-                if strategy == 'full_refresh':
-                    print('🔄 Performing full refresh...')
-                    # Delete existing and recreate
-                    await repo_client.delete_baseline_map(repository, branch)
-                    result = await creator.execute(repository, branch)
-                    
-                elif strategy == 'incremental':
-                    print('📈 Performing incremental update...')
-                    # Compare current repo state with existing baseline
-                    result = await creator.execute(repository, branch)
-                    
-                    # TODO: Implement incremental update logic
-                    # - Compare new elements with existing
-                    # - Update only changed/new elements
-                    # - Preserve existing traceability links where possible
-                    
-                elif strategy == 'merge':
-                    print('🔀 Performing merge update...')
-                    # Merge new elements with existing baseline
-                    result = await creator.execute(repository, branch)
-                    
-                    # TODO: Implement merge logic
-                    # - Add new elements without removing existing
-                    # - Update modified elements
-                    # - Create new traceability links
-                
-                # Print results
-                print('\\n📊 Baseline Map Update Results:')
-                print(f'Repository: {result[\"repository\"]}:{result[\"branch\"]}')
-                print(f'Requirements: {len(result[\"requirements\"])}')
-                print(f'Design Elements: {len(result[\"design_elements\"])}')
-                print(f'Code Components: {len(result[\"code_components\"])}')
-                print(f'Traceability Links: {len(result[\"traceability_links\"])}')
-                
-                if result[\"errors\"]:
-                    print('\\n⚠️  Errors encountered:')
-                    for error in result[\"errors\"]:
-                        print(f'  - {error}')
-                    return False
-                
-                print(f'\\n✅ Baseline map update completed: {result[\"current_step\"]}')
-                return True
-                
-            except Exception as e:
-                print(f'❌ Baseline map update failed for {repository}: {str(e)}')
-                return False
-        
-        async def update_scheduled_repositories():
-            '''Update all repositories that have existing baseline maps'''
-            try:
-                print('🕐 Running scheduled baseline map updates...')
-                
-                # Get all repositories with existing baseline maps
-                repo_client = BaselineMapRepository()
-                repositories = await repo_client.get_all_baseline_map_repositories()
-                
-                if not repositories:
-                    print('ℹ️  No repositories with baseline maps found')
-                    return True
-                
-                print(f'📊 Found {len(repositories)} repositories to update')
-                
-                success_count = 0
-                for repo_info in repositories:
-                    repository = repo_info['repository']
-                    branch = repo_info['branch']
-                    
-                    success = await update_single_repository(repository, branch, 'incremental')
-                    if success:
-                        success_count += 1
-                    
-                    # Brief pause between repositories to avoid rate limits
-                    await asyncio.sleep(2)
-                
-                print(f'\\n📈 Update Summary: {success_count}/{len(repositories)} successful')
-                return success_count == len(repositories)
-                
-            except Exception as e:
-                print(f'❌ Scheduled update failed: {str(e)}')
-                return False
-        
-        async def main():
-            try:
-                mode = '${{ steps.repos.outputs.mode }}'
-                
-                if mode == 'scheduled':
-                    success = await update_scheduled_repositories()
-                else:
-                    # Manual update
-                    repository = '${{ github.event.inputs.repository }}'
-                    branch = '${{ github.event.inputs.branch }}'
-                    strategy = '${{ github.event.inputs.update_strategy }}'
-                    
-                    success = await update_single_repository(repository, branch, strategy)
-                
-                if not success:
-                    sys.exit(1)
-                
-            except Exception as e:
-                print(f'❌ Update process failed: {str(e)}')
-                sys.exit(1)
-        
-        asyncio.run(main())
-        "
+        if [ -n "${{ steps.params.outputs.since }}" ]; then
+          python -m agent baseline-map-updater \
+            ${{ steps.params.outputs.repository }} \
+            --branch ${{ steps.params.outputs.branch }} \
+            --since "${{ steps.params.outputs.since }}" \
+            --log-level INFO
+        else
+          python -m agent baseline-map-updater \
+            ${{ steps.params.outputs.repository }} \
+            --branch ${{ steps.params.outputs.branch }} \
+            --log-level INFO
+        fi
     
     - name: Upload update artifacts
       if: always()
@@ -249,6 +124,7 @@ jobs:
         path: |
           agent/logs/
           agent/output/
+          *.log
         retention-days: 30
     
     - name: Create summary
@@ -259,12 +135,13 @@ jobs:
         
         if [ "${{ github.event_name }}" = "schedule" ]; then
           echo "**Trigger:** Scheduled (Weekly)" >> $GITHUB_STEP_SUMMARY
-          echo "**Scope:** All repositories with existing baseline maps" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** \`${{ steps.params.outputs.repository }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ steps.params.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
         else
           echo "**Trigger:** Manual" >> $GITHUB_STEP_SUMMARY
           echo "**Repository:** \`${{ github.event.inputs.repository }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** \`${{ github.event.inputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Strategy:** \`${{ github.event.inputs.update_strategy }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Since:** \`${{ github.event.inputs.since || 'Not specified' }}\`" >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
@@ -274,7 +151,6 @@ jobs:
         echo "- Workflow: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
         echo "- Run ID: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📚 Available Update Strategies" >> $GITHUB_STEP_SUMMARY
-        echo "- **Incremental**: Update only changed elements (recommended)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Full Refresh**: Complete regeneration of baseline map" >> $GITHUB_STEP_SUMMARY
-        echo "- **Merge**: Add new elements without removing existing ones" >> $GITHUB_STEP_SUMMARY 
+        echo "### 📚 About Baseline Map Updates" >> $GITHUB_STEP_SUMMARY
+        echo "Baseline map updates analyze repository changes and update traceability" >> $GITHUB_STEP_SUMMARY
+        echo "relationships between requirements, design elements, and code components." >> $GITHUB_STEP_SUMMARY 

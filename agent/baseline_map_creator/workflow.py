@@ -3,16 +3,13 @@ Baseline Map Creator Workflow for Docureco Agent
 Creates baseline traceability maps from repository documentation and code
 """
 
-import asyncio
 import logging
-import re
 import sys
 import os
 import fnmatch
 import subprocess
-import json
 import tempfile
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 
 # Add parent directories to path for absolute imports
@@ -31,6 +28,7 @@ from agent.models.docureco_models import (
     BaselineMapModel, RequirementModel, DesignElementModel, 
     CodeComponentModel, TraceabilityLinkModel
 )
+from .prompts import BaselineMapCreatorPrompts as prompts
 
 logger = logging.getLogger(__name__)
 
@@ -79,23 +77,30 @@ class BaselineMapCreatorWorkflow:
         """Build the LangGraph workflow following the SRS, SDD, and Code Mapping process"""
         workflow = StateGraph(BaselineMapCreatorState)
         
-        # Add nodes for each major process step (following the diagram flow)
+        # Add nodes for each major process step
         workflow.add_node("scan_repository", self._scan_repository)
         workflow.add_node("identify_design_elements", self._identify_design_elements)
-        workflow.add_node("design_to_design_mapping", self._design_to_design_mapping)
-        workflow.add_node("design_to_code_mapping", self._design_to_code_mapping)
         workflow.add_node("identify_requirements", self._identify_requirements)
+        workflow.add_node("design_to_design_mapping", self._design_to_design_mapping)
         workflow.add_node("requirements_to_design_mapping", self._requirements_to_design_mapping)
+        workflow.add_node("design_to_code_mapping", self._design_to_code_mapping)
         workflow.add_node("save_baseline_map", self._save_baseline_map)
         
-        # Define workflow edges following the diagram
+        # Define workflow edges following this sequence:
+        # 1. Scan repository
+        # 2. Identify design elements from SDD (with traceability matrix)
+        # 3. Identify requirements from SRS (using traceability matrix context)
+        # 4. Create D<->D links
+        # 5. Create R<->D links
+        # 6. Create D<->C links
+        # 7. Save baseline map
         workflow.set_entry_point("scan_repository")
         workflow.add_edge("scan_repository", "identify_design_elements")
-        workflow.add_edge("identify_design_elements", "design_to_design_mapping")  
-        workflow.add_edge("design_to_design_mapping", "design_to_code_mapping")
-        workflow.add_edge("design_to_code_mapping", "identify_requirements")
-        workflow.add_edge("identify_requirements", "requirements_to_design_mapping")
-        workflow.add_edge("requirements_to_design_mapping", "save_baseline_map")
+        workflow.add_edge("identify_design_elements", "identify_requirements")
+        workflow.add_edge("identify_requirements", "design_to_design_mapping")  
+        workflow.add_edge("design_to_design_mapping", "requirements_to_design_mapping")
+        workflow.add_edge("requirements_to_design_mapping", "design_to_code_mapping")
+        workflow.add_edge("design_to_code_mapping", "save_baseline_map")
         workflow.add_edge("save_baseline_map", END)
         
         return workflow
@@ -121,6 +126,7 @@ class BaselineMapCreatorWorkflow:
             "requirements": [],
             "design_elements": [],
             "code_components": [],
+            "sdd_traceability_matrix": [],
             "design_to_design_links": [],
             "design_to_code_links": [],
             "requirements_to_design_links": [],
@@ -175,7 +181,7 @@ class BaselineMapCreatorWorkflow:
             ])
             
             print(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
-
+            
         except Exception as e:
             print(f"Error scanning repository: {str(e)}")
             raise e
@@ -448,23 +454,25 @@ class BaselineMapCreatorWorkflow:
     
     async def _identify_design_elements(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
         """
-        Identify design elements from SDD documentation using LLM
+        Identify design elements from SDD documentation using LLM and extract traceability matrix
         SDD is processed first as it contains the traceability matrix between design elements and requirements
         """
-        print("Identifying design elements from SDD")
+        print("Identifying design elements from SDD and extracting traceability matrix")
         state["current_step"] = "identifying_design_elements"
         
         design_elements = []
+        sdd_traceability_matrix = []
         elem_counter = 1
         
         for file_path, content in state["sdd_content"].items():
             if not content.strip():
                 continue
             
-            # Use LLM to extract design elements
-            extracted_elements = await self._llm_extract_design_elements(content, file_path)
+            # Use LLM to extract design elements AND traceability matrix in one go
+            extraction_result = await self._llm_extract_design_elements_with_matrix(content, file_path)
             
-            for elem_data in extracted_elements:
+            # Process design elements
+            for elem_data in extraction_result.get("design_elements", []):
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
                     name=elem_data.get("name", f"DesignElement{elem_counter}"),
@@ -474,10 +482,17 @@ class BaselineMapCreatorWorkflow:
                 )
                 design_elements.append(design_element)
                 elem_counter += 1
+            
+            # Process traceability matrix (without relationship types initially)
+            for matrix_entry in extraction_result.get("traceability_matrix", []):
+                matrix_entry["source_file"] = file_path  # Track which file it came from
+                sdd_traceability_matrix.append(matrix_entry)
         
         state["design_elements"] = design_elements
+        state["sdd_traceability_matrix"] = sdd_traceability_matrix
         state["processing_stats"]["design_elements_count"] = len(design_elements)
-        print(f"Identified {len(design_elements)} design elements")
+        state["processing_stats"]["sdd_traceability_matrix_count"] = len(sdd_traceability_matrix)
+        print(f"Identified {len(design_elements)} design elements and {len(sdd_traceability_matrix)} traceability matrix entries")
         
         return state
     
@@ -491,9 +506,12 @@ class BaselineMapCreatorWorkflow:
         design_to_design_links = []
         link_counter = 1
         
-        # Create relationships between design elements using LLM analysis
+        # Create relationships between design elements using LLM analysis with traceability matrix context
         if len(state["design_elements"]) > 1:
-            links_data = await self._create_design_element_relationships(state["design_elements"])
+            links_data = await self._create_design_element_relationships(
+                state["design_elements"], 
+                state["sdd_traceability_matrix"]
+            )
             
             for link_data in links_data:
                 link = TraceabilityLinkModel(
@@ -543,11 +561,16 @@ class BaselineMapCreatorWorkflow:
         state["code_components"] = code_components
         state["processing_stats"]["code_components_count"] = len(code_components)
         
-        # Create design-to-code links using simple matching
+        # Create design-to-code links using LLM analysis with actual code content and traceability matrix context
         design_to_code_links = []
         link_counter = 1
         
-        links_data = await self._create_design_code_links(state["design_elements"], code_components)
+        links_data = await self._create_design_code_links(
+            state["design_elements"], 
+            code_components, 
+            state["code_files"],
+            state["sdd_traceability_matrix"]
+        )
         
         for link_data in links_data:
             link = TraceabilityLinkModel(
@@ -569,22 +592,28 @@ class BaselineMapCreatorWorkflow:
     
     async def _identify_requirements(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
         """
-        Identify requirements from SRS documentation using LLM
+        Identify requirements and additional design elements from SRS documentation using LLM
+        Uses the traceability matrix from SDD as context for more targeted extraction
         """
-        print("Identifying requirements from SRS")
+        print("Identifying requirements and design elements from SRS")
         state["current_step"] = "identifying_requirements"
         
         requirements = []
+        additional_design_elements = []
         req_counter = 1
+        elem_counter = len(state["design_elements"]) + 1  # Continue numbering from existing design elements
         
         for file_path, content in state["srs_content"].items():
             if not content.strip():
                 continue
             
-            # Use LLM to extract requirements
-            extracted_reqs = await self._llm_extract_requirements(content, file_path)
+            # Use LLM to extract requirements and design elements with traceability matrix context
+            extraction_result = await self._llm_extract_requirements_with_design_elements(
+                content, file_path, state["sdd_traceability_matrix"]
+            )
             
-            for req_data in extracted_reqs:
+            # Process requirements
+            for req_data in extraction_result.get("requirements", []):
                 requirement = RequirementModel(
                     id=f"REQ-{req_counter:03d}",
                     title=req_data.get("title", f"Requirement {req_counter}"),
@@ -596,9 +625,27 @@ class BaselineMapCreatorWorkflow:
                 requirements.append(requirement)
                 req_counter += 1
         
+            # Process additional design elements found in SRS
+            for elem_data in extraction_result.get("design_elements", []):
+                design_element = DesignElementModel(
+                    id=f"DE-{elem_counter:03d}",
+                    name=elem_data.get("name", f"DesignElement{elem_counter}"),
+                    description=elem_data.get("description", ""),
+                    type=elem_data.get("type", "Component"),
+                    section=elem_data.get("section", file_path)
+                )
+                additional_design_elements.append(design_element)
+                elem_counter += 1
+        
+        # Merge additional design elements with existing ones
+        state["design_elements"].extend(additional_design_elements)
         state["requirements"] = requirements
         state["processing_stats"]["requirements_count"] = len(requirements)
-        print(f"Identified {len(requirements)} requirements")
+        state["processing_stats"]["additional_design_elements_count"] = len(additional_design_elements)
+        state["processing_stats"]["total_design_elements_count"] = len(state["design_elements"])
+        
+        print(f"Identified {len(requirements)} requirements and {len(additional_design_elements)} additional design elements from SRS")
+        print(f"Total design elements: {len(state['design_elements'])}")
         
         return state
     
@@ -613,9 +660,12 @@ class BaselineMapCreatorWorkflow:
         requirements_to_design_links = []
         link_counter = 1
         
-        # Extract traceability matrix from SDD and create requirement-design links
+        # Extract traceability matrix from SDD and create requirement-design links with full context
         req_to_design_links = await self._create_requirement_design_links_from_sdd(
-            state["requirements"], state["design_elements"], state["sdd_content"]
+            state["requirements"], 
+            state["design_elements"], 
+            state["sdd_content"],
+            state["sdd_traceability_matrix"]
         )
         
         for link_data in req_to_design_links:
@@ -674,226 +724,380 @@ class BaselineMapCreatorWorkflow:
         
         return state
     
-    async def _llm_extract_requirements(self, content: str, file_path: str) -> List[Dict[str, Any]]:
-        """Extract requirements using LLM"""
-        try:
-            # Prepare system prompt for requirements extraction
-            system_message = """You are an expert business analyst analyzing Software Requirements Specification (SRS) documents. Your task is to extract functional and non-functional requirements such as:
+    async def _llm_extract_design_elements_with_matrix(self, content: str, file_path: str) -> Dict[str, Any]:
+        """
+        Extract design elements and traceability matrix from SDD content using LLM.
+        Returns a dictionary with 'design_elements' and 'traceability_matrix' keys.
+        """
+        # Get prompts from the prompts module
+        system_message = prompts.design_elements_with_matrix_system_prompt()
+        human_prompt = prompts.design_elements_with_matrix_human_prompt(content, file_path)
 
-- Functional Requirements: Features, behaviors, functions the system must provide
-- Non-Functional Requirements: Performance, security, usability, reliability constraints
-- Business Requirements: High-level business goals and objectives
-- User Requirements: What users need to accomplish
-- System Requirements: Technical constraints and specifications
+        # Generate LLM response
+        response = await self.llm_client.generate_response(
+            prompt=human_prompt,
+            system_message=system_message,
+            task_type="code_analysis",
+            output_format="json",
+            temperature=0.1  # Low temperature for consistent extraction
+        )
 
-For each requirement found, provide:
-- title: Clear, concise title of the requirement
-- description: Detailed description of what is required
-- type: Category (Functional, Non-Functional, Business, User, System, etc.)
-- priority: Importance level (High, Medium, Low)
-- section: Section reference from the document (if available)
-
-Return a JSON array of requirements. If no requirements are found, return an empty array."""
-
-            # Prepare human prompt with the content
-            human_prompt = f"""Analyze the following Software Requirements Specification content and extract all requirements:
-
-File: {file_path}
-
-Content:
-{content}
-
-Extract requirements and return them as a JSON array."""
-
-            # Generate LLM response
-            response = await self.llm_client.generate_response(
-                prompt=human_prompt,
-                system_message=system_message,
-                task_type="code_analysis",
-                output_format="json",
-                temperature=0.1  # Low temperature for consistent extraction
-            )
-
-            # Parse JSON response
-            requirements = response.content
-            
-            # Validate the response format
-            if not isinstance(requirements, list):
-                print(f"LLM returned non-list response for {file_path}, using empty list")
-                return []
-            
-            # Validate each requirement has required fields
-            validated_requirements = []
-            for req in requirements:
-                if isinstance(req, dict) and "title" in req:
-                    validated_req = {
-                        "title": req.get("title", "Unknown Requirement"),
-                        "description": req.get("description", ""),
-                        "type": req.get("type", "Functional"),
-                        "priority": req.get("priority", "Medium"),
-                        "section": req.get("section", file_path)
-                    }
-                    validated_requirements.append(validated_req)
-            
-            print(f"Extracted {len(validated_requirements)} requirements from {file_path}")
-            return validated_requirements
-            
-        except Exception as e:
-            print(f"Error extracting requirements from {file_path}: {str(e)}")
-            # Return fallback requirement on error
-            return [
-                {
-                    "title": f"Requirement from {Path(file_path).stem}",
-                    "description": f"Requirement extracted from {file_path}",
-                    "type": "Functional",
-                    "priority": "Medium",
-                    "section": file_path
-                }
-            ]
-    
-    async def _llm_extract_design_elements(self, content: str, file_path: str) -> List[Dict[str, Any]]:
-        """Extract design elements using LLM"""
-        try:
-            # Prepare system prompt for design element extraction
-            system_message = """You are an expert software architect analyzing Software Design Documents (SDD). Your task is to extract design elements such as:
-
-- Components: Services, modules, libraries, frameworks
-- Classes: Entity classes, controller classes, service classes
-- Interfaces: API interfaces, contracts, protocols  
-- Database Elements: Tables, schemas, data models
-- UI Elements: Pages, forms, dialogs, components
-- Architectural Elements: Layers, patterns, architectural components
-
-For each design element found, provide:
-- name: Clear, descriptive name of the design element
-- description: Brief description of purpose/functionality
-- type: Category (Service, Class, Interface, Component, Database, UI, etc.)
-- section: Section reference from the document (if available)
-
-Return a JSON array of design elements. If no design elements are found, return an empty array."""
-
-            # Prepare human prompt with the content
-            human_prompt = f"""Analyze the following Software Design Document content and extract all design elements:
-
-File: {file_path}
-
-Content:
-{content}
-
-Extract design elements and return them as a JSON array."""
-
-            # Generate LLM response
-            response = await self.llm_client.generate_response(
-                prompt=human_prompt,
-                system_message=system_message,
-                task_type="code_analysis",
-                output_format="json",
-                temperature=0.1  # Low temperature for consistent extraction
-            )
-
-            # Parse JSON response
-            design_elements = response.content
-            
-            # Validate the response format
-            if not isinstance(design_elements, list):
-                print(f"LLM returned non-list response for {file_path}, using empty list")
-                return []
-            
-            # Validate each element has required fields
-            validated_elements = []
-            for element in design_elements:
-                if isinstance(element, dict) and "name" in element:
-                    validated_element = {
-                        "name": element.get("name", "Unknown"),
-                        "description": element.get("description", ""),
-                        "type": element.get("type", "Component"),
-                        "section": element.get("section", file_path)
-                    }
-                    validated_elements.append(validated_element)
-            
-            print(f"Extracted {len(validated_elements)} design elements from {file_path}")
-            return validated_elements
-            
-        except Exception as e:
-            print(f"Error extracting design elements from {file_path}: {str(e)}")
-            # Return fallback elements on error
-            return [
-                {
-                    "name": f"Component_{Path(file_path).stem}",
-                    "description": f"Component extracted from {file_path}",
-                    "type": "Component",
-                    "section": file_path
-                }
-            ]
-    
-    async def _create_design_element_relationships(self, design_elements: List[DesignElementModel]) -> List[Dict[str, Any]]:
-        """Create relationships between design elements using simple heuristics"""
-        relationships = []
+        # Parse JSON response
+        extraction_result = response.content
         
-        try:
-            # Simple placeholder implementation - would use LLM analysis in production
-            if len(design_elements) >= 2:
-                relationships.append({
-                    "source_id": design_elements[0].id,
-                    "target_id": design_elements[1].id,
-                    "relationship_type": "depends_on"
-                })
+        # Validate the response format
+        if not isinstance(extraction_result, dict):
+            raise ValueError(f"LLM returned non-dict response for {file_path}: {type(extraction_result)}")
             
-        except Exception as e:
-            print(f"Failed to create design element relationships: {str(e)}")
+        if "design_elements" not in extraction_result:
+            raise ValueError(f"LLM response missing 'design_elements' key for {file_path}")
+            
+        if "traceability_matrix" not in extraction_result:
+            raise ValueError(f"LLM response missing 'traceability_matrix' key for {file_path}")
         
-        return relationships
+        # Validate design elements
+        validated_design_elements = []
+        for element in extraction_result["design_elements"]:
+            if not isinstance(element, dict):
+                raise ValueError(f"Invalid design element format in {file_path}: {element}")
+            if "name" not in element:
+                raise ValueError(f"Design element missing 'name' field in {file_path}: {element}")
+                
+            validated_design_elements.append({
+                "name": element.get("name", "Unknown"),
+                "description": element.get("description", ""),
+                "type": element.get("type", "Component"),
+                "section": element.get("section", file_path)
+            })
+        
+        # Validate traceability matrix
+        validated_traceability_matrix = []
+        for matrix_entry in extraction_result["traceability_matrix"]:
+            if not isinstance(matrix_entry, dict):
+                raise ValueError(f"Invalid traceability matrix entry format in {file_path}: {matrix_entry}")
+                
+            if not all(key in matrix_entry for key in ["source_id", "target_id", "relationship_type", "source_file"]):
+                raise ValueError(f"Traceability matrix entry missing required fields in {file_path}: {matrix_entry}")
+                
+            validated_traceability_matrix.append({
+                "source_id": matrix_entry["source_id"],
+                "target_id": matrix_entry["target_id"],
+                "relationship_type": matrix_entry["relationship_type"],
+                "source_file": matrix_entry["source_file"]
+            })
+        
+        print(f"Extracted {len(validated_design_elements)} design elements and {len(validated_traceability_matrix)} traceability matrix entries from {file_path}")
+        return {
+            "design_elements": validated_design_elements,
+            "traceability_matrix": validated_traceability_matrix
+        }
+    
+    async def _llm_extract_requirements_with_design_elements(self, content: str, file_path: str, sdd_traceability_matrix: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Extract requirements and additional design elements from SRS content using LLM,
+        with traceability matrix from SDD as context for more targeted extraction.
+        """
+        # Get prompts from the prompts module
+        system_message = prompts.requirements_with_design_elements_system_prompt()
+        human_prompt = prompts.requirements_with_design_elements_human_prompt(content, file_path, sdd_traceability_matrix)
+
+        # Generate LLM response
+        response = await self.llm_client.generate_response(
+            prompt=human_prompt,
+            system_message=system_message,
+            task_type="code_analysis",
+            output_format="json",
+            temperature=0.1  # Low temperature for consistent extraction
+        )
+
+        # Parse JSON response
+        extraction_result = response.content
+        
+        # Validate the response format
+        if not isinstance(extraction_result, dict):
+            raise ValueError(f"LLM returned non-dict response for {file_path}: {type(extraction_result)}")
+            
+        if "requirements" not in extraction_result:
+            raise ValueError(f"LLM response missing 'requirements' key for {file_path}")
+            
+        if "design_elements" not in extraction_result:
+            raise ValueError(f"LLM response missing 'design_elements' key for {file_path}")
+        
+        # Validate requirements
+        validated_requirements = []
+        for req in extraction_result["requirements"]:
+            if not isinstance(req, dict):
+                raise ValueError(f"Invalid requirement format in {file_path}: {req}")
+            if "title" not in req:
+                raise ValueError(f"Requirement missing 'title' field in {file_path}: {req}")
+                
+            validated_requirements.append({
+                "title": req.get("title", "Unknown Requirement"),
+                "description": req.get("description", ""),
+                "type": req.get("type", "Functional"),
+                "priority": req.get("priority", "Medium"),
+                "section": req.get("section", file_path)
+            })
+        
+        # Validate design elements
+        validated_design_elements = []
+        for element in extraction_result["design_elements"]:
+            if not isinstance(element, dict):
+                raise ValueError(f"Invalid design element format in {file_path}: {element}")
+            if "name" not in element:
+                raise ValueError(f"Design element missing 'name' field in {file_path}: {element}")
+                
+            validated_design_elements.append({
+                "name": element.get("name", "Unknown"),
+                "description": element.get("description", ""),
+                "type": element.get("type", "Component"),
+                "section": element.get("section", file_path)
+            })
+        
+        print(f"Extracted {len(validated_requirements)} requirements and {len(validated_design_elements)} design elements from {file_path} with traceability matrix context")
+        return {
+            "requirements": validated_requirements,
+            "design_elements": validated_design_elements
+        }
+    
+    async def _create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create relationships between design elements using LLM analysis. Raises exceptions on failure instead of using fallbacks."""
+        if len(design_elements) < 2:
+            print("Not enough design elements to create relationships")
+            return []
+        
+        # Prepare design elements data for LLM analysis
+        elements_data = []
+        for element in design_elements:
+            elements_data.append({
+                "id": element.id,
+                "name": element.name,
+                "description": element.description,
+                "type": element.type,
+                "section": element.section
+            })
+        
+        # Get prompts from the prompts module
+        system_message = prompts.design_element_relationships_system_prompt()
+        human_prompt = prompts.design_element_relationships_human_prompt(elements_data, sdd_traceability_matrix)
+
+        # Generate LLM response
+        response = await self.llm_client.generate_response(
+            prompt=human_prompt,
+            system_message=system_message,
+            task_type="traceability_mapping",
+            output_format="json",
+            temperature=0.15  # Low-medium temperature for consistent but thoughtful analysis
+        )
+
+        # Parse JSON response
+        llm_relationships = response.content
+        
+        # Validate the response format
+        if not isinstance(llm_relationships, list):
+            raise ValueError(f"LLM returned non-list response for design element relationships: {type(llm_relationships)}")
+        
+        # Validate each relationship has required fields
+        validated_relationships = []
+        valid_element_ids = {elem.id for elem in design_elements}
+        
+        for rel in llm_relationships:
+            if not isinstance(rel, dict):
+                raise ValueError(f"Invalid relationship format: {rel}")
+                
+            if not all(key in rel for key in ["source_id", "target_id", "relationship_type"]):
+                raise ValueError(f"Relationship missing required fields: {rel}")
+            
+            # Ensure both IDs exist in our design elements
+            if (rel["source_id"] not in valid_element_ids or 
+                rel["target_id"] not in valid_element_ids):
+                raise ValueError(f"Relationship contains invalid element IDs: {rel}")
+                
+            if rel["source_id"] == rel["target_id"]:
+                raise ValueError(f"Relationship has same source and target: {rel}")
+                
+            # Validate relationship type for D→D relationships
+            valid_dd_types = {"refines", "realizes", "depends_on"}
+            if rel["relationship_type"] not in valid_dd_types:
+                raise ValueError(f"Invalid D→D relationship type '{rel['relationship_type']}'. Must be one of: {valid_dd_types}")
+                
+            validated_rel = {
+                "source_id": rel["source_id"],
+                "target_id": rel["target_id"],
+                "relationship_type": rel.get("relationship_type", "depends_on")
+            }
+            validated_relationships.append(validated_rel)
+        
+        return validated_relationships
     
     async def _create_requirement_design_links_from_sdd(self, requirements: List[RequirementModel], 
                                                        design_elements: List[DesignElementModel],
-                                                       sdd_content: Dict[str, str]) -> List[Dict[str, Any]]:
-        """Create links between requirements and design elements using SDD traceability matrix"""
-        links = []
+                                                       sdd_content: Dict[str, str],
+                                                       sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create links between requirements and design elements using SDD traceability matrix and LLM analysis"""
+        if not requirements or not design_elements:
+            print("No requirements or design elements available for linking")
+            return []
         
-        try:
-            # Try to parse explicit traceability matrix from SDD
-            explicit_links = await self._parse_traceability_matrix_from_sdd(sdd_content, requirements, design_elements)
-            links.extend(explicit_links)
-            
-            # Simple placeholder implementation if no explicit matrix found
-            if not links and requirements and design_elements:
-                links.append({
-                    "source_id": requirements[0].id,
-                    "target_id": design_elements[0].id,
-                    "relationship_type": "implements"
-                })
-            
-        except Exception as e:
-            print(f"Failed to create requirement-design links: {str(e)}")
+        # Prepare requirements and design elements data for LLM analysis
+        requirements_data = []
+        for req in requirements:
+            requirements_data.append({
+                "id": req.id,
+                "title": req.title,
+                "description": req.description,
+                "type": req.type,
+                "priority": req.priority,
+                "section": req.section
+            })
         
-        return links
-    
-    async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel]) -> List[Dict[str, Any]]:
-        """Create links between design elements and code components using simple name matching"""
-        links = []
+        design_elements_data = []
+        for elem in design_elements:
+            design_elements_data.append({
+                "id": elem.id,
+                "name": elem.name,
+                "description": elem.description,
+                "type": elem.type,
+                "section": elem.section
+            })
         
-        try:
-            # Simple placeholder implementation - would use LLM analysis in production
-            if design_elements and code_components:
-                links.append({
-                    "source_id": design_elements[0].id,
-                    "target_id": code_components[0].id,
-                    "relationship_type": "realizes"
-                })
-            
-        except Exception as e:
-            print(f"Failed to create design-code links: {str(e)}")
-        
-        return links
-    
-    async def _parse_traceability_matrix_from_sdd(self, sdd_content: Dict[str, str], 
-                                                 requirements: List[RequirementModel],
-                                                 design_elements: List[DesignElementModel]) -> List[Dict[str, Any]]:
-        """Parse explicit traceability matrix from SDD content"""
-        # Placeholder - would implement parsing of traceability tables/matrices in SDD
-        return []
-    
+        # Get prompts from the prompts module
+        system_message = prompts.requirement_design_links_system_prompt()
+        human_prompt = prompts.requirement_design_links_human_prompt(requirements_data, design_elements_data, sdd_traceability_matrix, sdd_content)
 
+        # Generate LLM response
+        response = await self.llm_client.generate_response(
+            prompt=human_prompt,
+            system_message=system_message,
+            task_type="traceability_mapping",
+            output_format="json",
+            temperature=0.1  # Low temperature for consistent analysis
+        )
+
+        # Parse JSON response
+        llm_relationships = response.content
+        
+        # Validate the response format
+        if not isinstance(llm_relationships, list):
+            raise ValueError(f"LLM returned non-list response for requirement-design relationships: {type(llm_relationships)}")
+        
+        # Validate each relationship has required fields
+        validated_relationships = []
+        valid_requirement_ids = {req.id for req in requirements}
+        valid_design_ids = {elem.id for elem in design_elements}
+        
+        for rel in llm_relationships:
+            if not isinstance(rel, dict):
+                raise ValueError(f"Invalid requirement-design relationship format: {rel}")
+                
+            if not all(key in rel for key in ["source_id", "target_id", "relationship_type"]):
+                raise ValueError(f"Requirement-design relationship missing required fields: {rel}")
+            
+            # Ensure source is a requirement and target is a design element
+            if rel["source_id"] not in valid_requirement_ids:
+                raise ValueError(f"Requirement-design relationship has invalid requirement ID: {rel}")
+                
+            if rel["target_id"] not in valid_design_ids:
+                raise ValueError(f"Requirement-design relationship has invalid design element ID: {rel}")
+                
+            # Validate relationship type for R→D relationships
+            valid_rd_types = {"satisfies", "realizes"}
+            if rel["relationship_type"] not in valid_rd_types:
+                raise ValueError(f"Invalid R→D relationship type '{rel['relationship_type']}'. Must be one of: {valid_rd_types}")
+                
+            validated_rel = {
+                "source_id": rel["source_id"],
+                "target_id": rel["target_id"],
+                "relationship_type": rel.get("relationship_type", "satisfies")
+            }
+            validated_relationships.append(validated_rel)
+        
+        return validated_relationships
+    
+    async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create links between design elements and code components using LLM analysis. Raises exceptions on failure instead of using fallbacks."""
+        if not design_elements or not code_components:
+            print("No design elements or code components available for linking")
+            return []
+        
+        # Prepare design elements and code components data for LLM analysis
+        elements_data = []
+        for element in design_elements:
+            elements_data.append({
+                "id": element.id,
+                "name": element.name,
+                "description": element.description,
+                "type": element.type,
+                "section": element.section
+            })
+        
+        components_data = []
+        code_content_map = {file_info["path"]: file_info.get("content", "") for file_info in code_files}
+        
+        for component in code_components:
+            # Get actual code content for this component
+            code_content = code_content_map.get(component.path, "")
+            
+            components_data.append({
+                "id": component.id,
+                "name": component.name,
+                "path": component.path,
+                "type": component.type,
+                "content_preview": code_content[:500]  # First 500 chars as preview
+            })
+        
+        # Get prompts from the prompts module
+        system_message = prompts.design_code_links_system_prompt()
+        human_prompt = prompts.design_code_links_human_prompt(elements_data, components_data, sdd_traceability_matrix)
+
+        # Generate LLM response
+        response = await self.llm_client.generate_response(
+            prompt=human_prompt,
+            system_message=system_message,
+            task_type="traceability_mapping",
+            output_format="json",
+            temperature=0.15  # Low-medium temperature for consistent analysis
+        )
+
+        # Parse JSON response
+        llm_relationships = response.content
+        
+        # Validate the response format
+        if not isinstance(llm_relationships, list):
+            raise ValueError(f"LLM returned non-list response for design-code relationships: {type(llm_relationships)}")
+        
+        # Validate each relationship has required fields
+        validated_relationships = []
+        valid_design_ids = {elem.id for elem in design_elements}
+        valid_code_ids = {comp.id for comp in code_components}
+        
+        for rel in llm_relationships:
+            if not isinstance(rel, dict):
+                raise ValueError(f"Invalid design-code relationship format: {rel}")
+                
+            if not all(key in rel for key in ["source_id", "target_id", "relationship_type"]):
+                raise ValueError(f"Design-code relationship missing required fields: {rel}")
+            
+            # Ensure source is a design element and target is a code component
+            if rel["source_id"] not in valid_design_ids:
+                raise ValueError(f"Design-code relationship has invalid design element ID: {rel}")
+                
+            if rel["target_id"] not in valid_code_ids:
+                raise ValueError(f"Design-code relationship has invalid code component ID: {rel}")
+                
+            # Validate relationship type for D→C relationships
+            valid_dc_types = {"implements", "realizes"}
+            if rel["relationship_type"] not in valid_dc_types:
+                raise ValueError(f"Invalid D→C relationship type '{rel['relationship_type']}'. Must be one of: {valid_dc_types}")
+                
+            validated_rel = {
+                "source_id": rel["source_id"],
+                "target_id": rel["target_id"],
+                "relationship_type": rel.get("relationship_type", "implements")
+            }
+            validated_relationships.append(validated_rel)
+        
+        return validated_relationships
 
 # Factory function
 def create_baseline_map_creator(llm_client: Optional[DocurecoLLMClient] = None,
