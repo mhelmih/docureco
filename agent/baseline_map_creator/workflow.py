@@ -517,10 +517,10 @@ class BaselineMapCreatorWorkflow:
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
-                    name=elem_data.name,
-                    description=elem_data.description,
-                    type=elem_data.type,
-                    section=elem_data.section
+                    name=elem_data['name'],
+                    description=elem_data['description'],
+                    type=elem_data['type'],
+                    section=elem_data['section']
                 )
                 design_elements.append(design_element)
                 elem_counter += 1
@@ -658,11 +658,11 @@ class BaselineMapCreatorWorkflow:
             for req_data in extraction_result['requirements']:
                 requirement = RequirementModel(
                     id=f"REQ-{req_counter:03d}",
-                    title=req_data.title,
-                    description=req_data.description,
-                    type=req_data.type,
-                    priority=req_data.priority,
-                    section=req_data.section
+                    title=req_data['title'],
+                    description=req_data['description'],
+                    type=req_data['type'],
+                    priority=req_data['priority'],
+                    section=req_data['section']
                 )
                 requirements.append(requirement)
                 req_counter += 1
@@ -671,10 +671,10 @@ class BaselineMapCreatorWorkflow:
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
-                    name=elem_data.name,
-                    description=elem_data.description,
-                    type=elem_data.type,
-                    section=elem_data.section
+                    name=elem_data['name'],
+                    description=elem_data['description'],
+                    type=elem_data['type'],
+                    section=elem_data['section']
                 )
                 additional_design_elements.append(design_element)
                 elem_counter += 1
@@ -834,11 +834,11 @@ class BaselineMapCreatorWorkflow:
         elements_data = []
         for element in design_elements:
             elements_data.append({
-                "id": element.id,
-                "name": element.name,
-                "description": element.description,
-                "type": element.type,
-                "section": element.section
+                "id": element['id'],
+                "name": element['name'],
+                "description": element['description'],
+                "type": element['type'],
+                "section": element['section']
             })
         
         # Get prompts from the prompts module
@@ -897,22 +897,22 @@ class BaselineMapCreatorWorkflow:
         requirements_data = []
         for req in requirements:
             requirements_data.append({
-                "id": req.id,
-                "title": req.title,
-                "description": req.description,
-                "type": req.type,
-                "priority": req.priority,
-                "section": req.section
+                "id": req['id'],
+                "title": req['title'],
+                "description": req['description'],
+                "type": req['type'],
+                "priority": req['priority'],
+                "section": req['section']
             })
         
         design_elements_data = []
         for elem in design_elements:
             design_elements_data.append({
-                "id": elem.id,
-                "name": elem.name,
-                "description": elem.description,
-                "type": elem.type,
-                "section": elem.section
+                "id": elem['id'],
+                "name": elem['name'],
+                "description": elem['description'],
+                "type": elem['type'],
+                "section": elem['section']
             })
         
         # Get prompts from the prompts module
@@ -978,11 +978,11 @@ class BaselineMapCreatorWorkflow:
         elements_data = []
         for element in design_elements:
             elements_data.append({
-                "id": element.id,
-                "name": element.name,
-                "description": element.description,
-                "type": element.type,
-                "section": element.section
+                "id": element['id'],
+                "name": element['name'],
+                "description": element['description'],
+                "type": element['type'],
+                "section": element['section']
             })
         
         components_data = []
@@ -990,13 +990,13 @@ class BaselineMapCreatorWorkflow:
         
         for component in code_components:
             # Get actual code content for this component
-            code_content = code_content_map.get(component.path, "")
+            code_content = code_content_map.get(component['path'], "")
             
             components_data.append({
-                "id": component.id,
-                "name": component.name,
-                "path": component.path,
-                "type": component.type,
+                "id": component['id'],
+                "name": component['name'],
+                "path": component['path'],
+                "type": component['type'],
                 "content_preview": code_content[:500]  # First 500 chars as preview
             })
         
