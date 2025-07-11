@@ -12,6 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+from langchain_core.output_parsers import JsonOutputParser
 
 
 # Add parent directories to path for absolute imports
@@ -776,13 +777,17 @@ class BaselineMapCreatorWorkflow:
         human_prompt = prompts.design_elements_with_matrix_human_prompt(content, file_path)
 
         # Generate structured LLM response
+        output_parser = JsonOutputParser(pydantic_object=DesignElementsWithMatrixOutput)
+
         extraction_result = await self.llm_client.generate_structured_response(
             prompt=human_prompt,
-            system_message=system_message,
+            system_message=system_message + "\n" +  output_parser.get_format_instructions(),
             task_type="code_analysis",
             pydantic_model=DesignElementsWithMatrixOutput,
             temperature=0.1  # Low temperature for consistent extraction
         )
+        
+        
 
         # Add source_file to each traceability matrix entry
         for matrix_entry in extraction_result.traceability_matrix:

@@ -23,7 +23,7 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=10000, gt=0)
+    max_tokens: int = Field(default=100000, gt=0)
     max_retries: int = Field(default=3, ge=0)
     request_timeout: int = Field(default=120, gt=0)
     
