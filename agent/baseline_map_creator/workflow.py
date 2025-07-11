@@ -834,11 +834,11 @@ class BaselineMapCreatorWorkflow:
         elements_data = []
         for element in design_elements:
             elements_data.append({
-                "id": element['id'],
-                "name": element['name'],
-                "description": element['description'],
-                "type": element['type'],
-                "section": element['section']
+                "id": element.id,
+                "name": element.name,
+                "description": element.description,
+                "type": element.type,
+                "section": element.section
             })
         
         # Get prompts from the prompts module
@@ -862,24 +862,24 @@ class BaselineMapCreatorWorkflow:
 
         # Validate relationships
         validated_relationships = []
-        valid_element_ids = {elem['id'] for elem in design_elements}
+        valid_element_ids = {elem.id for elem in design_elements}
         
         for relationship in llm_relationships:
             # Validate that source and target IDs exist
-            if relationship['source_id'] not in valid_element_ids:
-                print(f"Warning: Invalid source_id '{relationship['source_id']}' in design element relationship")
+            if relationship.source_id not in valid_element_ids:
+                print(f"Warning: Invalid source_id '{relationship.source_id}' in design element relationship")
                 continue
                 
-            if relationship['target_id'] not in valid_element_ids:
-                print(f"Warning: Invalid target_id '{relationship['target_id']}' in design element relationship")
+            if relationship.target_id not in valid_element_ids:
+                print(f"Warning: Invalid target_id '{relationship.target_id}' in design element relationship")
                 continue
                 
             # Validate relationship type
-            if relationship['relationship_type'] not in ["refines", "realizes", "depends_on"]:
-                print(f"Warning: Invalid relationship_type '{relationship['relationship_type']}' for design element relationship")
+            if relationship.relationship_type not in ["refines", "realizes", "depends_on"]:
+                print(f"Warning: Invalid relationship_type '{relationship.relationship_type}' for design element relationship")
                 continue
                 
-            validated_relationships.append(relationship)
+            validated_relationships.append(relationship.dict())
         
         print(f"Created {len(validated_relationships)} validated design element relationships")
         return validated_relationships
@@ -897,22 +897,22 @@ class BaselineMapCreatorWorkflow:
         requirements_data = []
         for req in requirements:
             requirements_data.append({
-                "id": req['id'],
-                "title": req['title'],
-                "description": req['description'],
-                "type": req['type'],
-                "priority": req['priority'],
-                "section": req['section']
+                "id": req.id,
+                "title": req.title,
+                "description": req.description,
+                "type": req.type,
+                "priority": req.priority,
+                "section": req.section
             })
         
         design_elements_data = []
         for elem in design_elements:
             design_elements_data.append({
-                "id": elem['id'],
-                "name": elem['name'],
-                "description": elem['description'],
-                "type": elem['type'],
-                "section": elem['section']
+                "id": elem.id,
+                "name": elem.name,
+                "description": elem.description,
+                "type": elem.type,
+                "section": elem.section
             })
         
         # Get prompts from the prompts module
@@ -978,11 +978,11 @@ class BaselineMapCreatorWorkflow:
         elements_data = []
         for element in design_elements:
             elements_data.append({
-                "id": element['id'],
-                "name": element['name'],
-                "description": element['description'],
-                "type": element['type'],
-                "section": element['section']
+                "id": element.id,
+                "name": element.name,
+                "description": element.description,
+                "type": element.type,
+                "section": element.section
             })
         
         components_data = []
@@ -990,13 +990,13 @@ class BaselineMapCreatorWorkflow:
         
         for component in code_components:
             # Get actual code content for this component
-            code_content = code_content_map.get(component['path'], "")
+            code_content = code_content_map.get(component.path, "")
             
             components_data.append({
-                "id": component['id'],
-                "name": component['name'],
-                "path": component['path'],
-                "type": component['type'],
+                "id": component.id,
+                "name": component.name,
+                "path": component.path,
+                "type": component.type,
                 "content_preview": code_content[:500]  # First 500 chars as preview
             })
         
@@ -1022,8 +1022,8 @@ class BaselineMapCreatorWorkflow:
         
         # Validate each relationship has required fields
         validated_relationships = []
-        valid_design_ids = {elem['id'] for elem in design_elements}
-        valid_code_ids = {comp['id'] for comp in code_components}
+        valid_design_ids = {elem.id for elem in design_elements}
+        valid_code_ids = {comp.id for comp in code_components}
         
         for rel in llm_relationships:
             if not isinstance(rel, dict):
