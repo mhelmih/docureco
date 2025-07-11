@@ -784,16 +784,19 @@ class BaselineMapCreatorWorkflow:
             prompt=human_prompt,
             system_message=system_message + "\n" + output_parser.get_format_instructions(),
             task_type="code_analysis",
-            output_format="json",
+            output_format="text",  # Use text so we can parse into Pydantic model
             temperature=0.1  # Low temperature for consistent extraction
         )
 
+        # Parse the JSON response into Pydantic model
+        extraction_result = output_parser.parse(response.content)
+
         # Add source_file to each traceability matrix entry
-        for matrix_entry in response.content.traceability_matrix:
+        for matrix_entry in extraction_result.traceability_matrix:
             matrix_entry.source_file = file_path
 
-        print(f"Extracted {len(response.content.design_elements)} design elements and {len(response.content.traceability_matrix)} traceability matrix entries from {file_path}")
-        return response.content
+        print(f"Extracted {len(extraction_result.design_elements)} design elements and {len(extraction_result.traceability_matrix)} traceability matrix entries from {file_path}")
+        return extraction_result
     
     async def _llm_extract_requirements_with_design_elements(self, content: str, file_path: str, sdd_traceability_matrix: List[Dict[str, Any]]) -> RequirementsWithDesignElementsOutput:
         """
@@ -812,12 +815,15 @@ class BaselineMapCreatorWorkflow:
             prompt=human_prompt,
             system_message=system_message + "\n" + output_parser.get_format_instructions(),
             task_type="code_analysis",
-            output_format="json",
+            output_format="text",  # Use text so we can parse into Pydantic model
             temperature=0.1  # Low temperature for consistent extraction
         )
 
-        print(f"Extracted {len(response.content.requirements)} requirements and {len(response.content.design_elements)} design elements from {file_path} with traceability matrix context")
-        return response.content
+        # Parse the JSON response into Pydantic model
+        extraction_result = output_parser.parse(response.content)
+
+        print(f"Extracted {len(extraction_result.requirements)} requirements and {len(extraction_result.design_elements)} design elements from {file_path} with traceability matrix context")
+        return extraction_result
     
     async def _create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""
@@ -848,15 +854,18 @@ class BaselineMapCreatorWorkflow:
             prompt=human_prompt,
             system_message=system_message + "\n" + output_parser.get_format_instructions(),
             task_type="traceability_mapping",
-            output_format="json",
+            output_format="text",  # Use text so we can parse into Pydantic model
             temperature=0.15  # Low-medium temperature for consistent but thoughtful analysis
         )
+
+        # Parse the JSON response into Pydantic model
+        llm_relationships = output_parser.parse(response.content)
 
         # Validate relationships
         validated_relationships = []
         valid_element_ids = {elem.id for elem in design_elements}
         
-        for relationship in response.content:
+        for relationship in llm_relationships:
             # Validate that source and target IDs exist
             if relationship.source_id not in valid_element_ids:
                 print(f"Warning: Invalid source_id '{relationship.source_id}' in design element relationship")
