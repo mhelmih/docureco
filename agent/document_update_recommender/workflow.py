@@ -1,7 +1,7 @@
 """
-Document Update Recommendator Workflow for Docureco Agent
+Document Update Recommender Workflow for Docureco Agent
 Main LangGraph workflow that analyzes GitHub PR code changes and recommends documentation updates
-Implements the Document Update Recommendator component from the system architecture
+Implements the Document Update Recommender component from the system architecture
 """
 
 import asyncio
@@ -26,15 +26,15 @@ from agent.llm.llm_client import DocurecoLLMClient, create_llm_client
 from agent.database import create_baseline_map_repository
 from agent.models.docureco_models import (
     BaselineMapModel, DocumentationRecommendationModel, 
-    ImpactAnalysisResultModel, RequirementModel, DesignElementModel,
+    ImpactAnalysisResultModel,
     RecommendationType, ImpactSeverity, RecommendationStatus
 )
 
 logger = logging.getLogger(__name__)
 
 @dataclass
-class DocumentUpdateRecommendatorState:
-    """State for the Document Update Recommendator workflow"""
+class DocumentUpdateRecommenderState:
+    """State for the Document Update Recommender workflow"""
     repository: str
     pr_number: int
     branch: str
@@ -54,11 +54,11 @@ class DocumentUpdateRecommendatorState:
     errors: List[str] = field(default_factory=list)
     processing_stats: Dict[str, int] = field(default_factory=dict)
 
-class DocumentUpdateRecommendatorWorkflow:
+class DocumentUpdateRecommenderWorkflow:
     """
     Main LangGraph workflow for analyzing GitHub PR code changes and recommending documentation updates.
     
-    This workflow implements the Document Update Recommendator component which is responsible for:
+    This workflow implements the Document Update Recommender component which is responsible for:
     1. Loading baseline traceability maps
     2. Analyzing code changes from GitHub PRs  
     3. Identifying impacted documentation elements using traceability links
@@ -72,7 +72,7 @@ class DocumentUpdateRecommendatorWorkflow:
                  llm_client: Optional[DocurecoLLMClient] = None,
                  baseline_map_repo = None):
         """
-        Initialize Document Update Recommendator workflow
+        Initialize Document Update Recommender workflow
         
         Args:
             llm_client: Optional LLM client for analysis and recommendations
@@ -84,11 +84,11 @@ class DocumentUpdateRecommendatorWorkflow:
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
         
-        logger.info("Initialized DocumentUpdateRecommendatorWorkflow")
+        logger.info("Initialized DocumentUpdateRecommenderWorkflow")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow with conditional logic"""
-        workflow = StateGraph(DocumentUpdateRecommendatorState)
+        workflow = StateGraph(DocumentUpdateRecommenderState)
         
         # Add nodes for each major process step
         workflow.add_node("load_baseline_map", self._load_baseline_map)
@@ -109,19 +109,19 @@ class DocumentUpdateRecommendatorWorkflow:
         
         return workflow
     
-    async def execute(self, pr_url: str) -> DocumentUpdateRecommendatorState:
+    async def execute(self, pr_url: str) -> DocumentUpdateRecommenderState:
         """
-        Execute the Document Update Recommendator workflow for PR analysis
+        Execute the Document Update Recommender workflow for PR analysis
         
         Args:
             pr_url: GitHub PR URL to analyze
             
         Returns:
-            DocumentUpdateRecommendatorState: Final state with recommendations
+            DocumentUpdateRecommenderState: Final state with recommendations
         """
         # Initialize state with PR information
         pr_info = await self._parse_pr_url(pr_url)
-        initial_state = DocumentUpdateRecommendatorState(
+        initial_state = DocumentUpdateRecommenderState(
             repository=pr_info["repository"],
             pr_number=pr_info["pr_number"],
             branch=pr_info["branch"],
@@ -141,15 +141,15 @@ class DocumentUpdateRecommendatorWorkflow:
             
             final_state = await app.ainvoke(initial_state, config=config)
             
-            logger.info(f"Document Update Recommendator completed for PR {pr_info['repository']}#{pr_info['pr_number']}")
+            logger.info(f"Document Update Recommender completed for PR {pr_info['repository']}#{pr_info['pr_number']}")
             return final_state
             
         except Exception as e:
-            logger.error(f"Document Update Recommendator failed: {str(e)}")
+            logger.error(f"Document Update Recommender failed: {str(e)}")
             initial_state.errors.append(str(e))
             raise
     
-    async def _load_baseline_map(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
+    async def _load_baseline_map(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
         Load baseline traceability map for the repository
         Implements Q1: How to retrieve existing traceability relationships?
@@ -184,7 +184,7 @@ class DocumentUpdateRecommendatorWorkflow:
         
         return state
     
-    async def _analyze_code_changes(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
+    async def _analyze_code_changes(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
         Analyze code changes from the GitHub PR
         Implements Q2: How to extract and categorize code changes?
@@ -221,7 +221,7 @@ class DocumentUpdateRecommendatorWorkflow:
         
         return state
     
-    async def _identify_impacted_elements(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
+    async def _identify_impacted_elements(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
         Identify documentation elements impacted by code changes using traceability links
         Implements Q3: How to determine which documentation elements are affected?
@@ -281,7 +281,7 @@ class DocumentUpdateRecommendatorWorkflow:
         
         return state
     
-    async def _assess_impact_likelihood_severity(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
+    async def _assess_impact_likelihood_severity(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
         Assess impact likelihood and severity for each impacted element
         Implements Q4: How to assess likelihood and severity of impacts?
@@ -300,7 +300,7 @@ class DocumentUpdateRecommendatorWorkflow:
         
         return state
     
-    async def _generate_recommendations(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
+    async def _generate_recommendations(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
         Generate specific documentation update recommendations using LLM
         Implements Q5-Q10: How to generate actionable recommendations with 4W framework?
@@ -360,7 +360,7 @@ class DocumentUpdateRecommendatorWorkflow:
         
         return state
     
-    async def _create_pr_summary(self, state: DocumentUpdateRecommendatorState) -> DocumentUpdateRecommendatorState:
+    async def _create_pr_summary(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
         Create a comprehensive PR summary with recommendations
         """
@@ -452,17 +452,17 @@ class DocumentUpdateRecommendatorWorkflow:
             "summary": f"Analyzed {len(code_changes)} changes, identified {len(impacted_elements)} impacts, generated {len(recommendations)} recommendations"
         }
 
-def create_document_update_recommendator(llm_client: Optional[DocurecoLLMClient] = None) -> DocumentUpdateRecommendatorWorkflow:
+def create_document_update_recommender(llm_client: Optional[DocurecoLLMClient] = None) -> DocumentUpdateRecommenderWorkflow:
     """
-    Factory function to create Document Update Recommendator workflow
+    Factory function to create Document Update Recommender workflow
     
     Args:
         llm_client: Optional LLM client
         
     Returns:
-        DocumentUpdateRecommendatorWorkflow: Configured workflow
+        DocumentUpdateRecommenderWorkflow: Configured workflow
     """
-    return DocumentUpdateRecommendatorWorkflow(llm_client)
+    return DocumentUpdateRecommenderWorkflow(llm_client)
 
 # Export main classes
-__all__ = ["DocumentUpdateRecommendatorWorkflow", "DocumentUpdateRecommendatorState", "create_document_update_recommendator"] 
+__all__ = ["DocumentUpdateRecommenderWorkflow", "DocumentUpdateRecommenderState", "create_document_update_recommender"] 
