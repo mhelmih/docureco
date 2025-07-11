@@ -159,6 +159,52 @@ class DocurecoLLMClient:
         except Exception as e:
             logger.error(f"Error generating LLM response: {str(e)}")
             raise
+
+    async def generate_structured_response(
+        self,
+        prompt: str,
+        system_message: Optional[str] = None,
+        task_type: Optional[str] = None,
+        pydantic_model = None,
+        **kwargs
+    ):
+        """
+        Generate structured response using Pydantic model
+        
+        Args:
+            prompt: User prompt/query
+            system_message: System message for context
+            task_type: Type of task (code_analysis, traceability_mapping, etc.)
+            pydantic_model: Pydantic model class for structured output
+            **kwargs: Additional parameters for LLM
+            
+        Returns:
+            Pydantic model instance with structured data
+        """
+        try:
+            # Apply task-specific configuration if provided
+            llm = self._configure_for_task(task_type, **kwargs)
+            
+            # Configure LLM for structured output
+            if pydantic_model:
+                structured_llm = llm.with_structured_output(pydantic_model)
+            else:
+                raise ValueError("pydantic_model is required for structured output")
+            
+            # Prepare messages
+            messages = []
+            if system_message:
+                messages.append(SystemMessage(content=system_message))
+            messages.append(HumanMessage(content=prompt))
+            
+            # Generate structured response
+            response = await structured_llm.ainvoke(messages)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error generating structured LLM response: {str(e)}")
+            raise
     
     def _configure_for_task(self, task_type: Optional[str], **kwargs) -> BaseLanguageModel:
         """
