@@ -25,6 +25,9 @@ env:
   GROK_BASE_URL: ${{ secrets.GROK_BASE_URL }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   
+  # LangSmith Configuration
+  LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+  
   # Database Configuration
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}

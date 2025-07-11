@@ -776,8 +776,9 @@ class BaselineMapCreatorWorkflow:
             if not isinstance(matrix_entry, dict):
                 raise ValueError(f"Invalid traceability matrix entry format in {file_path}: {matrix_entry}")
                 
-            if not all(key in matrix_entry for key in ["source_id", "target_id", "relationship_type", "source_file"]):
-                raise ValueError(f"Traceability matrix entry missing required fields in {file_path}: {matrix_entry}")
+            missing_fields = [key for key in ["source_id", "target_id", "relationship_type", "source_file"] if key not in matrix_entry]
+            if missing_fields:
+                raise ValueError(f"Traceability matrix entry missing required fields {missing_fields} in {file_path}: {matrix_entry}")
                 
             validated_traceability_matrix.append({
                 "source_id": matrix_entry["source_id"],

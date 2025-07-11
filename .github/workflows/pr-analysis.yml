@@ -87,9 +87,12 @@ jobs:
         env:
           # LLM Configuration
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          GROK_BASE_URL: ${{ vars.GROK_BASE_URL || 'https://api.x.ai/v1' }}
+          GROK_BASE_URL: ${{ secrets.GROK_BASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          
+          # LangSmith Configuration
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
           
           # Database Configuration
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -244,6 +247,7 @@ jobs:
         env:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

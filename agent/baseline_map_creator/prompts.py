@@ -29,6 +29,38 @@ For the traceability matrix, provide relationships between ANY artifacts (requir
 - relationship_type: Leave this field as "unclassified" (will be classified later)
 - source_file: File path where this relationship was found
 
+EXAMPLE OUTPUT FORMAT:
+{
+  "design_elements": [
+    {
+      "name": "Authentication Service",
+      "description": "Handles user login, logout, and session management",
+      "type": "Service", 
+      "section": "3.2 Authentication Component"
+    },
+    {
+      "name": "User Interface Controller",
+      "description": "Manages user interface interactions and display logic",
+      "type": "Component",
+      "section": "3.3 UI Layer"
+    }
+  ],
+  "traceability_matrix": [
+    {
+      "source_id": "REQ-001",
+      "target_id": "DE-001",
+      "relationship_type": "unclassified",
+      "source_file": "path/to/sdd.md"
+    },
+    {
+      "source_id": "REQ-002", 
+      "target_id": "DE-002",
+      "relationship_type": "unclassified",
+      "source_file": "path/to/sdd.md"
+    }
+  ]
+}
+
 Return a JSON object with 'design_elements' and 'traceability_matrix' keys. If no traceability matrix is found, return an empty array for 'traceability_matrix'."""
     
     @staticmethod
@@ -64,6 +96,40 @@ For each design element found, provide:
 - description: Brief description of purpose/functionality
 - type: Category (Service, Class, Interface, Component, Database, UI, etc.)
 - section: Section reference from the document (if available)
+
+EXAMPLE OUTPUT FORMAT:
+{
+  "requirements": [
+    {
+      "title": "User Authentication",
+      "description": "The system must authenticate users using username and password",
+      "type": "Functional",
+      "priority": "High",
+      "section": "3.1 Authentication Requirements"
+    },
+    {
+      "title": "System Performance",
+      "description": "The system must respond to user requests within 2 seconds",
+      "type": "Non-Functional",
+      "priority": "Medium",
+      "section": "4.2 Performance Requirements"
+    }
+  ],
+  "design_elements": [
+    {
+      "name": "Login Controller",
+      "description": "Handles user login requests and validation",
+      "type": "Component",
+      "section": "3.1 Authentication Requirements"
+    },
+    {
+      "name": "User Database",
+      "description": "Stores user credentials and profile information",
+      "type": "Database",
+      "section": "3.1 Authentication Requirements"
+    }
+  ]
+}
 
 Return a JSON object with 'requirements' and 'design_elements' keys."""
     
@@ -108,6 +174,25 @@ For each relationship found, provide:
 - target_id: ID of the target element  
 - relationship_type: MUST be one of: "refines", "realizes", "depends_on"
 
+EXAMPLE OUTPUT FORMAT:
+[
+  {
+    "source_id": "DE-001",
+    "target_id": "DE-002",
+    "relationship_type": "depends_on"
+  },
+  {
+    "source_id": "DE-003",
+    "target_id": "DE-001",
+    "relationship_type": "refines"
+  },
+  {
+    "source_id": "DE-004",
+    "target_id": "DE-002",
+    "relationship_type": "realizes"
+  }
+]
+
 Only identify relationships that make logical sense based on the element information and traceability matrix context. Return a JSON array of relationships. If no meaningful relationships exist, return an empty array."""
     
     @staticmethod
@@ -147,6 +232,25 @@ For each relationship found, provide:
 - source_id: ID of the requirement
 - target_id: ID of the design element
 - relationship_type: MUST be one of: "satisfies", "realizes"
+
+EXAMPLE OUTPUT FORMAT:
+[
+  {
+    "source_id": "REQ-001",
+    "target_id": "DE-001",
+    "relationship_type": "satisfies"
+  },
+  {
+    "source_id": "REQ-002", 
+    "target_id": "DE-003",
+    "relationship_type": "realizes"
+  },
+  {
+    "source_id": "REQ-003",
+    "target_id": "DE-002",
+    "relationship_type": "satisfies"
+  }
+]
 
 Prioritize relationships from the traceability matrix, then identify additional logical connections. Return a JSON array of relationships. If no meaningful relationships exist, return an empty array."""
     
@@ -196,6 +300,25 @@ For each relationship found, provide:
 - source_id: ID of the design element
 - target_id: ID of the code component
 - relationship_type: MUST be one of: "implements", "realizes"
+
+EXAMPLE OUTPUT FORMAT:
+[
+  {
+    "source_id": "DE-001",
+    "target_id": "CC-001",
+    "relationship_type": "implements"
+  },
+  {
+    "source_id": "DE-002",
+    "target_id": "CC-003",
+    "relationship_type": "realizes"
+  },
+  {
+    "source_id": "DE-003",
+    "target_id": "CC-002",
+    "relationship_type": "implements"
+  }
+]
 
 Analyze the design element names, descriptions, types against the code component names, paths, and content previews to identify logical connections. Use the traceability matrix to understand the architectural context. Return a JSON array of relationships. If no meaningful relationships exist, return an empty array."""
     
