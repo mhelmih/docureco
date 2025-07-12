@@ -112,7 +112,7 @@ class BookDetail:
                     temp_reading_session = reading_progress.getReadingSession()
                     reading_progress.setReadingSession(temp_reading_session + 1)
                 self.reading_progress_collection.update_reading_progress(ReadingProgress(self.book_id, reading_progress.getReadingSession(), int(current_page_field.value), reading_progress.getStartDate()))
-                self.book_collection.update_book(Book(self.book_id, book_title_field.value, book_status_field.value.lower(), int(total_pages_field.value)))
+                self.book_collection.update_book(Book(self.book_id, book_title_field.value, book_status_field.value.lower(), int(total_pages_field.value), book.get_isFavorite()))
                 self.page.go("/")
 
         def delete_book(e):
@@ -124,6 +124,24 @@ class BookDetail:
         record_progress_button = ft.ElevatedButton(text="Catat Progres Pembacaan", on_click= lambda _: self.page.go("/CatatProgresPembacaan/" + str(self.book_id)))
         update_button = ft.ElevatedButton(text="Update", width=150, on_click=update_data)
         delete_book_button = ft.ElevatedButton(text="Hapus Buku", on_click=delete_book)
+        
+        def toggle_favorite(e):
+            new_favorite_status = not book.get_isFavorite()
+            book.set_isFavorite(new_favorite_status)
+            self.book_collection.update_favorite_status(self.book_id, new_favorite_status)
+            
+            # Update button appearance
+            favorite_button.icon = ft.icons.FAVORITE if new_favorite_status else ft.icons.FAVORITE_BORDER
+            favorite_button.icon_color = ft.colors.RED if new_favorite_status else ft.colors.GREY
+            favorite_button.text = "Hapus dari Favorit" if new_favorite_status else "Tambah ke Favorit"
+            self.page.update()
+        
+        favorite_button = ft.ElevatedButton(
+            text="Hapus dari Favorit" if book.get_isFavorite() else "Tambah ke Favorit",
+            icon=ft.icons.FAVORITE if book.get_isFavorite() else ft.icons.FAVORITE_BORDER,
+            icon_color=ft.colors.RED if book.get_isFavorite() else ft.colors.GREY,
+            on_click=toggle_favorite
+        )
 
         self.top_row = ft.Container(
             content=ft.Column(
@@ -214,7 +232,8 @@ class BookDetail:
                 [
                     view_notes_button,
                     record_progress_button,
-                    update_button
+                    update_button,
+                    favorite_button
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.END

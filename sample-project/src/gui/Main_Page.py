@@ -9,11 +9,12 @@ from src.book.book_collection import BookCollection
 from src.reading_progress.reading_progress_collection import ReadingProgressCollection
 
 class BookDisplay(ft.UserControl):
-    def __init__(self, book : Book, book_delete, book_status_change):
+    def __init__(self, book : Book, book_delete, book_status_change, book_favorite_change):
         super().__init__()
         self.book = book
         self.book_status_change = book_status_change
         self.book_delete = book_delete
+        self.book_favorite_change = book_favorite_change
 
     def build(self):
 
@@ -32,6 +33,12 @@ class BookDisplay(ft.UserControl):
                     spacing=0,
                     controls=[
                         ft.IconButton(
+                            icon=ft.icons.FAVORITE if self.book.get_isFavorite() else ft.icons.FAVORITE_BORDER,
+                            icon_color=ft.colors.RED if self.book.get_isFavorite() else ft.colors.GREY,
+                            tooltip="Favorit",
+                            on_click=self.favorite_clicked,
+                        ),
+                        ft.IconButton(
                             icon=ft.icons.ARROW_DROP_DOWN_OUTLINED,
                             on_click=self.detail_clicked,
                         ),
@@ -49,6 +56,12 @@ class BookDisplay(ft.UserControl):
                 ft.Row(
                     spacing=0,
                     controls=[
+                        ft.IconButton(
+                            icon=ft.icons.FAVORITE if self.book.get_isFavorite() else ft.icons.FAVORITE_BORDER,
+                            icon_color=ft.colors.RED if self.book.get_isFavorite() else ft.colors.GREY,
+                            tooltip="Favorit",
+                            on_click=self.favorite_clicked,
+                        ),
                         ft.IconButton(
                             icon=ft.icons.ARROW_DROP_UP_OUTLINED,
                             on_click=self.close_detail_clicked,
@@ -91,6 +104,9 @@ class BookDisplay(ft.UserControl):
     def delete_clicked(self, e):
         self.book_delete(self)
 
+    def favorite_clicked(self, e):
+        self.book_favorite_change(self)
+
     def detail_clicked(self, e):
         self.detail_view_1.visible = True
         self.detail_view_2.visible = True
@@ -105,13 +121,14 @@ class BookDisplay(ft.UserControl):
 
 
 class BookCollectionDisplay(ft.UserControl):
-    def __init__(self, book_delete, book_status_change):
+    def __init__(self, book_delete, book_status_change, book_favorite_change):
         super().__init__()
         self.book_collection = BookCollection()
         self.book_collection.set_db("read_buddy.db")
         self.book_list = self.book_collection.get_all()
         self.book_delete = book_delete
         self.book_status_change = book_status_change
+        self.book_favorite_change = book_favorite_change
 
     def build_app_icon(self):
         col = ft.Column(
@@ -153,7 +170,7 @@ class BookCollectionDisplay(ft.UserControl):
         )
 
         for i in range(self.book_list.__len__()):
-            panel.controls.append(BookDisplay(self.book_list[i], self.book_delete, self.book_status_change))
+            panel.controls.append(BookDisplay(self.book_list[i], self.book_delete, self.book_status_change, self.book_favorite_change))
         return panel
 
 
@@ -163,7 +180,7 @@ class ReadBuddy(ft.UserControl):
             text="Tambah Buku",
             on_click=self.add_clicked
         )
-        self.book_collection_display = BookCollectionDisplay(self.book_delete, self.book_status_change)
+        self.book_collection_display = BookCollectionDisplay(self.book_delete, self.book_status_change, self.book_favorite_change)
         self.display_icon = self.book_collection_display.build_app_icon()
         self.book_list_display = self.book_collection_display.build_list()
         self.filter = ft.Tabs(
@@ -172,7 +189,7 @@ class ReadBuddy(ft.UserControl):
             on_change=self.tabs_changed,
             # label_color=ft.colors.GREEN,
             # indicator_color=ft.colors.BLACK,
-            tabs=[ft.Tab(text="Semua"), ft.Tab(text="Sedang dibaca"), ft.Tab(text="Sudah/ingin dibaca")],
+            tabs=[ft.Tab(text="Semua"), ft.Tab(text="Sedang dibaca"), ft.Tab(text="Sudah/ingin dibaca"), ft.Tab(text="Favorit")],
         )
 
         self.items_left = ft.Text("0 buku yang sedang dibaca")
@@ -212,6 +229,17 @@ class ReadBuddy(ft.UserControl):
     def book_status_change(self, book):
         self.update()
 
+    def book_favorite_change(self, book):
+        # Toggle favorite status
+        new_favorite_status = not book.book.get_isFavorite()
+        book.book.set_isFavorite(new_favorite_status)
+        
+        # Update in database
+        self.book_collection_display.book_collection.update_favorite_status(book.book.get_bookId(), new_favorite_status)
+        
+        # Update UI
+        self.update()
+
     def book_delete(self, book):
         self.book_list_display.controls.remove(book)
         self.book_collection_display.book_collection.delete_by_id(book.book.get_bookId())
@@ -230,6 +258,7 @@ class ReadBuddy(ft.UserControl):
                 status == "Semua"
                 or (status == "Sedang dibaca" and book.book.get_bookStatus() == "sedang dibaca")
                 or (status == "Sudah/ingin dibaca" and book.book.get_bookStatus() != "sedang dibaca")
+                or (status == "Favorit" and book.book.get_isFavorite())
             )
             if book.book.get_bookStatus() == "sedang dibaca":
                 count += 1

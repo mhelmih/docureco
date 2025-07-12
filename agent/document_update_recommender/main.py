@@ -44,12 +44,6 @@ async def main():
         workflow = DocumentUpdateRecommenderWorkflow()
         
         print(f"Analyzing documentation update needs for PR: {args.pr_url}")
-        print("Following 5-step process:")
-        print("1. Scan PR")
-        print("2. Analyze Code Changes")
-        print("3. Assess Documentation Impact")
-        print("4. Generate and Post Recommendations")
-        print("5. Complete")
         
         final_state = await workflow.execute(args.pr_url)
         

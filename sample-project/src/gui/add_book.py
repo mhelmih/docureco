@@ -56,7 +56,7 @@ class AddBook:
                 if (page_count <= 0):
                     self.error_text.value = "Halaman buku harus bilangan positif"
                 else:
-                    book = Book(None, self.book_title_field.value, self.book_status_dropdown.value.lower(), page_count)
+                    book = Book(None, self.book_title_field.value, self.book_status_dropdown.value.lower(), page_count, False)
                     self.book_collection.insert(book)
 
                     reading_progress = ReadingProgress(book.get_bookId(), 0, 0, dt.datetime(1970, 1, 1))
