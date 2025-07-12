@@ -9,283 +9,296 @@ import json
 class DocumentUpdateRecommenderPrompts:
     """Collection of prompts for document update recommender workflow"""
     
-    # Step 1: Scan PR Prompts
+    # Step 2: Code Change Classification Prompts
     @staticmethod
-    def pr_analysis_system_prompt() -> str:
-        """System prompt for analyzing PR event data and repository context"""
-        return """You are an expert software development analyst specializing in PR (Pull Request) analysis. Your task is to:
+    def batch_code_classification_system_prompt() -> str:
+        """System prompt for batch classification of code changes"""
+        return """You are a software engineering expert analyzing code changes. Your task is to classify ALL changed files in a pull request using the 4W framework for documentation impact analysis.
 
-1. Analyze PR event data to understand the nature and scope of changes
-2. Extract relevant commit information and change patterns
-3. Identify key files and components affected
-4. Categorize the type of changes (feature, bug fix, refactoring, etc.)
+For EACH file, analyze:
+1. **Type** (What changed):
+   - Addition, Deletion, Modification, Rename
+2. **Scope** (Where the change occurred):
+   - Function/Method, Class/Interface/Struct/Type, Module/Package/Namespace, File, API Contract, Configuration, Dependencies, Build Scripts, Infrastructure Code, Test Code, Documentation, Cross-cutting
+3. **Nature** (Why the change was made - analyze commit context):
+   - New Feature, Feature Enhancement, Bug Fix, Security Fix, Refactoring, Performance Optimization, Code Style/Formatting, Technical Debt Reduction, Readability Improvement, Error Handling Improvement, Dependency Management, Build Process Improvement, Tooling Configuration, API Changes, External System Integration Changes, Documentation Updates, UI/UX Adjustments, Static Content Updates, Code/Deprecation Removal, Revert, Merge Conflict Resolution, License Updates, Experimental, Chore, Other
+4. **Volume** (How much changed - cumulative effect):
+   - Trivial (1-5 lines, typo fixes)
+   - Small (localized changes, single function)
+   - Medium (affects important parts of class/module)
+   - Large (substantial changes across multiple modules)
+   - Very Large (extensive architectural changes)
+5. **Reasoning**: 
+   - Brief explanation of the classification based on cumulative changes and commit context
 
-For each PR analysis, provide:
-- change_summary: Brief description of what changed
-- change_type: Type of change (feature, bugfix, refactoring, documentation, etc.)
-- scope: Scope of impact (component, module, system-wide)
-- risk_level: Risk assessment (low, medium, high)
-- affected_areas: List of affected functional areas
-
-Return a JSON object with the PR analysis results."""
+The response will be automatically structured. Analyze the cumulative net effect of changes per file across all commits, using commit messages to understand the development intent."""
     
     @staticmethod
-    def pr_analysis_human_prompt(pr_event_data: Dict[str, Any], repo_content: Dict[str, Any]) -> str:
-        """Human prompt for PR analysis"""
-        return f"""Analyze the following PR event data and repository context:
+    def batch_code_classification_human_prompt(relevant_files: List[Dict[str, Any]], commit_context: Dict[str, Any]) -> str:
+        """Human prompt for batch code classification"""
+        
+        files_section = ""
+        for i, file_data in enumerate(relevant_files):
+            files_section += f"""
+File {i+1}:
+- Filename: {file_data['filename']}
+- Status: {file_data['status']}
+- Additions: {file_data['additions']}
+- Deletions: {file_data['deletions']}
+- Total Changes: {file_data['changes']}
+- Code Diff: {file_data['patch'][:1000]}...
 
-PR Event Data:
-{json.dumps(pr_event_data, indent=2)}
+"""
+        
+        return f"""Analyze and classify ALL the following changed files using the 4W framework:
 
-Repository Content Context:
-{json.dumps(repo_content, indent=2)}
+**PR Context:**
+- Total Commits: {commit_context.get("count", 1)}
+- Commit Messages: {commit_context.get("combined_context", "N/A")}
 
-Provide a comprehensive analysis of this PR as a JSON object."""
+**Files to Classify:**
+{files_section}
+
+Classify each file and return the results as a structured JSON array."""
     
-    # Step 2: Analyze Code Changes Prompts
+    # Step 2: Code Change Grouping Prompts
     @staticmethod
-    def code_change_classification_system_prompt() -> str:
-        """System prompt for classifying individual code changes"""
-        return """You are an expert software architect analyzing code changes to classify them into logical groups. Your task is to:
-
-1. Classify individual code changes based on their purpose and impact
-2. Group related changes into logical change sets
-3. Identify dependencies between changes
-4. Determine the semantic meaning of changes
-
-For each change classification, provide:
-- change_id: Unique identifier for the change
-- file_path: Path to the changed file
-- change_type: Type of change (addition, modification, deletion, rename)
-- semantic_category: Semantic category (api_change, business_logic, configuration, etc.)
-- impact_scope: Scope of impact (local, module, system)
-- related_changes: List of related change IDs
-
-Return a JSON object with classified changes."""
-    
-    @staticmethod
-    def code_change_classification_human_prompt(changed_files: List[str], pr_data: Dict[str, Any], repo_content: Dict[str, Any]) -> str:
-        """Human prompt for code change classification"""
-        return f"""Classify the following code changes into logical groups:
-
-Changed Files:
-{json.dumps(changed_files, indent=2)}
-
-PR Data:
-{json.dumps(pr_data, indent=2)}
-
-Repository Context:
-{json.dumps(repo_content, indent=2)}
-
-Classify these changes and return the results as a JSON object."""
-    
-    @staticmethod
-    def logical_grouping_system_prompt() -> str:
+    def change_grouping_system_prompt() -> str:
         """System prompt for grouping classified changes into logical change sets"""
-        return """You are an expert software architect grouping related code changes into logical change sets. Your task is to:
+        return """You are a software engineering expert grouping related code changes into logical change sets for documentation impact analysis.
 
-1. Group related changes that serve the same purpose
-2. Identify change dependencies and ordering
-3. Create logical change sets that represent cohesive modifications
-4. Determine the overall impact of each change set
+Your task is to use commit messages as the primary semantic keys to group file changes that serve the same logical purpose or feature development goal.
 
-For each logical change set, provide:
-- changeset_id: Unique identifier for the change set
-- changes: List of individual change IDs in this set
-- purpose: Purpose of this change set
-- dependencies: List of dependent change set IDs
-- impact_level: Overall impact level (low, medium, high)
-- affected_components: List of affected system components
+Group changes based on:
+1. **Commit Message Semantics** - Changes mentioned in related commit messages
+2. **Functional Similarity** - Changes that serve the same feature or purpose  
+3. **Development Task Coherence** - Changes that together complete a logical development task
 
-Return a JSON object with logical change sets."""
+Each group should represent a cohesive development task (e.g., "Feature X Implementation", "Bug Y Fix", "Documentation Updates").
+
+For each group, determine:
+- **Name**: Descriptive name derived from commit messages
+- **Description**: What this change set accomplishes
+- **Primary Nature**: Most common nature of changes in the set
+- **Estimated Impact**: Low/Medium/High based on total changes and scope
+
+The response will be automatically structured with the grouped changes."""
     
     @staticmethod
-    def logical_grouping_human_prompt(classified_changes: List[Dict[str, Any]], commit_info: Dict[str, Any]) -> str:
-        """Human prompt for logical grouping"""
-        return f"""Group the following classified changes into logical change sets:
+    def change_grouping_human_prompt(classified_changes: List[Dict[str, Any]], grouping_context: Dict[str, Any]) -> str:
+        """Human prompt for change grouping"""
+        
+        # Format classified changes for prompt
+        changes_summary = []
+        for i, change in enumerate(classified_changes):
+            changes_summary.append(f"""
+Change {i+1}:
+- File: {change.get('filename', 'unknown')}
+- Type: {change.get('type', 'unknown')}
+- Scope: {change.get('scope', 'unknown')}  
+- Nature: {change.get('nature', 'unknown')}
+- Volume: {change.get('volume', 'unknown')}
+- Changes: {change.get('changes', 0)}
+- Reasoning: {change.get('reasoning', 'N/A')}
+""")
+        
+        commits_summary = []
+        for i, message in enumerate(grouping_context.get("commit_messages", [])):
+            commits_summary.append(f"- Commit {i+1}: {message}")
+        
+        pr_metadata = grouping_context.get("pr_metadata", {})
+        
+        return f"""Group the following classified changes into logical change sets using commit messages as semantic keys:
 
-Classified Changes:
-{json.dumps(classified_changes, indent=2)}
+**PR Overview:**
+- Total Commits: {pr_metadata.get('total_commits', 0)}
+- Total Files Changed: {pr_metadata.get('total_files_changed', 0)}
+- Total Additions: {pr_metadata.get('total_additions', 0)}
+- Total Deletions: {pr_metadata.get('total_deletions', 0)}
 
-Commit Information:
-{json.dumps(commit_info, indent=2)}
+**Commit Messages (Primary Semantic Drivers):**
+{chr(10).join(commits_summary)}
 
-Group these changes into logical sets and return the results as a JSON object."""
+**Classified Changes:**
+{chr(10).join(changes_summary)}
+
+Group these changes into logical change sets and return them as a structured JSON object."""
     
-    # Step 3: Assess Documentation Impact Prompts
-    @staticmethod
-    def traceability_analysis_system_prompt() -> str:
-        """System prompt for traceability analysis and impact assessment"""
-        return """You are an expert software architect specializing in traceability analysis and documentation impact assessment. Your task is to:
-
-1. Analyze traceability relationships between code changes and documentation
-2. Determine which documentation elements are potentially impacted
-3. Assess the likelihood and severity of documentation impacts
-4. Prioritize findings based on business impact
-
-For each impacted documentation element, provide:
-- element_id: Unique identifier for the documentation element
-- element_type: Type of element (requirement, design, specification, etc.)
-- impact_reason: Reason why this element is impacted
-- likelihood: Probability of impact (0.0 to 1.0)
-- severity: Impact severity (low, medium, high, critical)
-- affected_sections: List of affected document sections
-- business_impact: Business impact assessment
-
-Return a JSON object with impact analysis results."""
-    
-    @staticmethod
-    def traceability_analysis_human_prompt(logical_change_sets: List[Dict[str, Any]], traceability_map: Dict[str, Any]) -> str:
-        """Human prompt for traceability analysis"""
-        return f"""Analyze the traceability impact of the following logical change sets:
-
-Logical Change Sets:
-{json.dumps(logical_change_sets, indent=2)}
-
-Traceability Map:
-{json.dumps(traceability_map, indent=2)}
-
-Assess the documentation impact and return the results as a JSON object."""
-    
-    @staticmethod
-    def impact_prioritization_system_prompt() -> str:
-        """System prompt for prioritizing documentation impact findings"""
-        return """You are an expert technical writer prioritizing documentation impact findings. Your task is to:
-
-1. Prioritize findings based on business impact, likelihood, and severity
-2. Consider documentation quality and consistency requirements
-3. Assess the urgency of documentation updates
-4. Filter findings to focus on high-priority impacts
-
-For each prioritized finding, provide:
-- finding_id: Unique identifier for the finding
-- priority_level: Priority level (urgent, high, medium, low)
-- business_justification: Business justification for the priority
-- update_urgency: How urgent the update is
-- quality_impact: Impact on documentation quality
-- consistency_impact: Impact on documentation consistency
-
-Return a JSON object with prioritized findings."""
-    
-    @staticmethod
-    def impact_prioritization_human_prompt(combined_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> str:
-        """Human prompt for impact prioritization"""
-        return f"""Prioritize the following documentation impact findings:
-
-Combined Findings:
-{json.dumps(combined_findings, indent=2)}
-
-Logical Change Sets Context:
-{json.dumps(logical_change_sets, indent=2)}
-
-Prioritize these findings and return the results as a JSON object."""
-    
-    # Step 4: Generate and Post Recommendations Prompts
+    # Step 4: Recommendation Generation Prompts
     @staticmethod
     def recommendation_generation_system_prompt() -> str:
         """System prompt for generating specific documentation update recommendations"""
-        return """You are an expert technical writer generating specific documentation update recommendations. Your task is to:
+        return """You are an expert technical writer generating specific documentation update recommendations based on code changes and impact analysis.
 
-1. Generate detailed, actionable documentation update recommendations
-2. Provide specific content suggestions and implementation guidance
-3. Consider documentation standards and best practices
-4. Ensure recommendations are practical and implementable
+Your task is to generate detailed, actionable documentation update recommendations that are:
+- **Specific**: Clear about what needs to be updated
+- **Actionable**: Provide concrete steps or content suggestions
+- **Contextual**: Based on the actual code changes and their impact
+- **Practical**: Can be implemented by development teams
 
-For each recommendation, provide:
-- recommendation_id: Unique identifier for the recommendation
-- target_document: Path to the document that needs updating
-- section_reference: Specific section or line numbers
-- recommendation_type: Type of update (content_change, structure_change, addition, removal)
-- priority: Priority level (urgent, high, medium, low)
-- what_to_update: Specific description of what needs to be updated
-- where_to_update: Exact location in the document
-- why_update_needed: Rationale for why this update is necessary
-- how_to_update: Step-by-step guidance on how to implement the update
-- suggested_content: Specific content suggestions or templates
-- validation_criteria: Criteria to validate the update was successful
+For each high-priority finding, generate:
+- **Target Document**: Which document needs updating (SRS, SDD, etc.)
+- **Section**: Specific section or location in the document
+- **Recommendation Type**: UPDATE, CREATE, DELETE, or REVIEW
+- **Priority**: HIGH, MEDIUM, or LOW
+- **What to Update**: Specific description of what needs to be changed
+- **Where to Update**: Exact location or section reference
+- **Why Update Needed**: Rationale based on code changes
+- **How to Update**: Step-by-step guidance or content suggestions
+- **Suggested Content**: Specific text or structure recommendations (when applicable)
 
-Return a JSON object with detailed recommendations."""
+The response will be automatically structured with detailed recommendations."""
     
     @staticmethod
     def recommendation_generation_human_prompt(filtered_findings: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> str:
         """Human prompt for recommendation generation"""
-        return f"""Generate specific documentation update recommendations based on the following:
+        
+        findings_summary = []
+        for i, finding in enumerate(filtered_findings):
+            findings_summary.append(f"""
+Finding {i+1}:
+- Type: {finding.get('finding_type', 'unknown')}
+- Affected Element: {finding.get('affected_element_id', 'unknown')}
+- Element Type: {finding.get('affected_element_type', 'unknown')}
+- Likelihood: {finding.get('likelihood', 'unknown')}
+- Severity: {finding.get('severity', 'unknown')}
+- Source Change Set: {finding.get('source_change_set_id', 'unknown')}
+""")
+        
+        change_sets_summary = []
+        for i, change_set in enumerate(logical_change_sets):
+            change_sets_summary.append(f"""
+Change Set {i+1}: {change_set.get('name', 'Unknown')}
+- Description: {change_set.get('description', 'N/A')}
+- Primary Nature: {change_set.get('primary_nature', 'Other')}
+- Estimated Impact: {change_set.get('estimated_impact', 'Medium')}
+- Files Changed: {len(change_set.get('changes', []))}
+""")
+        
+        docs_summary = []
+        for doc_path, doc_info in current_docs.items():
+            content_preview = str(doc_info.get('content', ''))[:200] + "..." if doc_info.get('content') else "No content available"
+            docs_summary.append(f"""
+Document: {doc_path}
+- Content Preview: {content_preview}
+""")
+        
+        return f"""Generate specific documentation update recommendations for the following high-priority findings:
 
-High-Priority Findings:
-{json.dumps(filtered_findings, indent=2)}
+**High-Priority Findings:**
+{chr(10).join(findings_summary)}
 
-Current Documentation Context:
-{json.dumps(current_docs, indent=2)}
+**Related Change Sets:**
+{chr(10).join(change_sets_summary)}
 
-Logical Change Sets:
-{json.dumps(logical_change_sets, indent=2)}
+**Current Documentation Context:**
+{chr(10).join(docs_summary)}
 
-Generate detailed, actionable recommendations and return them as a JSON object."""
-    
-    @staticmethod
-    def recommendation_filtering_system_prompt() -> str:
-        """System prompt for filtering recommendations against existing suggestions"""
-        return """You are an expert technical writer filtering and managing documentation recommendations. Your task is to:
-
-1. Compare new recommendations with existing suggestions
-2. Identify duplicates and conflicts
-3. Merge or consolidate similar recommendations
-4. Ensure recommendation quality and consistency
-
-For each filtered recommendation, provide:
-- recommendation_id: Unique identifier for the recommendation
-- action: Action to take (keep, merge, discard, modify)
-- merge_target: Target recommendation ID if merging
-- modification_reason: Reason for modification if applicable
-- quality_score: Quality score (1-10)
-- implementation_priority: Implementation priority
-- resource_requirements: Estimated resource requirements
-
-Return a JSON object with filtered recommendations."""
-    
-    @staticmethod
-    def recommendation_filtering_human_prompt(generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]]) -> str:
-        """Human prompt for recommendation filtering"""
-        return f"""Filter the following generated recommendations against existing suggestions:
-
-Generated Suggestions:
-{json.dumps(generated_suggestions, indent=2)}
-
-Existing Suggestions:
-{json.dumps(existing_suggestions, indent=2)}
-
-Filter and manage these recommendations, returning the results as a JSON object."""
+Generate detailed, actionable recommendations and return them as a structured JSON array."""
     
     # Quality Assessment Prompts
     @staticmethod
     def quality_assessment_system_prompt() -> str:
         """System prompt for assessing documentation quality after updates"""
-        return """You are an expert technical writer assessing documentation quality and consistency. Your task is to:
-
-1. Evaluate the completeness of documentation updates
-2. Check for consistency across different documents
-3. Identify potential gaps or redundancies
-4. Assess overall documentation quality
+        return """You are an expert technical writer assessing documentation quality and consistency. Your task is to evaluate the completeness and quality of documentation updates against the original recommendations.
 
 For the quality assessment, provide:
-- completeness_score: Score from 1-10 for completeness
-- consistency_score: Score from 1-10 for consistency
-- quality_issues: List of identified quality issues
-- improvement_suggestions: Specific suggestions for improvement
-- overall_rating: Overall quality rating (excellent, good, fair, poor)
-- compliance_status: Compliance with documentation standards
+- **Completeness Score**: Score from 1-10 for how well recommendations were addressed
+- **Consistency Score**: Score from 1-10 for consistency across different documents
+- **Quality Issues**: List of identified quality problems or gaps
+- **Improvement Suggestions**: Specific suggestions for improvement
+- **Overall Rating**: Overall quality rating (excellent, good, fair, poor)
+- **Compliance Status**: Compliance with documentation standards
 
-Return a JSON object with the quality assessment."""
+The response will be automatically structured with detailed quality metrics."""
     
     @staticmethod
     def quality_assessment_human_prompt(updated_documentation: Dict[str, str], recommendations: List[Dict[str, Any]]) -> str:
         """Human prompt for quality assessment"""
+        
+        updated_docs_summary = []
+        for doc_path, content in updated_documentation.items():
+            content_preview = content[:300] + "..." if len(content) > 300 else content
+            updated_docs_summary.append(f"""
+Document: {doc_path}
+Updated Content: {content_preview}
+""")
+        
+        recommendations_summary = []
+        for i, rec in enumerate(recommendations):
+            recommendations_summary.append(f"""
+Recommendation {i+1}:
+- Target: {rec.get('target_document', 'Unknown')}
+- Type: {rec.get('recommendation_type', 'Unknown')}
+- What: {rec.get('what_to_update', 'N/A')}
+- Priority: {rec.get('priority', 'Unknown')}
+""")
+        
         return f"""Assess the quality of the following updated documentation against the original recommendations:
 
-Updated Documentation:
-{json.dumps(updated_documentation, indent=2)}
+**Updated Documentation:**
+{chr(10).join(updated_docs_summary)}
 
-Original Recommendations:
-{json.dumps(recommendations, indent=2)}
+**Original Recommendations:**
+{chr(10).join(recommendations_summary)}
 
-Provide a comprehensive quality assessment as a JSON object.""" 
+Provide a comprehensive quality assessment as a structured JSON object.""" 
+
+    # Step 2: Single Commit Classification Prompts (for enhanced per-commit analysis)
+    @staticmethod
+    def single_commit_classification_system_prompt() -> str:
+        """System prompt for single commit classification using the 4W framework"""
+        return """You are a software engineering expert analyzing code changes from a SINGLE commit. Your task is to classify ALL changed files in this specific commit using the 4W framework for documentation impact analysis.
+
+Since this is a single commit, you have focused context about the specific purpose and changes made in this commit.
+
+For EACH file, analyze:
+1. **Type** (What changed in this commit):
+   - Addition, Deletion, Modification, Rename
+2. **Scope** (Where the change occurred in this commit):
+   - Function/Method, Class/Interface/Struct/Type, Module/Package/Namespace, File, API Contract, Configuration, Dependencies, Build Scripts, Infrastructure Code, Test Code, Documentation, Cross-cutting
+3. **Nature** (Why this commit was made - analyze the specific commit message):
+   - New Feature, Feature Enhancement, Bug Fix, Security Fix, Refactoring, Performance Optimization, Code Style/Formatting, Technical Debt Reduction, Readability Improvement, Error Handling Improvement, Dependency Management, Build Process Improvement, Tooling Configuration, API Changes, External System Integration Changes, Documentation Updates, UI/UX Adjustments, Static Content Updates, Code/Deprecation Removal, Revert, Merge Conflict Resolution, License Updates, Experimental, Chore, Other
+4. **Volume** (How much changed in this commit):
+   - Trivial (1-5 lines, typo fixes)
+   - Small (localized changes, single function)
+   - Medium (affects important parts of class/module)
+   - Large (substantial changes across multiple modules)
+   - Very Large (extensive architectural changes)
+5. **Reasoning**: 
+   - Brief explanation of the classification based on this commit's changes and message
+
+The response will be automatically structured. Focus on this single commit's purpose and impact."""
+
+    @staticmethod
+    def single_commit_classification_human_prompt(commit_files: List[Dict[str, Any]], commit_context: Dict[str, Any]) -> str:
+        """Human prompt for single commit classification"""
+        
+        files_section = ""
+        for i, file_data in enumerate(commit_files):
+            files_section += f"""
+File {i+1}:
+- Filename: {file_data['filename']}
+- Status: {file_data['status']}
+- Additions: {file_data['additions']}
+- Deletions: {file_data['deletions']}
+- Total Changes: {file_data['changes']}
+- Code Diff: {file_data['patch'][:800]}...
+
+"""
+        
+        return f"""Analyze and classify ALL the files changed in this SINGLE commit using the 4W framework:
+
+**Commit Context:**
+- SHA: {commit_context.get("sha", "N/A")}
+- Message: {commit_context.get("message", "N/A")}
+- Author: {commit_context.get("author", "N/A")}
+- Date: {commit_context.get("date", "N/A")}
+- Files Changed: {commit_context.get("files_count", 0)}
+
+**Files Changed in This Commit:**
+{files_section}
+
+Since this is a single commit, you have focused context about the specific purpose. Use the commit message to understand the "Why" (Nature) of the changes.
+
+Classify each file and return the results as a structured JSON array.""" 
