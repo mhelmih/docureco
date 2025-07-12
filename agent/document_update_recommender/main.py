@@ -48,7 +48,7 @@ async def main():
         final_state = await workflow.execute(args.pr_url)
         
         # Get recommendations and stats
-        recommendations = final_state.recommendations
+        recommendations = final_state['recommendations']
         stats = final_state.processing_stats
         
         # Print summary
