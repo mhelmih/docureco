@@ -49,25 +49,25 @@ async def main():
         
         # Get recommendations and stats
         recommendations = final_state['recommendations']
-        stats = final_state.processing_stats
+        stats = final_state['processing_stats']
         
         # Print summary
         print("\n" + "="*50)
         print("DOCUMENTATION UPDATE RECOMMENDATIONS")
         print("="*50)
         print(f"PR URL: {args.pr_url}")
-        print(f"Repository: {final_state.repository}")
-        print(f"PR Number: {final_state.pr_number}")
-        print(f"Branch: {final_state.branch}")
+        print(f"Repository: {final_state['repository']}")
+        print(f"PR Number: {final_state['pr_number']}")
+        print(f"Branch: {final_state['branch']}")
         print(f"Files Changed: {stats.get('pr_files_changed', 0)}")
         print(f"Logical Change Sets: {stats.get('logical_change_sets', 0)}")
         print(f"Potentially Impacted Elements: {stats.get('potentially_impacted_elements', 0)}")
         print(f"High Priority Findings: {stats.get('high_priority_findings', 0)}")
         print(f"Final Recommendations: {len(recommendations)}")
         
-        if final_state.errors:
-            print(f"\nErrors encountered: {len(final_state.errors)}")
-            for error in final_state.errors[:3]:  # Show first 3 errors
+        if final_state['errors']:
+            print(f"\nErrors encountered: {len(final_state['errors'])}")
+            for error in final_state['errors'][:3]:  # Show first 3 errors
                 print(f"  - {error}")
         
         print("="*50)
@@ -111,9 +111,9 @@ async def main():
                 elif args.format == "markdown":
                     f.write("# Documentation Update Recommendations\n\n")
                     f.write(f"**PR URL:** {args.pr_url}\n\n")
-                    f.write(f"**Repository:** {final_state.repository}\n\n")
-                    f.write(f"**PR Number:** {final_state.pr_number}\n\n")
-                    f.write(f"**Branch:** {final_state.branch}\n\n")
+                    f.write(f"**Repository:** {final_state['repository']}\n\n")
+                    f.write(f"**PR Number:** {final_state['pr_number']}\n\n")
+                    f.write(f"**Branch:** {final_state['branch']}\n\n")
                     f.write("## Recommendations\n\n")
                     for i, rec in enumerate(recommendations, 1):
                         f.write(f"### {i}. {rec.target_document}\n\n")
@@ -129,9 +129,9 @@ async def main():
                 else:  # text format
                     f.write(f"Documentation Update Recommendations\n")
                     f.write(f"PR URL: {args.pr_url}\n")
-                    f.write(f"Repository: {final_state.repository}\n")
-                    f.write(f"PR Number: {final_state.pr_number}\n")
-                    f.write(f"Branch: {final_state.branch}\n\n")
+                    f.write(f"Repository: {final_state['repository']}\n")
+                    f.write(f"PR Number: {final_state['pr_number']}\n")
+                    f.write(f"Branch: {final_state['branch']}\n\n")
                     f.write("Recommendations:\n\n")
                     for i, rec in enumerate(recommendations, 1):
                         f.write(f"{i}. {rec.target_document}\n")
