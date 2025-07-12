@@ -29,7 +29,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 # Agent imports
-from agent.llm.llm_client import LLMClient
+from agent.llm.llm_client import DocurecoLLMClient
 from agent.models.docureco_models import (
     BaselineMapModel,
     DocumentationRecommendationModel,
@@ -129,7 +129,7 @@ class DocumentUpdateRecommenderWorkflow:
     """
     
     def __init__(self, 
-                 llm_client: Optional[LLMClient] = None,
+                 llm_client: Optional[DocurecoLLMClient] = None,
                  baseline_map_repo = None):
         """
         Initialize Document Update Recommender workflow
@@ -138,7 +138,7 @@ class DocumentUpdateRecommenderWorkflow:
             llm_client: Optional LLM client for analysis and recommendations
             baseline_map_repo: Optional repository for baseline map operations
         """
-        self.llm_client = llm_client or LLMClient()
+        self.llm_client = llm_client or DocurecoLLMClient()
         self.baseline_map_repo = baseline_map_repo or create_baseline_map_repository()
         
         self.workflow = self._build_workflow()
@@ -152,14 +152,14 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Add nodes for each step of the 5-step process
         workflow.add_node("scan_pr", self._scan_pr)
-        # workflow.add_node("analyze_code_changes", self._analyze_code_changes)
+        workflow.add_node("analyze_code_changes", self._analyze_code_changes)
         # workflow.add_node("assess_documentation_impact", self._assess_documentation_impact)
         # workflow.add_node("generate_and_post_recommendations", self._generate_and_post_recommendations)
         
         # Define workflow edges following the exact sequence
         workflow.set_entry_point("scan_pr")
-        workflow.add_edge("scan_pr", END)
-        # workflow.add_edge("scan_pr", "analyze_code_changes")
+        workflow.add_edge("scan_pr", "analyze_code_changes")
+        workflow.add_edge("analyze_code_changes", END)
         # workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
         # workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
         # workflow.add_edge("generate_and_post_recommendations", END)
@@ -220,23 +220,23 @@ class DocumentUpdateRecommenderWorkflow:
             repo_content = await self._fetch_repo_content(state.repository, state.branch)
             state.requested_repo_content = repo_content
             
-            commits_len = len(state.pr_event_data["commits"])
-            files_changed = sum(len(commit.get("files", [])) for commit in state.pr_event_data["commits"])
-            additions = sum(commit.get("additions", 0) for commit in state.pr_event_data["commits"])
-            deletions = sum(commit.get("deletions", 0) for commit in state.pr_event_data["commits"])
+            # Extract commit information
+            commit_info = pr_event_data.get("commit_info", {})
+            state.commit_info = commit_info
+            
+            # Compile changed files list
+            changed_files = pr_event_data.get("files", [])
+            state.changed_files_list = [f.get("filename", "") for f in changed_files]
             
             # Update processing statistics
             state.processing_stats.update({
-                "pr_commits": commits_len,
-                "pr_files_changed": files_changed,
-                "pr_additions": additions,
-                "pr_deletions": deletions
+                "pr_files_changed": len(state.changed_files_list),
+                "pr_commits": len(commit_info.get("commits", [])),
+                "pr_additions": commit_info.get("additions", 0),
+                "pr_deletions": commit_info.get("deletions", 0)
             })
             
-            print("PR EVENT DATA", state.pr_event_data)
-            print("REPO CONTENT", state.requested_repo_content)
-            
-            logger.info(f"Scanned PR with {commits_len} commits, {files_changed} files changed, {additions} additions, {deletions} deletions")
+            logger.info(f"Scanned PR with {len(state.changed_files_list)} changed files")
                 
         except Exception as e:
             error_msg = f"Error scanning PR: {str(e)}"
@@ -540,8 +540,8 @@ class DocumentUpdateRecommenderWorkflow:
                             commit_sha = commit_data["sha"]
                             commit_response = await client.get(
                                 f"https://api.github.com/repos/{owner}/{repo_name}/commits/{commit_sha}",
-                                headers=headers
-                            )
+                    headers=headers
+                )
                             commit_response.raise_for_status()
                             commit_details = commit_response.json()
                             
@@ -567,13 +567,13 @@ class DocumentUpdateRecommenderWorkflow:
                                 file_info = {
                                     "filename": file_data.get("filename", ""),
                                     "status": file_data.get("status", ""),
-                                    "additions": file_data.get("additions", 0),
-                                    "deletions": file_data.get("deletions", 0),
-                                    "changes": file_data.get("changes", 0),
-                                    "patch": file_data.get("patch", ""),
-                                    "blob_url": file_data.get("blob_url", ""),
+                        "additions": file_data.get("additions", 0),
+                        "deletions": file_data.get("deletions", 0),
+                        "changes": file_data.get("changes", 0),
+                        "patch": file_data.get("patch", ""),
+                        "blob_url": file_data.get("blob_url", ""),
                                     "raw_url": file_data.get("raw_url", "")
-                                }
+                    }
                                 enhanced_commit["files"].append(file_info)
                 
                             return enhanced_commit
@@ -582,17 +582,17 @@ class DocumentUpdateRecommenderWorkflow:
                             logger.error(f"Error fetching commit {commit_data['sha']}: {str(e)}")
                             # Return minimal commit data if file fetch fails
                             return {
-                                    "sha": commit_data["sha"],
-                                    "message": commit_data["commit"]["message"],
-                                    "author": {
-                                        "name": commit_data["commit"]["author"]["name"],
-                                        "date": commit_data["commit"]["author"]["date"]
-                                    },
-                                    "additions": 0,
-                                    "deletions": 0,
-                                    "total_changes": 0,
-                                    "files": []
-                                }
+                                "sha": commit_data["sha"],
+                                "message": commit_data["commit"]["message"],
+                                "author": {
+                                    "name": commit_data["commit"]["author"]["name"],
+                                    "date": commit_data["commit"]["author"]["date"]
+                                },
+                                "additions": 0,
+                                "deletions": 0,
+                                "total_changes": 0,
+                                "files": []
+                            }
                 
                 # Fetch all commit files concurrently
                 enhanced_commits = await asyncio.gather(
@@ -685,22 +685,22 @@ class DocumentUpdateRecommenderWorkflow:
                         }
                     ]
                 }
-                ],
-                "additions": 50,
-                "deletions": 2,
-                "total_commits": 2,
-                "total_files_changed": 2
-            },
-            "pr_details": {
-                "title": "Add OAuth 2.0 support and fix auth timeout",
-                "body": "This PR adds OAuth 2.0 support and fixes the auth timeout bug.",
-                "state": "open",
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-02T00:00:00Z",
-                "head": {"ref": "feature/oauth", "sha": "def456"},
-                "base": {"ref": "main", "sha": "xyz789"}
-            },
-            "fetch_method": "placeholder"
+            ],
+            "additions": 50,
+            "deletions": 2,
+            "total_commits": 2,
+            "total_files_changed": 2
+        },
+        "pr_details": {
+            "title": "Add OAuth 2.0 support and fix auth timeout",
+            "body": "This PR adds OAuth 2.0 support and fixes the auth timeout bug.",
+            "state": "open",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z",
+            "head": {"ref": "feature/oauth", "sha": "def456"},
+            "base": {"ref": "main", "sha": "xyz789"}
+        },
+        "fetch_method": "placeholder"
         }
     
     async def _fetch_repo_content(self, repository: str, branch: str) -> Dict[str, Any]:
@@ -1075,7 +1075,7 @@ class DocumentUpdateRecommenderWorkflow:
                         all_classifications.append(classification)
                     
                     logger.info(f"Successfully classified {len(parsed_response.get('classifications', []))} files for commit {commit_sha}")
-                        
+                    
                 except Exception as e:
                     logger.error(f"Error classifying commit {commit_sha}: {str(e)}")
                     # Create fallback classifications for this commit
@@ -1182,8 +1182,8 @@ class DocumentUpdateRecommenderWorkflow:
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 task_type="code_analysis",
                 output_format="json",
-                    temperature=0.1
-                )
+                temperature=0.1
+            )
                 
             classification_result = response.content
             
@@ -1858,7 +1858,7 @@ class DocumentUpdateRecommenderWorkflow:
         
         return fallback_classifications
 
-def create_document_update_recommender(llm_client: Optional[LLMClient] = None) -> DocumentUpdateRecommenderWorkflow:
+def create_document_update_recommender(llm_client: Optional[DocurecoLLMClient] = None) -> DocumentUpdateRecommenderWorkflow:
     """
     Factory function to create Document Update Recommender workflow
     
