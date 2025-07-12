@@ -4,7 +4,6 @@ Main LangGraph workflow that analyzes GitHub PR code changes and recommends docu
 Implements the Document Update Recommender component from the system architecture
 """
 
-import asyncio
 import logging
 import re
 import sys
@@ -181,12 +180,12 @@ class DocumentUpdateRecommenderWorkflow:
             state.processing_stats.update({
                 "pr_files_changed": len(state.changed_files_list),
                 "pr_commits": len(commit_info.get("commits", [])),
-                "pr_additions": pr_event_data.get("additions", 0),
-                "pr_deletions": pr_event_data.get("deletions", 0)
+                "pr_additions": commit_info.get("additions", 0),
+                "pr_deletions": commit_info.get("deletions", 0)
             })
             
             logger.info(f"Scanned PR with {len(state.changed_files_list)} changed files")
-            
+                
         except Exception as e:
             error_msg = f"Error scanning PR: {str(e)}"
             logger.error(error_msg)
@@ -228,7 +227,7 @@ class DocumentUpdateRecommenderWorkflow:
             })
             
             logger.info(f"Classified {len(classified_changes)} changes into {len(logical_change_sets)} logical sets")
-            
+                
         except Exception as e:
             error_msg = f"Error analyzing code changes: {str(e)}"
             logger.error(error_msg)
@@ -371,34 +370,504 @@ class DocumentUpdateRecommenderWorkflow:
         
         return state
     
-    # Helper methods (would implement actual GitHub API calls and LLM interactions)
     async def _parse_pr_url(self, pr_url: str) -> Dict[str, Any]:
         """Parse GitHub PR URL to extract repository and PR details"""
-        # Placeholder implementation
+        
+        # Parse the PR URL using regex
+        # Supports formats like:
+        # https://github.com/owner/repo/pull/123
+        # https://github.com/owner/repo/pull/123#issuecomment-123456
+        # https://github.com/owner/repo/pull/123/files
+        pattern = r'https://github\.com/([^/]+)/([^/]+)/pull/(\d+)'
+        match = re.match(pattern, pr_url)
+        
+        if not match:
+            raise ValueError(f"Invalid GitHub PR URL format: {pr_url}")
+        
+        owner, repo, pr_number = match.groups()
+        repository = f"{owner}/{repo}"
+        pr_number = int(pr_number)
+        
+        # Get branch information from GitHub API
+        github_token = os.getenv("GITHUB_TOKEN")
+        if not github_token:
+            logger.warning("GITHUB_TOKEN not found, using default branch 'main'")
+            return {
+                "repository": repository,
+                "pr_number": pr_number,
+                "branch": "main"
+            }
+        
+        try:
+            # Make API call to get PR details
+            import httpx
+            async with httpx.AsyncClient() as client:
+                headers = {
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+                
+                response = await client.get(
+                    f"https://api.github.com/repos/{repository}/pulls/{pr_number}",
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    pr_data = response.json()
+                    branch = pr_data.get("base", {}).get("ref", "main")
+                    
+                    return {
+                        "repository": repository,
+                        "pr_number": pr_number,
+                        "branch": branch
+                    }
+                else:
+                    logger.warning(f"Failed to fetch PR details from GitHub API: {response.status_code}")
+                    return {
+                        "repository": repository,
+                        "pr_number": pr_number,
+                        "branch": "main"
+                    }
+            
+        except Exception as e:
+            logger.warning(f"Error fetching PR details: {str(e)}, using default branch 'main'")
         return {
-            "repository": "example/repo",
-            "pr_number": 123,
+                "repository": repository,
+                "pr_number": pr_number,
             "branch": "main"
         }
     
     async def _fetch_pr_event_data(self, repository: str, pr_number: int) -> Dict[str, Any]:
         """Fetch PR event data from GitHub API"""
-        # Placeholder implementation
-        return {
-            "commit_info": {
-                "commits": [{"sha": "abc123", "message": "Initial commit"}],
-                "additions": 100,
-                "deletions": 50
-            },
-            "files": [
-                {"filename": "src/auth/service.py", "status": "modified", "additions": 15, "deletions": 3, "patch": "+def new_auth_method():\n+    pass"}
-            ]
-        }
+        import httpx
+        github_token = os.getenv("GITHUB_TOKEN")
+        if not github_token:
+            logger.warning("GITHUB_TOKEN not found, using placeholder data")
+            return {
+                    "commit_info": {
+                        "commits": [{"sha": "abc123", "message": "Initial commit"}],
+                        "additions": 100,
+                        "deletions": 50
+                    },
+                "files": [
+                        {"filename": "src/auth/service.py", "status": "modified", "additions": 15, "deletions": 3, "patch": "+def new_auth_method():\n+    pass"}
+                    ]
+                }
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = {
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+                
+                # Fetch PR details
+                pr_response = await client.get(
+                    f"https://api.github.com/repos/{repository}/pulls/{pr_number}",
+                    headers=headers
+                )
+                
+                if pr_response.status_code != 200:
+                    logger.error(f"Failed to fetch PR details: {pr_response.status_code}")
+                    raise Exception(f"GitHub API error: {pr_response.status_code}")
+                
+                pr_data = pr_response.json()
+                
+                # Fetch PR commits
+                commits_response = await client.get(
+                    f"https://api.github.com/repos/{repository}/pulls/{pr_number}/commits",
+                    headers=headers
+                )
+                
+                if commits_response.status_code != 200:
+                    logger.error(f"Failed to fetch PR commits: {commits_response.status_code}")
+                    commits = []
+                else:
+                    commits = commits_response.json()
+                
+                # Fetch PR files
+                files_response = await client.get(
+                    f"https://api.github.com/repos/{repository}/pulls/{pr_number}/files",
+                    headers=headers
+                )
+                
+                if files_response.status_code != 200:
+                    logger.error(f"Failed to fetch PR files: {files_response.status_code}")
+                    files = []
+                else:
+                    files = files_response.json()
+                
+                # Structure the data according to expected format
+                commit_info = {
+                    "commits": [
+                        {
+                            "sha": commit["sha"],
+                            "message": commit["commit"]["message"],
+                            "author": commit["commit"]["author"]["name"],
+                            "date": commit["commit"]["author"]["date"]
+                        }
+                        for commit in commits
+                    ],
+                    "additions": pr_data.get("additions", 0),
+                    "deletions": pr_data.get("deletions", 0)
+                }
+                
+                # Structure files data
+                files_data = [
+                    {
+                        "filename": file_data["filename"],
+                        "status": file_data["status"],
+                        "additions": file_data.get("additions", 0),
+                        "deletions": file_data.get("deletions", 0),
+                        "changes": file_data.get("changes", 0),
+                        "patch": file_data.get("patch", ""),
+                        "blob_url": file_data.get("blob_url", ""),
+                        "sha": file_data.get("sha", "")
+                    }
+                    for file_data in files
+                ]
+                
+                print("commit_info", commit_info)
+                print("files_data", files_data)
+                
+                return {
+                    "commit_info": commit_info,
+                    "files": files_data,
+                    "pr_details": {
+                        "title": pr_data.get("title", ""),
+                        "body": pr_data.get("body", ""),
+                        "state": pr_data.get("state", ""),
+                        "created_at": pr_data.get("created_at", ""),
+                        "updated_at": pr_data.get("updated_at", ""),
+                        "head": {
+                            "ref": pr_data.get("head", {}).get("ref", ""),
+                            "sha": pr_data.get("head", {}).get("sha", "")
+                        },
+                        "base": {
+                            "ref": pr_data.get("base", {}).get("ref", ""),
+                            "sha": pr_data.get("base", {}).get("sha", "")
+                        }
+                    }
+                }
+                
+        except Exception as e:
+            logger.error(f"Error fetching PR event data: {str(e)}")
+            # Return placeholder data on error
+            return {
+                "commit_info": {
+                    "commits": [{"sha": "error", "message": f"Failed to fetch: {str(e)}"}],
+                    "additions": 0,
+                    "deletions": 0
+                },
+                "files": [],
+                "error": str(e)
+            }
     
     async def _fetch_repo_content(self, repository: str, branch: str) -> Dict[str, Any]:
-        """Fetch repository content (e.g., for context)"""
-        # Placeholder implementation
-        return {"repo_name": repository, "branch": branch, "content": {"README.md": "Project Overview", "docs/": "Documentation"}}
+        """Fetch repository content using Repomix for comprehensive analysis"""
+        import subprocess
+        import tempfile
+        import fnmatch
+        
+        logger.info(f"Fetching repository content using Repomix for {repository}:{branch}")
+        
+        try:
+            # Check if Repomix is available
+            try:
+                subprocess.run(["repomix", "--version"], capture_output=True, check=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                logger.warning("Repomix not available, falling back to placeholder content")
+                return {"repo_name": repository, "branch": branch, "content": {"README.md": "Project Overview", "docs/": "Documentation"}}
+            
+            # Use Repomix to scan the repository
+            repo_data = await self._scan_repository_with_repomix(repository, branch)
+            
+            # Categorize files by type
+            documentation_files = []
+            source_files = []
+            config_files = []
+            other_files = []
+            documentation_content = {}
+            
+            doc_extensions = {'.md', '.rst', '.txt', '.doc', '.docx', '.pdf'}
+            source_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.cs', '.go', '.rs', '.php', '.rb', '.scala', '.kt', '.swift'}
+            config_extensions = {'.json', '.yaml', '.yml', '.xml', '.ini', '.cfg', '.conf', '.toml', '.properties'}
+            
+            for file_info in repo_data.get("files", []):
+                file_path = file_info.get("path", "")
+                file_content = file_info.get("content", "")
+                file_name = os.path.basename(file_path)
+                file_ext = os.path.splitext(file_name)[1].lower()
+                
+                file_metadata = {
+                    "path": file_path,
+                    "name": file_name,
+                    "size": len(file_content),
+                    "has_content": bool(file_content.strip())
+                }
+                
+                # Categorize documentation files
+                if (file_ext in doc_extensions or 
+                    'readme' in file_name.lower() or 
+                    'doc' in file_path.lower() or
+                    'documentation' in file_path.lower() or
+                    file_path.startswith('docs/')):
+                    documentation_files.append(file_metadata)
+                    
+                    # Store content for key documentation files
+                    if ('readme' in file_name.lower() or 
+                        file_path.startswith('docs/') or
+                        'srs' in file_name.lower() or
+                        'sdd' in file_name.lower() or
+                        'requirements' in file_name.lower() or
+                        'design' in file_name.lower()):
+                        documentation_content[file_path] = file_content[:]
+                
+                # Categorize source files
+                elif file_ext in source_extensions:
+                    source_files.append(file_metadata)
+                
+                # Categorize configuration files
+                elif file_ext in config_extensions or file_name.lower() in ['dockerfile', 'makefile', 'rakefile', 'gemfile']:
+                    config_files.append(file_metadata)
+                
+                else:
+                    other_files.append(file_metadata)
+            
+            # Structure the repository content
+            repo_content = {
+                "repo_name": repository,
+                "branch": branch,
+                "file_structure": {
+                    "documentation_files": documentation_files,
+                    "source_files": source_files,
+                    "config_files": config_files,
+                    "other_files": other_files,
+                    "total_files": len(documentation_files) + len(source_files) + len(config_files) + len(other_files)
+                },
+                "documentation_content": documentation_content,
+                "statistics": {
+                    "documentation_files_count": len(documentation_files),
+                    "source_files_count": len(source_files),
+                    "config_files_count": len(config_files),
+                    "other_files_count": len(other_files),
+                    "documentation_with_content_count": len(documentation_content)
+                },
+                "scan_method": "repomix"
+            }
+            
+            logger.info(f"Successfully scanned repository with Repomix:")
+            logger.info(f"  - Documentation files: {len(documentation_files)} ({len(documentation_content)} with content)")
+            logger.info(f"  - Source files: {len(source_files)}")
+            logger.info(f"  - Config files: {len(config_files)}")
+            logger.info(f"  - Other files: {len(other_files)}")
+            
+            return repo_content
+            
+        except Exception as e:
+            logger.error(f"Error fetching repository content with Repomix: {str(e)}")
+            # Return fallback content on error
+            return {
+                "repo_name": repository,
+                "branch": branch,
+                "error": str(e),
+                "content": {"error": f"Failed to fetch repository content: {str(e)}"},
+                "scan_method": "fallback"
+            }
+    
+    async def _scan_repository_with_repomix(self, repository: str, branch: str) -> Dict[str, Any]:
+        """
+        Scan repository using Repomix (borrowed from Baseline Map Creator)
+        
+        Args:
+            repository: Repository URL or path (owner/repo format)
+            branch: Branch name
+            
+        Returns:
+            Dict containing repository structure and file contents
+        """
+        import subprocess
+        import tempfile
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "repo_scan.xml")
+            
+            # Convert repository format to URL if needed
+            if "/" in repository and not repository.startswith("http"):
+                repo_url = f"https://github.com/{repository}.git"
+            else:
+                repo_url = repository
+            
+            try:
+                # Run Repomix to scan the repository
+                cmd = [
+                    "repomix",
+                    "--remote", repo_url,
+                    "--remote-branch", branch,
+                    "--output", output_file,
+                    "--style", "xml",
+                    "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage,.github,.vscode,.env,.env.local,.env.development.local,.env.test.local,.env.production.local"
+                ]
+                
+                logger.debug(f"Running Repomix: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    raise RuntimeError(f"Repomix failed: {result.stderr}")
+                
+                # Read and parse the XML output file
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    xml_content = f.read()
+                
+                repo_data = self._parse_repomix_xml(xml_content)
+                
+                logger.debug(f"Repomix scan completed successfully for {repository}:{branch}")
+                return repo_data
+                
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Repomix scan timed out after 5 minutes")
+            except Exception as e:
+                raise RuntimeError(f"Failed to scan repository with Repomix: {str(e)}")
+    
+    def _parse_repomix_xml(self, xml_content: str) -> Dict[str, Any]:
+        """
+        Parse Repomix XML-like output into structured data (borrowed from Baseline Map Creator)
+        
+        Args:
+            xml_content: Raw content from Repomix (not valid XML, but uses XML-like tags)
+            
+        Returns:
+            Dict with files structure compatible with existing code
+        """
+        files = []
+        
+        try:
+            # Repomix uses <file path="..."> tags but it's not valid XML
+            # We need to parse it manually using regex/string parsing
+            
+            # Find all <file path="..."> sections
+            import re
+            
+            # Pattern to match <file path="..."> and capture path and content
+            file_pattern = r'<file path="([^"]*)">\s*(.*?)\s*</file>'
+            
+            matches = re.findall(file_pattern, xml_content, re.DOTALL)
+            
+            for file_path, file_content in matches:
+                if file_path and file_content.strip():
+                    files.append({
+                        "path": file_path,
+                        "content": file_content.strip()
+                    })
+            
+            if not matches:
+                # Try alternative approach: split by <file path=" and parse manually
+                sections = xml_content.split('<file path="')
+                
+                for i, section in enumerate(sections):
+                    if i == 0:  # Skip the first section (header/metadata)
+                        continue
+                        
+                    # Extract file path from the opening tag
+                    if '">' not in section:
+                        continue
+                        
+                    path_end = section.find('">')
+                    if path_end == -1:
+                        continue
+                        
+                    file_path = section[:path_end]
+                    
+                    # Extract content until the closing </file> tag
+                    content_start = path_end + 2  # Skip ">
+                    
+                    # Find the closing tag
+                    closing_tag = '</file>'
+                    content_end = section.find(closing_tag)
+                    
+                    if content_end == -1:
+                        # If no closing tag, take everything until next <file or end
+                        next_file = section.find('<file path="', content_start)
+                        if next_file != -1:
+                            file_content = section[content_start:next_file].strip()
+                        else:
+                            file_content = section[content_start:].strip()
+                    else:
+                        file_content = section[content_start:content_end].strip()
+                    
+                    if file_path and file_content:
+                        files.append({
+                            "path": file_path,
+                            "content": file_content
+                        })
+
+            return {"files": files}
+                
+        except Exception as e:
+            logger.warning(f"Repomix XML parsing failed ({e}), attempting fallback parsing")
+            return self._parse_repomix_fallback(xml_content)
+    
+    def _parse_repomix_fallback(self, content: str) -> Dict[str, Any]:
+        """
+        Fallback parser for Repomix Markdown-style output (borrowed from Baseline Map Creator)
+        
+        Args:
+            content: Raw content from Repomix
+            
+        Returns:
+            Dict with files structure
+        """
+        files = []
+        lines = content.split('\n')
+        current_file = None
+        current_content = []
+        in_code_block = False
+        
+        for i, line in enumerate(lines):
+            # Look for file headers: ## path/to/file (must contain a file extension or be in recognizable directory)
+            if line.startswith('## '):
+                if '/' in line or '.' in line:
+                    # Save previous file if exists
+                    if current_file and current_content:
+                        file_content = '\n'.join(current_content).strip()
+                        if file_content:  # Only add if there's actual content
+                            files.append({
+                                "path": current_file,
+                                "content": file_content
+                            })
+                    
+                    # Extract file path (remove ## prefix and clean up)
+                    potential_file = line[3:].strip()
+                    
+                    # Filter out non-file headers - files should have extensions or be in directories
+                    if ('.' in potential_file or '/' in potential_file) and not potential_file.endswith(':'):
+                        current_file = potential_file
+                        current_content = []
+                        in_code_block = False
+                
+            elif current_file:
+                # Handle code blocks
+                if line.startswith('```'):
+                    if not in_code_block:
+                        # Starting code block
+                        in_code_block = True
+                    else:
+                        # Ending code block
+                        in_code_block = False
+                    continue
+                elif in_code_block:
+                    current_content.append(line)
+        
+        # Save last file
+        if current_file and current_content:
+            file_content = '\n'.join(current_content).strip()
+            if file_content:
+                files.append({
+                    "path": current_file,
+                    "content": file_content
+                })
+            
+        return {"files": files}
     
     async def _llm_classify_individual_changes(self, changed_files: List[str], pr_data: Dict[str, Any], repo_content: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Classify individual code changes into logical groups"""
@@ -410,7 +879,7 @@ class DocumentUpdateRecommenderWorkflow:
         # Placeholder implementation
         return [{"changes": classified_changes, "commit_sha": commit_info["commits"][0]["sha"]}]
     
-    async def _determine_traceability_status(self, logical_change_sets: List[Dict[str, Any]], repository: str, branch: str) -> Dict[str, Any]:
+    async def _determine_traceability_status(self, logical_change_sets: List[Dict[str, Any]], repository: str, branch: str, baseline_map_data: Optional[BaselineMapModel]) -> Dict[str, Any]:
         """Determine if traceability status is available and if it's sufficient"""
         # Placeholder implementation
         return {"traceability_status": "sufficient", "details": "Traceability map available"}
