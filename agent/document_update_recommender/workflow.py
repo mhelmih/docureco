@@ -107,10 +107,11 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Define workflow edges following the exact sequence
         workflow.set_entry_point("scan_pr")
-        workflow.add_edge("scan_pr", "analyze_code_changes")
-        workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
-        workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
-        workflow.add_edge("generate_and_post_recommendations", END)
+        workflow.add_edge("scan_pr", END)
+        # workflow.add_edge("scan_pr", "analyze_code_changes")
+        # workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
+        # workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
+        # workflow.add_edge("generate_and_post_recommendations", END)
         
         return workflow
     
