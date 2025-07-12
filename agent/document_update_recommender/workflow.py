@@ -101,9 +101,9 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Add nodes for each step of the 5-step process
         workflow.add_node("scan_pr", self._scan_pr)
-        workflow.add_node("analyze_code_changes", self._analyze_code_changes)
-        workflow.add_node("assess_documentation_impact", self._assess_documentation_impact)
-        workflow.add_node("generate_and_post_recommendations", self._generate_and_post_recommendations)
+        # workflow.add_node("analyze_code_changes", self._analyze_code_changes)
+        # workflow.add_node("assess_documentation_impact", self._assess_documentation_impact)
+        # workflow.add_node("generate_and_post_recommendations", self._generate_and_post_recommendations)
         
         # Define workflow edges following the exact sequence
         workflow.set_entry_point("scan_pr")
