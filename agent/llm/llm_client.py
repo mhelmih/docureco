@@ -34,12 +34,11 @@ class DocurecoLLMClient:
     """
     
     def __init__(self, config: Optional[LLMConfig] = None):
-        """
-        Initialize LLM client
+        """Initialize LLM client with LangSmith integration"""
+        # Set up LangSmith tracing
+        from ..config.llm_config import setup_langsmith
+        setup_langsmith()
         
-        Args:
-            config: LLM configuration, defaults to environment-based config
-        """
         self.config = config or get_llm_config()
         self.task_config = get_task_config()
         self.llm = self._initialize_llm()
@@ -68,17 +67,21 @@ class DocurecoLLMClient:
         if not self.config.api_key:
             raise ValueError("GROK_API_KEY environment variable is required for Grok 3")
         
+        # Ensure base_url is always set for Grok
+        base_url = self.config.base_url or "https://api.x.ai/v1"
+        
+        print(f"Initializing Grok with base_url: {base_url}")
+        print(f"Grok API key starts with: {self.config.api_key[:10]}...")
+        
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
-            base_url=self.config.base_url,
+            base_url=base_url,
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
-            request_timeout=self.config.request_timeout,
-            top_p=self.config.top_p,
-            frequency_penalty=self.config.frequency_penalty,
-            presence_penalty=self.config.presence_penalty
+            request_timeout=self.config.request_timeout
+            # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
     def _initialize_openai(self) -> ChatOpenAI:
@@ -90,6 +93,9 @@ class DocurecoLLMClient:
         """
         if not self.config.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI")
+        
+        print(f"Initializing OpenAI with base_url: {self.config.base_url}")
+        print(f"OpenAI API key starts with: {self.config.api_key[:10]}...")
         
         return ChatOpenAI(
             model=self.config.llm_model,
@@ -153,6 +159,52 @@ class DocurecoLLMClient:
         except Exception as e:
             logger.error(f"Error generating LLM response: {str(e)}")
             raise
+
+    async def generate_structured_response(
+        self,
+        prompt: str,
+        system_message: Optional[str] = None,
+        task_type: Optional[str] = None,
+        pydantic_model = None,
+        **kwargs
+    ):
+        """
+        Generate structured response using Pydantic model
+        
+        Args:
+            prompt: User prompt/query
+            system_message: System message for context
+            task_type: Type of task (code_analysis, traceability_mapping, etc.)
+            pydantic_model: Pydantic model class for structured output
+            **kwargs: Additional parameters for LLM
+            
+        Returns:
+            Pydantic model instance with structured data
+        """
+        try:
+            # Apply task-specific configuration if provided
+            llm = self._configure_for_task(task_type, **kwargs)
+            
+            # Configure LLM for structured output
+            if pydantic_model:
+                structured_llm = llm.with_structured_output(pydantic_model)
+            else:
+                raise ValueError("pydantic_model is required for structured output")
+            
+            # Prepare messages
+            messages = []
+            if system_message:
+                messages.append(SystemMessage(content=system_message))
+            messages.append(HumanMessage(content=prompt))
+            
+            # Generate structured response
+            response = await structured_llm.ainvoke(messages)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error generating structured LLM response: {str(e)}")
+            raise
     
     def _configure_for_task(self, task_type: Optional[str], **kwargs) -> BaseLanguageModel:
         """
@@ -172,17 +224,17 @@ class DocurecoLLMClient:
         
         # Override configuration for specific task
         if self.config.provider == LLMProvider.GROK:
+            # Ensure base_url is always set for Grok
+            base_url = self.config.base_url or "https://api.x.ai/v1"
             return ChatOpenAI(
                 model=self.config.llm_model,
                 api_key=self.config.api_key,
-                base_url=self.config.base_url,
+                base_url=base_url,
                 temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
                 max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
                 max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout,
-                top_p=self.config.top_p,
-                frequency_penalty=self.config.frequency_penalty,
-                presence_penalty=self.config.presence_penalty
+                request_timeout=self.config.request_timeout
+                # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
             )
         else:
             return ChatOpenAI(
@@ -332,4 +384,4 @@ def create_llm_client(config: Optional[LLMConfig] = None) -> DocurecoLLMClient:
     return DocurecoLLMClient(config)
 
 # Export main classes and functions
-__all__ = ["DocurecoLLMClient", "LLMResponse", "create_llm_client"] 
+__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith"] 

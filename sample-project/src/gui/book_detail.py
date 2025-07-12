@@ -7,23 +7,23 @@ import shutil
 sys.path.append('.')
 sys.path.append('./src')
 
-from src.buku.buku import Buku
-from src.buku.kumpulanBuku import KumpulanBuku
-from src.progresBaca.ProgresBaca import ProgresBaca
-from src.progresBaca.KumpulanProgresBaca import KumpulanProgresBaca
+from src.book.book import Book
+from src.book.book_collection import BookCollection
+from src.reading_progress.reading_progress import ReadingProgress
+from src.reading_progress.reading_progress_collection import ReadingProgressCollection
 
 def to_capitalized_first_word(s: str) -> str:
     if not s:
         return s
     return s[0].upper() + s[1:]
 
-class DetailBuku:
+class BookDetail:
 
     def __init__(self):
-        self.kb = KumpulanBuku()
-        self.kpb = KumpulanProgresBaca()
-        self.kb.set_db("read_buddy.db")
-        self.kpb.set_db("read_buddy.db")
+        self.book_collection = BookCollection()
+        self.reading_progress_collection = ReadingProgressCollection()
+        self.book_collection.set_db("read_buddy.db")
+        self.reading_progress_collection.set_db("read_buddy.db")
         self.file_picker = ft.FilePicker(on_result=self.save_result)
         self.has_upload_cover = False
 
@@ -52,55 +52,55 @@ class DetailBuku:
         self.main_container.content.controls[0] = ft.Container(content=new_image_column, padding=ft.Padding(50, 0, 50, 0))
         self.main_container.update()
 
-    def save_cover(self, idBuku) :
+    def save_cover(self, book_id) :
         if (self.file_picker.result != None) :
-            shutil.copyfile(self.file_picker.result.files[0].path, f"img/bookCover/cover{idBuku}.{self.file_picker.result.files[0].path[-3:]}")
+            shutil.copyfile(self.file_picker.result.files[0].path, f"img/bookCover/cover{book_id}.{self.file_picker.result.files[0].path[-3:]}")
         else :
-            shutil.copyfile("img/bookCover/nullCover.jpg", f"img/bookCover/cover{idBuku}.jpg")
+            shutil.copyfile("img/bookCover/nullCover.jpg", f"img/bookCover/cover{book_id}.jpg")
 
-    def detail_buku(self, page: ft.Page, params: Params, basket: Basket):
+    def detail_book(self, page: ft.Page, params: Params, basket: Basket):
         self.page = page
         self.page.controls.clear() 
-        self.id_buku = int(params.get("id_buku"))
-        progresBaca = self.kpb.get_progres_baca(self.id_buku)
-        buku = self.kb.get_by_id(self.id_buku)
+        self.book_id = int(params.get("id_buku"))
+        reading_progress = self.reading_progress_collection.get_reading_progress(self.book_id)
+        book = self.book_collection.get_by_id(self.book_id)
 
-        judul_page = ft.Text(value="DETAIL BUKU " + buku.get_judulBuku(), overflow=ft.TextOverflow.ELLIPSIS, weight=ft.FontWeight.BOLD, width=500)
+        page_title = ft.Text(value="DETAIL BUKU " + book.get_bookTitle(), overflow=ft.TextOverflow.ELLIPSIS, weight=ft.FontWeight.BOLD, width=500)
 
-        nama_aplikasi = ft.Text(value="READ BUDDY")
+        app_name = ft.Text(value="READ BUDDY")
 
         def go_to_home(e):
             self.page.go("/")
 
-        button_kembali = ft.ElevatedButton(text="Kembali", on_click= go_to_home)
+        back_button = ft.ElevatedButton(text="Kembali", on_click= go_to_home)
 
-        judul_buku = ft.TextField(value=buku.get_judulBuku().upper(), width=500)
-        total_halaman = ft.TextField(value=buku.get_total_halaman(), input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""))
-        status_buku = ft.Dropdown(
+        book_title_field = ft.TextField(value=book.get_bookTitle().upper(), width=500)
+        total_pages_field = ft.TextField(value=book.get_totalPages(), input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""))
+        book_status_field = ft.Dropdown(
             width=700,
             options=[
                 ft.dropdown.Option("Sudah Dibaca"),
                 ft.dropdown.Option("Ingin Dibaca"),
                 ft.dropdown.Option("Sedang Dibaca"),
             ],
-            hint_text=to_capitalized_first_word(buku.get_status_buku())
+            hint_text=to_capitalized_first_word(book.get_bookStatus())
         )
-        status_buku.value = buku.get_status_buku()
-        initial_status_buku = buku.get_status_buku()
-        halaman_sekarang = ft.TextField(value=progresBaca.getHalamanSekarang(),
+        book_status_field.value = book.get_bookStatus()
+        initial_book_status = book.get_bookStatus()
+        current_page_field = ft.TextField(value=reading_progress.getCurrentPage(),
                                         input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""),
                                         read_only=True)
         detail_content = (
-            f"Kamu mulai membaca buku pada tanggal {progresBaca.getTanggalMulai()}\n"
-            f"Sudah {progresBaca.getPenghitungHari()} hari sejak kamu memulai pembacaan\n"
-            f"Sekarang adalah pembacaan yang ke-{progresBaca.getPembacaanKe()}"
+            f"Kamu mulai membaca buku pada tanggal {reading_progress.getStartDate()}\n"
+            f"Sudah {reading_progress.getDayCount()} hari sejak kamu memulai pembacaan\n"
+            f"Sekarang adalah pembacaan yang ke-{reading_progress.getReadingSession()}"
         )
         
-        detail = ft.TextField(value=detail_content, read_only=True, multiline=True)
+        detail_field = ft.TextField(value=detail_content, read_only=True, multiline=True)
 
 
         def update_data(e):
-            if (int(halaman_sekarang.value) > int(total_halaman.value)):
+            if (int(current_page_field.value) > int(total_pages_field.value)):
                 snack_bar = ft.SnackBar(
                     content=ft.Text("Halaman sekarang tidak boleh melebihi halaman total!"),
                 )
@@ -108,31 +108,31 @@ class DetailBuku:
                 snack_bar.open = True
                 self.page.update()
             else :
-                if ((initial_status_buku == "sudah dibaca" and status_buku.value == "Sedang Dibaca") or (initial_status_buku == "ingin dibaca" and status_buku.value == "Sedang Dibaca")):
-                    temp_pembacaanKe = progresBaca.getPembacaanKe()
-                    progresBaca.setPembacaanKe(temp_pembacaanKe + 1)
-                self.kpb.update_progres_baca(ProgresBaca(self.id_buku, progresBaca.getPembacaanKe(), int(halaman_sekarang.value), progresBaca.getTanggalMulai()))
-                self.kb.update_buku(Buku(self.id_buku, judul_buku.value, status_buku.value.lower(), int(total_halaman.value)))
+                if ((initial_book_status == "sudah dibaca" and book_status_field.value == "Sedang Dibaca") or (initial_book_status == "ingin dibaca" and book_status_field.value == "Sedang Dibaca")):
+                    temp_reading_session = reading_progress.getReadingSession()
+                    reading_progress.setReadingSession(temp_reading_session + 1)
+                self.reading_progress_collection.update_reading_progress(ReadingProgress(self.book_id, reading_progress.getReadingSession(), int(current_page_field.value), reading_progress.getStartDate()))
+                self.book_collection.update_book(Book(self.book_id, book_title_field.value, book_status_field.value.lower(), int(total_pages_field.value)))
                 self.page.go("/")
 
-        def hapus_buku(e):
-            self.kb.delete_by_id(self.id_buku)
-            self.kpb.delete_by_id(self.id_buku)
+        def delete_book(e):
+            self.book_collection.delete_by_id(self.book_id)
+            self.reading_progress_collection.delete_by_id(self.book_id)
             self.page.go("/")
 
-        button_lihatCatatan = ft.ElevatedButton(text="Lihat Catatan", width=150, on_click= lambda _: self.page.go("/DisplayCatatan/" + str(self.id_buku)))
-        button_catatProgesPembacaan = ft.ElevatedButton(text="Catat Progres Pembacaan", on_click= lambda _: self.page.go("/CatatProgresPembacaan/" + str(self.id_buku)))
-        button_update = ft.ElevatedButton(text="Update", width=150, on_click=update_data)
-        button_hapusBuku = ft.ElevatedButton(text="Hapus Buku", on_click=hapus_buku)
+        view_notes_button = ft.ElevatedButton(text="Lihat Catatan", width=150, on_click= lambda _: self.page.go("/DisplayCatatan/" + str(self.book_id)))
+        record_progress_button = ft.ElevatedButton(text="Catat Progres Pembacaan", on_click= lambda _: self.page.go("/CatatProgresPembacaan/" + str(self.book_id)))
+        update_button = ft.ElevatedButton(text="Update", width=150, on_click=update_data)
+        delete_book_button = ft.ElevatedButton(text="Hapus Buku", on_click=delete_book)
 
         self.top_row = ft.Container(
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            nama_aplikasi,
-                            judul_page,
-                            button_kembali
+                            app_name,
+                            page_title,
+                            back_button
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER
@@ -150,19 +150,19 @@ class DetailBuku:
                     ft.Text(value="Judul Buku", weight=30),
                     ft.Row(
                         [
-                            judul_buku,
-                            button_hapusBuku
+                            book_title_field,
+                            delete_book_button
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     ft.Text(value="Total Halaman", weight=30),
-                    total_halaman,
+                    total_pages_field,
                     ft.Text(value="Status Buku", weight=30),
-                    status_buku,
+                    book_status_field,
                     ft.Text(value="Halaman Sekarang", weight=30),
-                    halaman_sekarang,
+                    current_page_field,
                     ft.Text(value="Detail", weight=30),
-                    detail,
+                    detail_field,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_AROUND
             ),
@@ -182,7 +182,7 @@ class DetailBuku:
                 ft.Container(
                     alignment=ft.alignment.center,
                     content=ft.Image(
-                        src = f"img/bookCover/cover{self.id_buku}.jpg",
+                        src = f"img/bookCover/cover{self.book_id}.jpg",
                         height = 400,
                         width = 300,
                         fit=ft.ImageFit.CONTAIN,
@@ -212,9 +212,9 @@ class DetailBuku:
         self.bottom_row = ft.Container(
             content=ft.Row(
                 [
-                    button_lihatCatatan,
-                    button_catatProgesPembacaan,
-                    button_update
+                    view_notes_button,
+                    record_progress_button,
+                    update_button
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.END

@@ -200,7 +200,6 @@ class DocumentationRecommendation:
 
 # Baseline Map Models (for FR-E requirements)
 
-@dataclass
 class RequirementModel(BaseModel):
     """Requirement model for SRS elements"""
     id: str = Field(..., description="Unique requirement identifier")
@@ -210,7 +209,6 @@ class RequirementModel(BaseModel):
     priority: str = Field(default="Medium", description="Priority level")
     section: str = Field(..., description="Source document section")
 
-@dataclass
 class DesignElementModel(BaseModel):
     """Design element model for SDD components"""
     id: str = Field(..., description="Unique design element identifier")
@@ -219,7 +217,6 @@ class DesignElementModel(BaseModel):
     type: str = Field(..., description="Design element type")
     section: str = Field(..., description="Source document section")
 
-@dataclass
 class CodeComponentModel(BaseModel):
     """Code component model for source code elements"""
     id: str = Field(..., description="Unique code component identifier")

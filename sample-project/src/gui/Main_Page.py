@@ -4,23 +4,22 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 import flet as ft
 from flet_route import Params, Basket
-from src.buku.buku import Buku
-from src.buku.kumpulanBuku import KumpulanBuku
-from src.progresBaca.KumpulanProgresBaca import KumpulanProgresBaca
+from src.book.book import Book
+from src.book.book_collection import BookCollection
+from src.reading_progress.reading_progress_collection import ReadingProgressCollection
 
-
-class DisplayBuku(ft.UserControl):
-    def __init__(self, buku : Buku, buku_delete, buku_status_change):
+class BookDisplay(ft.UserControl):
+    def __init__(self, book : Book, book_delete, book_status_change):
         super().__init__()
-        self.buku = buku
-        self.buku_status_change = buku_status_change
-        self.buku_delete = buku_delete
+        self.book = book
+        self.book_status_change = book_status_change
+        self.book_delete = book_delete
 
     def build(self):
 
-        self.display_judul = ft.Row(
+        self.title_display = ft.Row(
             controls=[ft.Text(
-                self.buku.get_judulBuku(), weight=ft.FontWeight.BOLD
+                self.book.get_bookTitle(), weight=ft.FontWeight.BOLD
             )]
         )
 
@@ -28,7 +27,7 @@ class DisplayBuku(ft.UserControl):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Text(str(self.buku.get_total_halaman()) + " halaman"),
+                ft.Text(str(self.book.get_totalPages()) + " halaman"),
                 ft.Row(
                     spacing=0,
                     controls=[
@@ -46,7 +45,7 @@ class DisplayBuku(ft.UserControl):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Text(str(self.buku.get_total_halaman()) + " halaman"),
+                ft.Text(str(self.book.get_totalPages()) + " halaman"),
                 ft.Row(
                     spacing=0,
                     controls=[
@@ -64,7 +63,7 @@ class DisplayBuku(ft.UserControl):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Text(self.buku.get_status_buku()),
+                ft.Text(self.book.get_bookStatus()),
                 ft.Row(
                     spacing=0,
                     controls=[
@@ -83,14 +82,14 @@ class DisplayBuku(ft.UserControl):
         )
 
         
-        return ft.Column(controls=[self.display_judul, self.display_view, self.detail_view_1, self.detail_view_2,ft.Divider()])
+        return ft.Column(controls=[self.title_display, self.display_view, self.detail_view_1, self.detail_view_2,ft.Divider()])
 
     def status_changed(self, e):
         # perlu diganti
-        self.page.go("/DetailBuku/" + str(self.buku.get_idBuku()))
+        self.page.go("/DetailBuku/" + str(self.book.get_bookId()))
 
     def delete_clicked(self, e):
-        self.buku_delete(self)
+        self.book_delete(self)
 
     def detail_clicked(self, e):
         self.detail_view_1.visible = True
@@ -105,14 +104,14 @@ class DisplayBuku(ft.UserControl):
         self.update()
 
 
-class DisplayKumpulanBuku(ft.UserControl):
-    def __init__(self, buku_delete, buku_status_change):
+class BookCollectionDisplay(ft.UserControl):
+    def __init__(self, book_delete, book_status_change):
         super().__init__()
-        self.kb = KumpulanBuku()
-        self.kb.set_db("read_buddy.db")
-        self.list_buku = self.kb.get_all()
-        self.buku_delete = buku_delete
-        self.buku_status_change = buku_status_change
+        self.book_collection = BookCollection()
+        self.book_collection.set_db("read_buddy.db")
+        self.book_list = self.book_collection.get_all()
+        self.book_delete = book_delete
+        self.book_status_change = book_status_change
 
     def build_app_icon(self):
         col = ft.Column(
@@ -153,20 +152,20 @@ class DisplayKumpulanBuku(ft.UserControl):
             scroll=ft.ScrollMode.ALWAYS,
         )
 
-        for i in range(self.list_buku.__len__()):
-            panel.controls.append(DisplayBuku(self.list_buku[i], self.buku_delete, self.buku_status_change))
+        for i in range(self.book_list.__len__()):
+            panel.controls.append(BookDisplay(self.book_list[i], self.book_delete, self.book_status_change))
         return panel
 
 
 class ReadBuddy(ft.UserControl):
     def build(self):
-        self.new_buku = ft.TextButton(
+        self.new_book = ft.TextButton(
             text="Tambah Buku",
             on_click=self.add_clicked
         )
-        self.display_kumpulan_buku = DisplayKumpulanBuku(self.buku_delete, self.buku_status_change)
-        self.display_icon = self.display_kumpulan_buku.build_app_icon()
-        self.display_list_buku = self.display_kumpulan_buku.build_list()
+        self.book_collection_display = BookCollectionDisplay(self.book_delete, self.book_status_change)
+        self.display_icon = self.book_collection_display.build_app_icon()
+        self.book_list_display = self.book_collection_display.build_list()
         self.filter = ft.Tabs(
             scrollable=False,
             selected_index=0,
@@ -189,42 +188,35 @@ class ReadBuddy(ft.UserControl):
                             spacing=25,
                             controls=[
                                 self.filter,
-                                self.display_list_buku,
+                                self.book_list_display,
                                 ft.Row(
                                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     controls=[
                                         self.items_left,
-                                        self.new_buku,
+                                        self.new_book,
                                     ],
                                 ),
                             ],
-                        ),
+                        )
                     ],
                 )
-            ]
+            ],
         )
 
-        return ft.Container(
-            margin=-10,
-            padding=20,
-            width="100%",
-            height=1000,
-            # bgcolor=ft.colors.YELLOW_100,
-            content=self.main_row
-        )
+        return self.main_row
 
     def add_clicked(self, e):
         self.page.go("/TambahBuku/")
 
-    def buku_status_change(self, buku):
+    def book_status_change(self, book):
         self.update()
 
-    def buku_delete(self, buku):
-        self.display_list_buku.controls.remove(buku)
-        self.display_kumpulan_buku.kb.delete_by_id(buku.buku.get_idBuku())
-        kumpulan_progresBaca = KumpulanProgresBaca()
-        kumpulan_progresBaca.delete_by_id(buku.buku.get_idBuku())
+    def book_delete(self, book):
+        self.book_list_display.controls.remove(book)
+        self.book_collection_display.book_collection.delete_by_id(book.book.get_bookId())
+        kumpulan_progresBaca = ReadingProgressCollection()
+        kumpulan_progresBaca.delete_by_id(book.book.get_bookId())
         self.update()
 
     def tabs_changed(self, e):
@@ -233,13 +225,13 @@ class ReadBuddy(ft.UserControl):
     def update(self):
         status = self.filter.tabs[self.filter.selected_index].text
         count = 0
-        for buku in self.display_list_buku.controls:
-            buku.visible = (
+        for book in self.book_list_display.controls:
+            book.visible = (
                 status == "Semua"
-                or (status == "Sedang dibaca" and buku.buku.get_status_buku() == "sedang dibaca")
-                or (status == "Sudah/ingin dibaca" and buku.buku.get_status_buku() != "sedang dibaca")
+                or (status == "Sedang dibaca" and book.book.get_bookStatus() == "sedang dibaca")
+                or (status == "Sudah/ingin dibaca" and book.book.get_bookStatus() != "sedang dibaca")
             )
-            if buku.buku.get_status_buku() == "sedang dibaca":
+            if book.book.get_bookStatus() == "sedang dibaca":
                 count += 1
         self.items_left.value = f"{count} buku yang sedang dibaca"
         super().update()

@@ -10,8 +10,12 @@ on:
     inputs:
       pr_number:
         description: 'PR number (for manual analysis)'
-        required: false
+        required: true
         type: string
+      repository:
+        description: 'Repository name (owner/repo)'
+        required: false
+        default: 'auto'
 
 permissions:
   contents: read
@@ -19,11 +23,10 @@ permissions:
   checks: write
 
 jobs:
-  # Main PR Analysis Job (Document Update Recommendator)
   analyze:
     if: >
       github.event_name == 'pull_request' || 
-      (github.event_name == 'workflow_dispatch' && inputs.action == 'analyze_pr')
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.pr_number)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -60,195 +63,292 @@ jobs:
             echo "Warning: SUPABASE_URL not set, traceability map features will be limited"
           fi
 
-      - name: Run Docureco agent (PR Analysis)
+      - name: Determine PR URL and repository info
+        id: pr_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.repository }}" = "auto" ]; then
+              REPO="${{ github.repository }}"
+            else
+              REPO="${{ github.event.inputs.repository }}"
+            fi
+            PR_URL="https://github.com/${REPO}/pull/${{ github.event.inputs.pr_number }}"
+            echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+            echo "repository=${REPO}" >> $GITHUB_OUTPUT
+            echo "pr_number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            PR_URL="https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+            echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+            echo "repository=${{ github.repository }}" >> $GITHUB_OUTPUT
+            echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          fi
+          echo "Generated PR URL: ${PR_URL}"
+
+      - name: Run Document Update Recommender
         env:
-          # GitHub context (automatically set)
-          GITHUB_EVENT_PATH: ${{ github.event_path }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
           # LLM Configuration
-          DOCURECO_LLM_PROVIDER: ${{ vars.DOCURECO_LLM_PROVIDER || 'grok' }}
-          DOCURECO_LLM_MODEL: ${{ vars.DOCURECO_LLM_MODEL || 'grok-3-mini' }}
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          GROK_BASE_URL: ${{ vars.GROK_BASE_URL || 'https://api.x.ai/v1' }}
-          
-          # OpenAI Fallback
+          GROK_BASE_URL: ${{ secrets.GROK_BASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           
-          # LLM Parameters (optional)
-          DOCURECO_LLM_TEMPERATURE: ${{ vars.DOCURECO_LLM_TEMPERATURE || '0.1' }}
-          DOCURECO_LLM_MAX_TOKENS: ${{ vars.DOCURECO_LLM_MAX_TOKENS || '4000' }}
-          DOCURECO_LLM_MAX_RETRIES: ${{ vars.DOCURECO_LLM_MAX_RETRIES || '3' }}
-          DOCURECO_LLM_TIMEOUT: ${{ vars.DOCURECO_LLM_TIMEOUT || '120' }}
+          # LangSmith Configuration
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
           
           # Database Configuration
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           
-          # Logging and Performance
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
-          MAX_CONCURRENT_OPERATIONS: ${{ vars.MAX_CONCURRENT_OPERATIONS || '5' }}
-          REQUEST_TIMEOUT_SECONDS: ${{ vars.REQUEST_TIMEOUT_SECONDS || '120' }}
-          MAX_FILE_SIZE_MB: ${{ vars.MAX_FILE_SIZE_MB || '10' }}
+          # GitHub Configuration
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Logging
+          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
           
         run: |
-          python -m agent.main
-        timeout-minutes: 10
+          python -m agent.document_update_recommender.main \
+            "${{ steps.pr_info.outputs.pr_url }}" \
+            --format json \
+            --output recommendations.json \
+            --log-level ${{ vars.LOG_LEVEL || 'INFO' }}
+        timeout-minutes: 15
+
+      - name: Process and post recommendations
+        if: hashFiles('recommendations.json') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            try {
+              const rawData = fs.readFileSync('recommendations.json', 'utf8');
+              const recommendations = JSON.parse(rawData);
+              
+              if (!Array.isArray(recommendations) || recommendations.length === 0) {
+                console.log('No recommendations found or invalid format');
+                return;
+              }
+              
+              // Group recommendations by priority
+              const priorityGroups = {
+                'urgent': [],
+                'high': [],
+                'medium': [],
+                'low': []
+              };
+              
+              recommendations.forEach(rec => {
+                const priority = (rec.priority || 'medium').toLowerCase();
+                if (priorityGroups[priority]) {
+                  priorityGroups[priority].push(rec);
+                } else {
+                  priorityGroups['medium'].push(rec);
+                }
+              });
+              
+              // Generate comment header
+              let comment = '## 📋 Documentation Update Recommendations\n\n';
+              comment += `🤖 **Docureco Agent** analyzed this PR and found **${recommendations.length}** documentation update recommendations.\n\n`;
+              
+              // Add workflow process summary
+              comment += '### 🔄 Analysis Process\n';
+              comment += '1. ✅ **Scan PR** - Analyzed PR event data and repository context\n';
+              comment += '2. ✅ **Analyze Code Changes** - Classified and grouped code changes\n';
+              comment += '3. ✅ **Assess Documentation Impact** - Traced impact through traceability map\n';
+              comment += '4. ✅ **Generate Recommendations** - Created specific update suggestions\n\n';
+              
+              // Add priority summary
+              const totalByPriority = Object.entries(priorityGroups)
+                .filter(([_, recs]) => recs.length > 0)
+                .map(([priority, recs]) => {
+                  const emoji = {
+                    'urgent': '🔴',
+                    'high': '🟠',
+                    'medium': '🟡',
+                    'low': '🔵'
+                  }[priority];
+                  return `${emoji} ${priority.charAt(0).toUpperCase() + priority.slice(1)}: ${recs.length}`;
+                })
+                .join(' | ');
+              
+              if (totalByPriority) {
+                comment += `**Priority Distribution:** ${totalByPriority}\n\n`;
+              }
+              
+              // Add detailed recommendations
+              comment += '### 📝 Detailed Recommendations\n\n';
+              
+              let recIndex = 1;
+              for (const [priority, recs] of Object.entries(priorityGroups)) {
+                if (recs.length === 0) continue;
+                
+                const priorityEmoji = {
+                  'urgent': '🔴',
+                  'high': '🟠',
+                  'medium': '🟡',
+                  'low': '🔵'
+                }[priority];
+                
+                for (const rec of recs) {
+                  comment += `<details>\n`;
+                  comment += `<summary><strong>${priorityEmoji} ${recIndex}. ${rec.target_document || 'Documentation Update'}</strong> (${priority.charAt(0).toUpperCase() + priority.slice(1)} Priority)</summary>\n\n`;
+                  
+                  comment += `**📍 Section:** ${rec.section || 'General'}\n`;
+                  comment += `**🔧 Type:** ${rec.recommendation_type || 'Update'}\n`;
+                  comment += `**🎯 What:** ${rec.what_to_update || 'Content update needed'}\n`;
+                  comment += `**📍 Where:** ${rec.where_to_update || 'See section above'}\n`;
+                  comment += `**💡 Why:** ${rec.why_update_needed || 'Changes detected in related code'}\n`;
+                  comment += `**✅ How:** ${rec.how_to_update || 'Review and update content accordingly'}\n`;
+                  
+                  if (rec.confidence_score) {
+                    const confidencePercent = Math.round(rec.confidence_score * 100);
+                    comment += `**📊 Confidence:** ${confidencePercent}%\n`;
+                  }
+                  
+                  comment += `\n</details>\n\n`;
+                  recIndex++;
+                }
+              }
+              
+              // Add footer
+              comment += '---\n\n';
+              comment += '**🔧 Next Steps:**\n';
+              comment += '1. Review the recommendations above\n';
+              comment += '2. Update the relevant documentation files\n';
+              comment += '3. Commit the documentation updates to this PR or create a follow-up PR\n\n';
+              comment += '**💡 Need Help?** Check the [Docureco Agent Documentation](https://github.com/your-org/docureco) for more details.\n\n';
+              comment += `*Generated by Docureco Agent 🤖 | Run ID: ${context.runId} | [View Logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})*`;
+              
+              // Ensure comment is not too long (GitHub has a limit)
+              if (comment.length > 65536) {
+                comment = comment.substring(0, 65500) + '\n\n*... (truncated due to length)*\n\n' + comment.substring(comment.lastIndexOf('*Generated by Docureco Agent'));
+              }
+              
+              // Post comment to PR
+              await github.rest.issues.createComment({
+                issue_number: ${{ steps.pr_info.outputs.pr_number }},
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+              
+              console.log(`Posted comment with ${recommendations.length} recommendations`);
+              
+            } catch (error) {
+              console.error('Error processing recommendations:', error);
+              
+              // Post error comment
+              await github.rest.issues.createComment({
+                issue_number: ${{ steps.pr_info.outputs.pr_number }},
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## ❌ Documentation Analysis Error\n\n🤖 **Docureco Agent** encountered an error while analyzing this PR:\n\n\`\`\`\n${error.message}\n\`\`\`\n\n*Please check the [workflow logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for more details.*`
+              });
+            }
+
+      - name: Upload recommendations artifact
+        if: always() && hashFiles('recommendations.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: docureco-recommendations-pr-${{ steps.pr_info.outputs.pr_number }}
+          path: recommendations.json
+          retention-days: 30
 
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: docureco-analyze-logs-${{ github.run_id }}
-          path: |
-            agent/*.log
-            /tmp/docureco*.log
-          retention-days: 7
-
-  # Baseline Map Creation Job (Initial Baseline Map Creator)
-  create-baseline-map:
-    if: >
-      github.event_name == 'workflow_dispatch' && inputs.action == 'create_baseline_map'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch || 'main' }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Set up Node.js (for Repomix)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install Repomix
-        run: |
-          npm install -g repomix
-          repomix --version
-
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r agent/requirements.txt
-
-      - name: Create baseline traceability map
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
-          TARGET_BRANCH: ${{ inputs.branch || 'main' }}
-          FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
-        run: |
-          python -m agent.baseline_map_creator
-        timeout-minutes: 30
-
-      - name: Upload baseline map creation logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docureco-baseline-creation-logs-${{ github.run_id }}
+          name: docureco-analyze-logs-pr-${{ steps.pr_info.outputs.pr_number }}
           path: |
             agent/*.log
             /tmp/docureco*.log
           retention-days: 7
 
   # Baseline Map Update Job (Baseline Map Updater)
-  update-baseline-map:
-    if: >
-      (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'workflow_dispatch' && inputs.action == 'update_baseline_map')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate PR merge status
-        if: github.event_name == 'pull_request_target'
-        run: |
-          echo "Checking if PR was actually merged..."
-          if [ "${{ github.event.pull_request.merged }}" != "true" ]; then
-            echo "❌ PR was closed without merging. Skipping baseline map update."
-            echo "PR #${{ github.event.pull_request.number }} status: closed (not merged)"
-            exit 78  # Exit code for neutral (not failure)
-          else
-            echo "✅ PR #${{ github.event.pull_request.number }} was successfully merged"
-            echo "Target branch: ${{ github.event.pull_request.base.ref }}"
-            echo "Merged commit: ${{ github.event.pull_request.merge_commit_sha }}"
-          fi
+  # update-baseline-map:
+  #   if: >
+  #     (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Validate PR merge status
+  #       run: |
+  #         echo "Checking if PR was actually merged..."
+  #         if [ "${{ github.event.pull_request.merged }}" != "true" ]; then
+  #           echo "❌ PR was closed without merging. Skipping baseline map update."
+  #           echo "PR #${{ github.event.pull_request.number }} status: closed (not merged)"
+  #           exit 78  # Exit code for neutral (not failure)
+  #         else
+  #           echo "✅ PR #${{ github.event.pull_request.number }} was successfully merged"
+  #           echo "Target branch: ${{ github.event.pull_request.base.ref }}"
+  #           echo "Merged commit: ${{ github.event.pull_request.merge_commit_sha }}"
+  #         fi
 
-      - name: Checkout merged code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.ref || inputs.branch || 'main' }}
+  #     - name: Checkout merged code
+  #       uses: actions/checkout@v4
+  #       with:
+  #         ref: ${{ github.event.pull_request.base.ref }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.11'
 
-      - name: Set up Node.js (for Repomix)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
+  #     - name: Set up Node.js (for Repomix)
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: '18'
 
-      - name: Install Repomix
-        run: |
-          npm install -g repomix
-          repomix --version
+  #     - name: Install Repomix
+  #       run: |
+  #         npm install -g repomix
+  #         repomix --version
 
-      - name: Install Python dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r agent/requirements.txt
+  #     - name: Install Python dependencies
+  #       run: |
+  #         pip install --upgrade pip
+  #         pip install -r agent/requirements.txt
 
-      - name: Update baseline traceability map
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          TARGET_REPOSITORY: ${{ inputs.repository || github.repository }}
-          TARGET_BRANCH: ${{ github.event.pull_request.base.ref || inputs.branch || 'main' }}
-          MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}
-          FORCE_OVERWRITE: 'true'  # Automatically overwrite in GitHub Actions
-          LOG_LEVEL: ${{ vars.LOG_LEVEL || 'DEBUG' }}
-        run: |
-          python -m agent.baseline_map_updater
-        timeout-minutes: 20
+  #     - name: Update baseline traceability map
+  #       env:
+  #         GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+  #         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  #         LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+  #         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  #         SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+  #         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #         LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
+  #       run: |
+  #         python -m agent baseline-map-updater \
+  #           ${{ github.repository }} \
+  #           --branch ${{ github.event.pull_request.base.ref }} \
+  #           --since ${{ github.event.pull_request.merge_commit_sha }}~1 \
+  #           --log-level ${{ vars.LOG_LEVEL || 'INFO' }}
+  #       timeout-minutes: 20
 
-      - name: Upload baseline map update logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docureco-baseline-update-logs-${{ github.run_id }}
-          path: |
-            agent/*.log
-            /tmp/docureco*.log
-          retention-days: 7
+  #     - name: Upload baseline map update logs
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: docureco-baseline-update-logs-pr-${{ github.event.pull_request.number }}
+  #         path: |
+  #           agent/*.log
+  #           /tmp/docureco*.log
+  #         retention-days: 7
 
-      - name: Comment on merged PR
-        if: github.event_name == 'pull_request_target' && github.event.pull_request.merged == true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const mergedAt = '${{ github.event.pull_request.merged_at }}';
-            const baseBranch = '${{ github.event.pull_request.base.ref }}';
-            const headBranch = '${{ github.event.pull_request.head.ref }}';
+  #     - name: Comment on merged PR
+  #       if: success()
+  #       uses: actions/github-script@v7
+  #       with:
+  #         script: |
+  #           const mergedAt = '${{ github.event.pull_request.merged_at }}';
+  #           const baseBranch = '${{ github.event.pull_request.base.ref }}';
+  #           const headBranch = '${{ github.event.pull_request.head.ref }}';
             
-            github.rest.issues.createComment({
-              issue_number: ${{ github.event.pull_request.number }},
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `🗺️ **Baseline Traceability Map Updated**\n\nThe baseline traceability map for branch \`${baseBranch}\` has been automatically updated to reflect the changes from this merged pull request.\n\n**Merge Details:**\n- **From:** \`${headBranch}\` → \`${baseBranch}\`\n- **Merged at:** ${mergedAt}\n- **Workflow run:** [View logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\nThe updated baseline map will be used for future PR analysis and documentation recommendations.\n\n_Generated by Docureco Agent_`
-            })
+  #           github.rest.issues.createComment({
+  #             issue_number: ${{ github.event.pull_request.number }},
+  #             owner: context.repo.owner,
+  #             repo: context.repo.repo,
+  #             body: `🗺️ **Baseline Traceability Map Updated**\n\nThe baseline traceability map for branch \`${baseBranch}\` has been automatically updated to reflect the changes from this merged pull request.\n\n**Merge Details:**\n- **From:** \`${headBranch}\` → \`${baseBranch}\`\n- **Merged at:** ${mergedAt}\n- **Workflow run:** [View logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\nThe updated baseline map will be used for future PR analysis and documentation recommendations.\n\n*Generated by Docureco Agent ��*`
+  #           })

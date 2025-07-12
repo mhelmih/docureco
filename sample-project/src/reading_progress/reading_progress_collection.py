@@ -1,8 +1,8 @@
 import sqlite3
 import datetime as dt
-from src.progresBaca.ProgresBaca import ProgresBaca
+from src.reading_progress.reading_progress import ReadingProgress
 
-class KumpulanProgresBaca:
+class ReadingProgressCollection:
     _conn = sqlite3.connect('read_buddy.db', check_same_thread=False)
     _cursor = _conn.cursor()
     
@@ -10,44 +10,44 @@ class KumpulanProgresBaca:
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._cursor = self._conn.cursor()
 
-    def get_progres_baca(self, id_buku) -> ProgresBaca:
+    def get_reading_progress(self, book_id) -> ReadingProgress:
 
         query = "SELECT * FROM progres_baca WHERE id_buku = ?"
-        self._cursor.execute(query, (id_buku,))
+        self._cursor.execute(query, (book_id,))
 
         data_progresBaca = self._cursor.fetchone()
 
         if data_progresBaca:
-            return ProgresBaca(data_progresBaca[0], data_progresBaca[1], data_progresBaca[2], dt.datetime.strptime(data_progresBaca[3], "%Y-%m-%d %H:%M:%S.%f"))
+            return ReadingProgress(data_progresBaca[0], data_progresBaca[1], data_progresBaca[2], dt.datetime.strptime(data_progresBaca[3], "%Y-%m-%d %H:%M:%S.%f"))
         else:
             return None
     
-    def insert(self, progresBaca : ProgresBaca) :
+    def insert(self, readingProgress : ReadingProgress) :
 
         query = "INSERT INTO progres_baca (id_buku, pembacaan_ke, halaman_terakhir, tanggal_mulai) VALUES (?, ?, ?, ?)"
 
-        data = (progresBaca.get_idBuku(), progresBaca.getPembacaanKe(), progresBaca.getHalamanSekarang(), progresBaca.getTanggalMulai())
+        data = (readingProgress.get_bookId(), readingProgress.getReadingSession(), readingProgress.getCurrentPage(), readingProgress.getStartDate())
 
         self._cursor.execute(query, data)
 
         query = "SELECT LAST_INSERT_ROWID()"
         self._cursor.execute(query)
 
-        progresBaca.set_idBuku(self._cursor.fetchone()[0])
+        readingProgress.set_bookId(self._cursor.fetchone()[0])
 
         self._conn.commit()
 
-    def update_progres_baca(self, progres_baca : ProgresBaca) :
+    def update_reading_progress(self, progress : ReadingProgress) :
 
         query = "UPDATE progres_baca SET pembacaan_ke = ?, halaman_terakhir = ?, tanggal_mulai = ? WHERE id_buku = ?"
 
-        data = (progres_baca.getPembacaanKe(), progres_baca.getHalamanSekarang(), progres_baca.getTanggalMulai(), progres_baca.get_idBuku())
+        data = (progress.getReadingSession(), progress.getCurrentPage(), progress.getStartDate(), progress.get_bookId())
 
         self._cursor.execute(query, data)
         self._conn.commit()
 
 
-    def get_jumlah_progresBaca(self) :
+    def get_reading_progress_count(self) :
         query = "SELECT COUNT(*) FROM progres_baca"
         self._cursor.execute(query)
 
@@ -60,7 +60,7 @@ class KumpulanProgresBaca:
 
         data_progresBaca = self._cursor.fetchall()
 
-        return list(map(lambda row : ProgresBaca(row[0], row[1], row[2], row[3]), data_progresBaca))
+        return list(map(lambda row : ReadingProgress(row[0], row[1], row[2], row[3]), data_progresBaca))
     
     def clear_all(self) :
         query = "DELETE FROM progres_baca"

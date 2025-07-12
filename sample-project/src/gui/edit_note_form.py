@@ -1,10 +1,10 @@
 import flet as ft
 
 
-class FormUbahCatatan(ft.AlertDialog):
-    def __init__(self, page : ft.Page, idCatatan,title,on_simpan, ):
-        self.halaman_field = ft.TextField(label="Halaman",input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""))
-        self.catatan_content_field = ft.TextField(label="Konten Catatan", multiline=True, min_lines=3)
+class EditNoteForm(ft.AlertDialog):
+    def __init__(self, page : ft.Page, note_id, title, on_save, ):
+        self.page_field = ft.TextField(label="Halaman",input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""))
+        self.note_content_field = ft.TextField(label="Konten Catatan", multiline=True, min_lines=3)
         super().__init__(
 
             title=ft.Text(title),
@@ -14,8 +14,8 @@ class FormUbahCatatan(ft.AlertDialog):
                 height=300,
                 content=ft.Column(
                     controls=[
-                        self.halaman_field,
-                        self.catatan_content_field,
+                        self.page_field,
+                        self.note_content_field,
                     ]
                 )
             ),
@@ -26,8 +26,8 @@ class FormUbahCatatan(ft.AlertDialog):
             actions_alignment=ft.MainAxisAlignment.END
         )
         self.page = page
-        self.on_simpan = on_simpan
-        self.idCatatan = idCatatan
+        self.on_save = on_save
+        self.note_id = note_id
         
 
     def cancel(self, e):
@@ -35,9 +35,9 @@ class FormUbahCatatan(ft.AlertDialog):
         self.page.update()
 
     def save(self, e):
-        catatan_content = self.catatan_content_field.value
-        halaman = self.halaman_field.value
+        note_content = self.note_content_field.value
+        page = self.page_field.value
         self.open = False
         self.page.update()
-        self.on_simpan(self.idCatatan,catatan_content, halaman)
+        self.on_save(self.note_id, note_content, page)
 

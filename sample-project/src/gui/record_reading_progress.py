@@ -7,16 +7,16 @@ import shutil
 sys.path.append('.')
 sys.path.append('./src')
 
-from src.buku.kumpulanBuku import KumpulanBuku
-from src.progresBaca.ProgresBaca import ProgresBaca
-from src.progresBaca.KumpulanProgresBaca import KumpulanProgresBaca
+from src.book.book_collection import BookCollection
+from src.reading_progress.reading_progress import ReadingProgress
+from src.reading_progress.reading_progress_collection import ReadingProgressCollection
 
-class CatatProgresPembacaan:
+class RecordReadingProgress:
     def __init__(self):
-        self.kb = KumpulanBuku()
-        self.kpb = KumpulanProgresBaca()
-        self.kb.set_db("read_buddy.db")
-        self.kpb.set_db("read_buddy.db")
+        self.book_collection = BookCollection()
+        self.reading_progress_collection = ReadingProgressCollection()
+        self.book_collection.set_db("read_buddy.db")
+        self.reading_progress_collection.set_db("read_buddy.db")
         self.file_picker = ft.FilePicker(on_result=self.save_result)
 
     def save_result(self, e) :
@@ -36,32 +36,32 @@ class CatatProgresPembacaan:
         )
         self.main_container.update()
 
-    def save_cover(self, idBuku) :
+    def save_cover(self, book_id) :
         if (self.file_picker.result != None) :
-            shutil.copyfile(self.file_picker.result.files[0].path, f"src/gui/resources/bookCover/cover{idBuku}.{self.file_picker.result.files[0].path[-3:]}")
+            shutil.copyfile(self.file_picker.result.files[0].path, f"src/gui/resources/bookCover/cover{book_id}.{self.file_picker.result.files[0].path[-3:]}")
         else :
-            shutil.copyfile("src/gui/resources/bookCover/nullCover.jpg", f"src/gui/resources/bookCover/cover{idBuku}.jpg")
+            shutil.copyfile("src/gui/resources/bookCover/nullCover.jpg", f"src/gui/resources/bookCover/cover{book_id}.jpg")
 
-    def catat_progress_pembacaan(self, page: ft.Page, params: Params, basket: Basket):
+    def record_reading_progress(self, page: ft.Page, params: Params, basket: Basket):
         self.page = page
-        id_buku = int(params.get("id_buku"))
+        book_id = int(params.get("id_buku"))
         page.controls.clear() 
-        progresBaca = self.kpb.get_progres_baca(id_buku)
-        buku = self.kb.get_by_id(id_buku)
+        reading_progress = self.reading_progress_collection.get_reading_progress(book_id)
+        book = self.book_collection.get_by_id(book_id)
 
-        judul_page = ft.Text(value="DETAIL BUKU " + buku.get_judulBuku(), overflow=ft.TextOverflow.ELLIPSIS, width=500, weight=ft.FontWeight.BOLD)
-        nama_aplikasi = ft.Text(value="READ BUDDY")
+        page_title = ft.Text(value="DETAIL BUKU " + book.get_bookTitle(), overflow=ft.TextOverflow.ELLIPSIS, width=500, weight=ft.FontWeight.BOLD)
+        app_name = ft.Text(value="READ BUDDY")
 
-        button_kembali = ft.ElevatedButton(text="Kembali", on_click= lambda _: page.go("/DetailBuku/" + str(id_buku)))
+        back_button = ft.ElevatedButton(text="Kembali", on_click= lambda _: page.go("/DetailBuku/" + str(book_id)))
 
         top_row = ft.Container(
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            nama_aplikasi,
-                            judul_page,
-                            button_kembali
+                            app_name,
+                            page_title,
+                            back_button
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER
@@ -73,30 +73,30 @@ class CatatProgresPembacaan:
             padding=ft.Padding(10, 10, 10, 10)
         )
 
-        textField_pembacaan = ft.TextField(input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""))
+        reading_field = ft.TextField(input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""))
 
-        def catat_pembacaan_clicked(e):
-            if(textField_pembacaan.value == ""):
+        def record_reading_clicked(e):
+            if(reading_field.value == ""):
                 self.page.snack_bar = ft.SnackBar(ft.Text("Halaman tidak boleh kosong!"))
                 self.page.snack_bar.open = True
                 self.page.update()
             
-            elif(int(textField_pembacaan.value) > buku.get_total_halaman()) :
+            elif(int(reading_field.value) > book.get_totalPages()) :
                 self.page.snack_bar = ft.SnackBar(ft.Text("Halaman tidak boleh lebih besar dari total halaman buku!"))
                 self.page.snack_bar.open = True
                 self.page.update()
 
             else:
-                progresBaca.setHalamanSementara(int(textField_pembacaan.value))
-                self.kpb.update_progres_baca(ProgresBaca(id_buku, progresBaca.getPembacaanKe(), progresBaca.getHalamanSekarang(), progresBaca.getTanggalMulai()))
-                self.page.go("/DetailBuku/" + str(id_buku))
+                reading_progress.setCurrentPage(int(reading_field.value))
+                self.reading_progress_collection.update_reading_progress(ReadingProgress(book_id, reading_progress.getReadingSession(), reading_progress.getCurrentPage(), reading_progress.getStartDate()))
+                self.page.go("/DetailBuku/" + str(book_id))
 
         query_row = ft.Container(
             content=ft.Column(
                 [
                     ft.Text(value="Masukkan halaman terakhir pada pembacaan kali ini:", weight=105),
-                    textField_pembacaan,
-                    ft.ElevatedButton(text="Catat Pembacaan", width=200, on_click=catat_pembacaan_clicked)
+                    reading_field,
+                    ft.ElevatedButton(text="Catat Pembacaan", width=200, on_click=record_reading_clicked)
                 ]
             ), padding=ft.Padding(0, 50, 0, 0)
         )
@@ -105,12 +105,12 @@ class CatatProgresPembacaan:
             content=ft.Column(
                 [
                     ft.TextField(
-                        value="Jumlah Halaman: " + str(buku.get_total_halaman()),
+                        value="Jumlah Halaman: " + str(book.get_totalPages()),
                         border=ft.InputBorder.NONE,
                         read_only = True,
                         filled=True),
                     ft.TextField(
-                        value="Halaman terakhir yang dibaca: " + str(progresBaca.getHalamanSekarang()),
+                        value="Halaman terakhir yang dibaca: " + str(reading_progress.getCurrentPage()),
                         read_only = True,
                         border=ft.InputBorder.NONE,
                         filled=True),
@@ -131,7 +131,7 @@ class CatatProgresPembacaan:
                     width=300,
                     alignment=ft.alignment.center,
                     content=ft.Image(
-                        src = f"img/bookCover/cover{id_buku}.jpg",
+                        src = f"img/bookCover/cover{book_id}.jpg",
                         height = 400,
                         width = 300,
                         fit=ft.ImageFit.CONTAIN,

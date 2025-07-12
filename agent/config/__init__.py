@@ -7,7 +7,8 @@ from .llm_config import (
     LLMConfig,
     TaskSpecificConfig,
     get_llm_config,
-    get_task_config
+    get_task_config,
+    setup_logging
 )
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "LLMConfig", 
     "TaskSpecificConfig",
     "get_llm_config",
-    "get_task_config"
+    "get_task_config",
+    "setup_logging"
 ] 
