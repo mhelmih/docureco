@@ -39,18 +39,29 @@ class DocumentUpdateRecommenderState:
     pr_number: int
     branch: str
     
-    # PR Analysis Data
+    # Step 1: Scan PR - PR Event Data and Context
+    pr_event_data: Dict[str, Any] = field(default_factory=dict)
+    requested_repo_content: Dict[str, Any] = field(default_factory=dict)
+    commit_info: Dict[str, Any] = field(default_factory=dict)
+    changed_files_list: List[str] = field(default_factory=list)
+    
+    # Step 2: Analyze Code Changes - Classification and Grouping
+    classified_changes: List[Dict[str, Any]] = field(default_factory=list)
+    logical_change_sets: List[Dict[str, Any]] = field(default_factory=list)
+    
+    # Step 3: Assess Documentation Impact - Traceability and Impact Analysis
     baseline_map: Optional[BaselineMapModel] = None
-    code_changes: List[Dict[str, Any]] = field(default_factory=list)
+    traceability_map: Dict[str, Any] = field(default_factory=dict)
+    potentially_impacted_elements: List[Dict[str, Any]] = field(default_factory=list)
+    prioritized_finding_list: List[Dict[str, Any]] = field(default_factory=list)
     
-    # Impact Analysis Results  
-    impacted_elements: List[ImpactAnalysisResultModel] = field(default_factory=list)
-    
-    # Generated Recommendations
+    # Step 4: Generate and Post Recommendations - Suggestion Generation
+    filtered_high_priority_findings: List[Dict[str, Any]] = field(default_factory=list)
+    existing_suggestions: List[Dict[str, Any]] = field(default_factory=list)
+    generated_suggestions: List[Dict[str, Any]] = field(default_factory=list)
     recommendations: List[DocumentationRecommendationModel] = field(default_factory=list)
     
     # Workflow metadata
-    pr_summary: str = ""
     errors: List[str] = field(default_factory=list)
     processing_stats: Dict[str, int] = field(default_factory=dict)
 
@@ -58,14 +69,12 @@ class DocumentUpdateRecommenderWorkflow:
     """
     Main LangGraph workflow for analyzing GitHub PR code changes and recommending documentation updates.
     
-    This workflow implements the Document Update Recommender component which is responsible for:
-    1. Loading baseline traceability maps
-    2. Analyzing code changes from GitHub PRs  
-    3. Identifying impacted documentation elements using traceability links
-    4. Generating specific documentation update recommendations via LLM assessment
-    5. Providing actionable insights using the 4W framework (What, Where, Why, How)
-    
-    Research Questions Addressed: Q1-Q10 from BAB III
+    This workflow implements the Document Update Recommender component following the 5-step process:
+    1. Scan PR - Scan PR event data and repo context
+    2. Analyze Code Changes - Code change classification, grouping, and contextualization
+    3. Assess Documentation Impact - Determine traceability status, impact tracing, and prioritization
+    4. Generate and Post Recommendations - Filter findings, generate suggestions, and manage status
+    5. End - Complete workflow
     """
     
     def __init__(self, 
@@ -90,22 +99,18 @@ class DocumentUpdateRecommenderWorkflow:
         """Build the LangGraph workflow with conditional logic"""
         workflow = StateGraph(DocumentUpdateRecommenderState)
         
-        # Add nodes for each major process step
-        workflow.add_node("load_baseline_map", self._load_baseline_map)
+        # Add nodes for each step of the 5-step process
+        workflow.add_node("scan_pr", self._scan_pr)
         workflow.add_node("analyze_code_changes", self._analyze_code_changes)
-        workflow.add_node("identify_impacted_elements", self._identify_impacted_elements)
-        workflow.add_node("assess_impact_likelihood_severity", self._assess_impact_likelihood_severity)
-        workflow.add_node("generate_recommendations", self._generate_recommendations)
-        workflow.add_node("create_pr_summary", self._create_pr_summary)
+        workflow.add_node("assess_documentation_impact", self._assess_documentation_impact)
+        workflow.add_node("generate_and_post_recommendations", self._generate_and_post_recommendations)
         
-        # Define workflow edges with conditional logic
-        workflow.set_entry_point("load_baseline_map")
-        workflow.add_edge("load_baseline_map", "analyze_code_changes")
-        workflow.add_edge("analyze_code_changes", "identify_impacted_elements")
-        workflow.add_edge("identify_impacted_elements", "assess_impact_likelihood_severity")
-        workflow.add_edge("assess_impact_likelihood_severity", "generate_recommendations")
-        workflow.add_edge("generate_recommendations", "create_pr_summary")
-        workflow.add_edge("create_pr_summary", END)
+        # Define workflow edges following the exact sequence
+        workflow.set_entry_point("scan_pr")
+        workflow.add_edge("scan_pr", "analyze_code_changes")
+        workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
+        workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
+        workflow.add_edge("generate_and_post_recommendations", END)
         
         return workflow
     
@@ -124,14 +129,7 @@ class DocumentUpdateRecommenderWorkflow:
         initial_state = DocumentUpdateRecommenderState(
             repository=pr_info["repository"],
             pr_number=pr_info["pr_number"],
-            branch=pr_info["branch"],
-            baseline_map=None,
-            code_changes=[],
-            impacted_elements=[],
-            recommendations=[],
-            pr_summary="",
-            errors=[],
-            processing_stats={}
+            branch=pr_info["branch"]
         )
         
         try:
@@ -149,36 +147,47 @@ class DocumentUpdateRecommenderWorkflow:
             initial_state.errors.append(str(e))
             raise
     
-    async def _load_baseline_map(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
+    async def _scan_pr(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
-        Load baseline traceability map for the repository
-        Implements Q1: How to retrieve existing traceability relationships?
+        Step 1: Scan PR and Repository Context
+        
+        Implements:
+        - PR Event Data scanning
+        - Requested Repository Content retrieval
+        - Commit Information gathering
+        - Changed Files List compilation
         """
-        logger.info(f"Loading baseline map for {state.repository}:{state.branch}")
+        logger.info(f"Step 1: Scanning PR #{state.pr_number} and repository context")
         
         try:
-            # Load baseline map from database
-            baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, state.branch)
+            # Scan PR event data
+            pr_event_data = await self._fetch_pr_event_data(state.repository, state.pr_number)
+            state.pr_event_data = pr_event_data
             
-            if baseline_map_data:
-                state.baseline_map = BaselineMapModel(**baseline_map_data)
-                logger.info(f"Loaded baseline map with {len(state.baseline_map.requirements)} requirements, "
-                           f"{len(state.baseline_map.design_elements)} design elements, "
-                           f"{len(state.baseline_map.code_components)} code components")
-                
-                # Update statistics
-                state.processing_stats.update({
-                    "baseline_requirements": len(state.baseline_map.requirements),
-                    "baseline_design_elements": len(state.baseline_map.design_elements),
-                    "baseline_code_components": len(state.baseline_map.code_components),
-                    "baseline_traceability_links": len(state.baseline_map.traceability_links)
-                })
-            else:
-                logger.warning(f"No baseline map found for {state.repository}:{state.branch}")
-                state.errors.append("No baseline traceability map available - recommendations will be limited")
-                
+            # Get requested repository content
+            repo_content = await self._fetch_repo_content(state.repository, state.branch)
+            state.requested_repo_content = repo_content
+            
+            # Extract commit information
+            commit_info = pr_event_data.get("commit_info", {})
+            state.commit_info = commit_info
+            
+            # Compile changed files list
+            changed_files = pr_event_data.get("files", [])
+            state.changed_files_list = [f.get("filename", "") for f in changed_files]
+            
+            # Update processing statistics
+            state.processing_stats.update({
+                "pr_files_changed": len(state.changed_files_list),
+                "pr_commits": len(commit_info.get("commits", [])),
+                "pr_additions": pr_event_data.get("additions", 0),
+                "pr_deletions": pr_event_data.get("deletions", 0)
+            })
+            
+            logger.info(f"Scanned PR with {len(state.changed_files_list)} changed files")
+            
         except Exception as e:
-            error_msg = f"Error loading baseline map: {str(e)}"
+            error_msg = f"Error scanning PR: {str(e)}"
             logger.error(error_msg)
             state.errors.append(error_msg)
         
@@ -186,34 +195,39 @@ class DocumentUpdateRecommenderWorkflow:
     
     async def _analyze_code_changes(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
-        Analyze code changes from the GitHub PR
-        Implements Q2: How to extract and categorize code changes?
+        Step 2: Analyze Code Changes
+        
+        Implements:
+        - Code Change Classification (individual changes)
+        - Changes Grouping and Contextualization
+        - Logical Change Set creation
         """
-        logger.info(f"Analyzing code changes for PR #{state.pr_number}")
+        logger.info("Step 2: Analyzing and classifying code changes")
         
         try:
-            # Fetch PR details from GitHub API (placeholder implementation)
-            pr_data = await self._fetch_pr_data(state.repository, state.pr_number)
+            # 2.1 Classify Individual Changes
+            classified_changes = await self._llm_classify_individual_changes(
+                state.changed_files_list, 
+                state.pr_event_data,
+                state.requested_repo_content
+            )
+            state.classified_changes = classified_changes
             
-            if pr_data:
-                state.code_changes = pr_data.get("files", [])
-                
-                # Analyze change characteristics
-                change_stats = {
-                    "files_modified": len([f for f in state.code_changes if f.get("status") == "modified"]),
-                    "files_added": len([f for f in state.code_changes if f.get("status") == "added"]), 
-                    "files_deleted": len([f for f in state.code_changes if f.get("status") == "removed"]),
-                    "total_additions": sum(f.get("additions", 0) for f in state.code_changes),
-                    "total_deletions": sum(f.get("deletions", 0) for f in state.code_changes)
-                }
-                
-                state.processing_stats.update(change_stats)
-                logger.info(f"Analyzed {len(state.code_changes)} changed files: {change_stats}")
-            else:
-                error_msg = f"Could not fetch PR data for {state.repository}#{state.pr_number}"
-                logger.error(error_msg)
-                state.errors.append(error_msg)
-                
+            # 2.2 Group Classified Changes into Logical Change Sets
+            logical_change_sets = await self._llm_group_classified_changes(
+                classified_changes,
+                state.commit_info
+            )
+            state.logical_change_sets = logical_change_sets
+            
+            # Update processing statistics
+            state.processing_stats.update({
+                "classified_changes": len(classified_changes),
+                "logical_change_sets": len(logical_change_sets)
+            })
+            
+            logger.info(f"Classified {len(classified_changes)} changes into {len(logical_change_sets)} logical sets")
+            
         except Exception as e:
             error_msg = f"Error analyzing code changes: {str(e)}"
             logger.error(error_msg)
@@ -221,166 +235,138 @@ class DocumentUpdateRecommenderWorkflow:
         
         return state
     
-    async def _identify_impacted_elements(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
+    async def _assess_documentation_impact(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
-        Identify documentation elements impacted by code changes using traceability links
-        Implements Q3: How to determine which documentation elements are affected?
+        Step 3: Assess Documentation Impact
+        
+        Implements:
+        - Determine Traceability Status
+        - Impact Tracing through Map
+        - Combine Findings
+        - Assess Likelihood and Severity
         """
-        logger.info("Identifying impacted documentation elements using traceability analysis")
+        logger.info("Step 3: Assessing documentation impact using traceability analysis")
         
         try:
-            impacted_elements = []
-            
-            if state.baseline_map and state.code_changes:
-                # Direct traceability analysis
-                for change in state.code_changes:
-                    file_path = change.get("filename", "")
-                    
-                    # Find code components that match the changed file
-                    matching_components = [
-                        comp for comp in state.baseline_map.code_components 
-                        if comp.path == file_path or file_path.endswith(comp.path)
-                    ]
-                    
-                    for component in matching_components:
-                        # Find traceability links from this code component
-                        related_links = [
-                            link for link in state.baseline_map.traceability_links
-                            if (link.source_type == "CodeComponent" and link.source_id == component.id) or
-                               (link.target_type == "CodeComponent" and link.target_id == component.id)
-                        ]
-                        
-                        # Determine impact severity based on change size
-                        severity = self._calculate_impact_severity(change)
-                        
-                        # Create impact analysis results
-                        for link in related_links:
-                            impact = ImpactAnalysisResultModel(
-                                element_type=link.source_type if link.target_id == component.id else link.target_type,
-                                element_id=link.source_id if link.target_id == component.id else link.target_id,
-                                impact_reason=f"Code changes in {file_path}",
-                                likelihood=0.8,  # High likelihood for direct traceability
-                                severity=severity,
-                                change_details={
-                                    "file": file_path,
-                                    "additions": change.get("additions", 0),
-                                    "deletions": change.get("deletions", 0),
-                                    "status": change.get("status", "modified")
-                                }
-                            )
-                            impacted_elements.append(impact)
-            
-            state.impacted_elements = impacted_elements
-            state.processing_stats["impacted_elements_count"] = len(impacted_elements)
-            logger.info(f"Identified {len(impacted_elements)} potentially impacted elements via traceability")
-            
-        except Exception as e:
-            error_msg = f"Error identifying impacted elements: {str(e)}"
-            logger.error(error_msg)
-            state.errors.append(error_msg)
-        
-        return state
-    
-    async def _assess_impact_likelihood_severity(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
-        """
-        Assess impact likelihood and severity for each impacted element
-        Implements Q4: How to assess likelihood and severity of impacts?
-        """
-        logger.info("Assessing impact likelihood and severity for each impacted element")
-        
-        try:
-            # Placeholder implementation
-            # This step is removed as per the new methodology
-            pass
-            
-        except Exception as e:
-            error_msg = f"Error assessing impact likelihood and severity: {str(e)}"
-            logger.error(error_msg)
-            state.errors.append(error_msg)
-        
-        return state
-    
-    async def _generate_recommendations(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
-        """
-        Generate specific documentation update recommendations using LLM
-        Implements Q5-Q10: How to generate actionable recommendations with 4W framework?
-        """
-        logger.info("Generating documentation update recommendations")
-        
-        try:
-            recommendations = []
-            
-            if state.impacted_elements:
-                # Group impacts by element type for better organization
-                grouped_impacts = {}
-                for impact in state.impacted_elements:
-                    element_type = impact.element_type
-                    if element_type not in grouped_impacts:
-                        grouped_impacts[element_type] = []
-                    grouped_impacts[element_type].append(impact)
+            # 3.1 Determine Traceability Status
+            baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, state.branch)
+            if not baseline_map_data:
+                return state    # Terminate workflow if no baseline map is found
                 
-                # Generate recommendations for each impacted element
-                for element_type, impacts in grouped_impacts.items():
-                    for impact in impacts:
-                        # Use LLM to generate detailed recommendations
-                        recommendation_data = await self._llm_generate_recommendation(
-                            impact, state.baseline_map, state.code_changes
-                        )
-                        
-                        if recommendation_data:
-                            recommendation = DocumentationRecommendationModel(
-                                target_document=recommendation_data.get("target_document"),
-                                section=recommendation_data.get("section"),
-                                recommendation_type=RecommendationType(recommendation_data.get("type", "UPDATE")),
-                                priority=recommendation_data.get("priority", "Medium"),
-                                what_to_update=recommendation_data.get("what"),
-                                where_to_update=recommendation_data.get("where"), 
-                                why_update_needed=recommendation_data.get("why"),
-                                how_to_update=recommendation_data.get("how"),
-                                affected_element_id=impact.element_id,
-                                affected_element_type=impact.element_type,
-                                confidence_score=impact.likelihood,
-                                status=RecommendationStatus.PENDING
-                            )
-                            recommendations.append(recommendation)
+            traceability_status = await self._determine_traceability_status(
+                state.logical_change_sets,
+                state.repository,
+                state.branch,
+                baseline_map_data
+            )
             
-            # If no specific impacts found, generate general recommendations
-            if not recommendations and state.code_changes:
-                general_recommendations = await self._llm_generate_general_recommendations(state.code_changes)
-                recommendations.extend(general_recommendations)
+            # 3.2 Trace Impact Through Map
+            # Get changes with traceability status modification, outdated, rename
+            changes_modification_outdated_rename = []
+            changes_gap_anomaly = []
+            for change in state.logical_change_sets:
+                status = change.get("traceability_status")
+                if status == "modification" or status == "outdated" or status == "rename":
+                    changes_modification_outdated_rename.append(change)
+                elif status == "gap" or status == "anomaly":
+                    changes_gap_anomaly.append(change)
+                    
+            # Get potentially impacted elements
+            potentially_impacted_elements = await self._trace_impact_through_map(
+                changes_modification_outdated_rename,
+                state.traceability_map
+            )
+            state.potentially_impacted_elements = potentially_impacted_elements
             
-            state.recommendations = recommendations
-            state.processing_stats["recommendations_count"] = len(recommendations)
-            logger.info(f"Generated {len(recommendations)} documentation recommendations")
+            # 3.3 Combine Findings
+            findings = potentially_impacted_elements + changes_gap_anomaly
+            
+            # 3.4 Assess Likelihood and Severity
+            prioritized_findings = await self._llm_assess_likelihood_and_severity(
+                findings,
+                state.logical_change_sets
+            )
+            state.prioritized_finding_list = prioritized_findings
+            
+            # Update processing statistics
+            state.processing_stats.update({
+                "potentially_impacted_elements": len(potentially_impacted_elements),
+                "prioritized_findings": len(prioritized_findings)
+            })
+            
+            logger.info(f"Identified {len(potentially_impacted_elements)} potentially impacted elements")
+            
+        except Exception as e:
+            error_msg = f"Error assessing documentation impact: {str(e)}"
+            logger.error(error_msg)
+            state.errors.append(error_msg)
+        
+        return state
+    
+    async def _generate_and_post_recommendations(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
+        """
+        Step 4: Generate and Post Recommendations
+        
+        Implements:
+        - Filter High-Priority Findings
+        - Query Existing Suggestions
+        - Findings Iteration & Suggestion Generation
+        - Filter Against Existing & Post Details
+        - Manage Check Status
+        """
+        logger.info("Step 4: Generating and posting documentation recommendations")
+        
+        try:
+            # 4.1 Filter High-Priority Findings
+            filtered_findings = await self._filter_high_priority_findings(
+                state.prioritized_finding_list
+            )
+            state.filtered_high_priority_findings = filtered_findings
+            
+            # 4.2 Query Existing Suggestions
+            existing_suggestions = await self._query_existing_suggestions(
+                state.repository,
+                state.pr_number
+            )
+            state.existing_suggestions = existing_suggestions
+            
+            # 4.3 Fetch Current Documentation Context
+            current_docs = await self._fetch_current_documentation(
+                state.requested_repo_content,
+                filtered_findings
+            )
+            
+            # 4.4 Findings Iteration & Suggestion Generation
+            generated_suggestions = await self._llm_generate_suggestions(
+                filtered_findings,
+                current_docs,
+                state.logical_change_sets
+            )
+            state.generated_suggestions = generated_suggestions
+            
+            # 4.5 Filter Against Existing & Post Details
+            final_recommendations = await self._llm_filter_and_post_suggestions(
+                generated_suggestions,
+                existing_suggestions,
+                state.repository,
+                state.pr_number
+            )
+            state.recommendations = final_recommendations
+            
+            # Update processing statistics
+            state.processing_stats.update({
+                "high_priority_findings": len(filtered_findings),
+                "existing_suggestions": len(existing_suggestions),
+                "generated_suggestions": len(generated_suggestions),
+                "final_recommendations": len(final_recommendations)
+            })
+            
+            logger.info(f"Generated {len(final_recommendations)} final recommendations")
             
         except Exception as e:
             error_msg = f"Error generating recommendations: {str(e)}"
             logger.error(error_msg)
             state.errors.append(error_msg)
-        
-        return state
-    
-    async def _create_pr_summary(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
-        """
-        Create a comprehensive PR summary with recommendations
-        """
-        logger.info("Creating PR analysis summary")
-        
-        try:
-            # Use LLM to create a comprehensive summary
-            summary_data = await self._llm_create_pr_summary(
-                state.code_changes, state.impacted_elements, state.recommendations
-            )
-            
-            state.pr_summary = summary_data.get("summary", "Analysis completed")
-            logger.info("PR summary created successfully")
-            
-        except Exception as e:
-            error_msg = f"Error creating PR summary: {str(e)}"
-            logger.error(error_msg)
-            state.errors.append(error_msg)
-            # Create a basic summary as fallback
-            state.pr_summary = f"Analyzed {len(state.code_changes)} file changes and generated {len(state.recommendations)} recommendations"
         
         return state
     
@@ -394,63 +380,87 @@ class DocumentUpdateRecommenderWorkflow:
             "branch": "main"
         }
     
-    async def _fetch_pr_data(self, repository: str, pr_number: int) -> Optional[Dict[str, Any]]:
-        """Fetch PR data from GitHub API"""
+    async def _fetch_pr_event_data(self, repository: str, pr_number: int) -> Dict[str, Any]:
+        """Fetch PR event data from GitHub API"""
         # Placeholder implementation
         return {
+            "commit_info": {
+                "commits": [{"sha": "abc123", "message": "Initial commit"}],
+                "additions": 100,
+                "deletions": 50
+            },
             "files": [
-                {
-                    "filename": "src/auth/service.py",
-                    "status": "modified", 
-                    "additions": 15,
-                    "deletions": 3,
-                    "patch": "+def new_auth_method():\n+    pass"
-                }
+                {"filename": "src/auth/service.py", "status": "modified", "additions": 15, "deletions": 3, "patch": "+def new_auth_method():\n+    pass"}
             ]
         }
     
-    def _calculate_impact_severity(self, change: Dict[str, Any]) -> ImpactSeverity:
-        """Calculate impact severity based on change characteristics"""
-        additions = change.get("additions", 0)
-        deletions = change.get("deletions", 0)
-        total_changes = additions + deletions
-        
-        if total_changes > 50:
-            return ImpactSeverity.HIGH
-        elif total_changes > 10:
-            return ImpactSeverity.MEDIUM
-        else:
-            return ImpactSeverity.LOW
-    
-    async def _llm_generate_recommendation(self, impact: ImpactAnalysisResultModel, 
-                                         baseline_map: BaselineMapModel,
-                                         code_changes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Generate recommendation using LLM"""
+    async def _fetch_repo_content(self, repository: str, branch: str) -> Dict[str, Any]:
+        """Fetch repository content (e.g., for context)"""
         # Placeholder implementation
-        return {
-            "target_document": "SRS.md",
-            "section": "3.1 Authentication",
-            "type": "UPDATE",
-            "priority": "High",
-            "what": "Update authentication requirements",
-            "where": "Section 3.1.2",
-            "why": "New authentication method added",
-            "how": "Add specification for new auth method"
-        }
+        return {"repo_name": repository, "branch": branch, "content": {"README.md": "Project Overview", "docs/": "Documentation"}}
     
-    async def _llm_generate_general_recommendations(self, code_changes: List[Dict[str, Any]]) -> List[DocumentationRecommendationModel]:
-        """Generate general recommendations when no specific impacts found"""
+    async def _llm_classify_individual_changes(self, changed_files: List[str], pr_data: Dict[str, Any], repo_content: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Classify individual code changes into logical groups"""
         # Placeholder implementation
-        return []
+        return [{"filename": f, "status": "modified", "additions": 10, "deletions": 5} for f in changed_files]
     
-    async def _llm_create_pr_summary(self, code_changes: List[Dict[str, Any]],
-                                   impacted_elements: List[ImpactAnalysisResultModel],
-                                   recommendations: List[DocumentationRecommendationModel]) -> Dict[str, Any]:
-        """Create PR summary using LLM"""
+    async def _llm_group_classified_changes(self, classified_changes: List[Dict[str, Any]], commit_info: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Group classified changes into logical change sets"""
         # Placeholder implementation
-        return {
-            "summary": f"Analyzed {len(code_changes)} changes, identified {len(impacted_elements)} impacts, generated {len(recommendations)} recommendations"
-        }
+        return [{"changes": classified_changes, "commit_sha": commit_info["commits"][0]["sha"]}]
+    
+    async def _determine_traceability_status(self, logical_change_sets: List[Dict[str, Any]], repository: str, branch: str) -> Dict[str, Any]:
+        """Determine if traceability status is available and if it's sufficient"""
+        # Placeholder implementation
+        return {"traceability_status": "sufficient", "details": "Traceability map available"}
+    
+    async def _trace_impact_through_map(self, changes_modification_outdated_rename: List[Dict[str, Any]], traceability_map: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Trace impact through the traceability map"""
+        # Placeholder implementation
+        return [{"element_id": "req1", "element_type": "Requirement", "impact_reason": "Code changes in src/auth/service.py", "likelihood": 0.9, "severity": "High", "change_details": {"file": "src/auth/service.py", "additions": 15, "deletions": 3}}]
+    
+    async def _llm_assess_likelihood_and_severity(self, combined_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Assess likelihood and severity for each combined finding"""
+        # Placeholder implementation
+        return [{"element_id": "req1", "element_type": "Requirement", "impact_reason": "Code changes in src/auth/service.py", "likelihood": 0.9, "severity": "High", "change_details": {"file": "src/auth/service.py", "additions": 15, "deletions": 3}}]
+    
+    async def _filter_high_priority_findings(self, prioritized_findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Filter findings to include only high-priority ones"""
+        # Placeholder implementation
+        return [{"element_id": "req1", "element_type": "Requirement", "impact_reason": "Code changes in src/auth/service.py", "likelihood": 0.9, "severity": "High", "change_details": {"file": "src/auth/service.py", "additions": 15, "deletions": 3}}]
+    
+    async def _query_existing_suggestions(self, repository: str, pr_number: int) -> List[Dict[str, Any]]:
+        """Query existing documentation suggestions for the PR"""
+        # Placeholder implementation
+        return [{"target_document": "SRS.md", "section": "3.1 Authentication", "type": "UPDATE", "priority": "High", "what": "Update authentication requirements", "where": "Section 3.1.2", "why": "New authentication method added", "how": "Add specification for new auth method"}]
+    
+    async def _fetch_current_documentation(self, repo_content: Dict[str, Any], filtered_findings: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Fetch current documentation context for suggestions"""
+        # Placeholder implementation
+        return {"SRS.md": {"content": "Authentication requirements are defined in Section 3.1.2."}}
+    
+    async def _llm_generate_suggestions(self, filtered_findings: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Generate specific documentation update recommendations using LLM"""
+        # Placeholder implementation
+        return [{"target_document": "SRS.md", "section": "3.1 Authentication", "type": "UPDATE", "priority": "High", "what": "Update authentication requirements", "where": "Section 3.1.2", "why": "New authentication method added", "how": "Add specification for new auth method"}]
+    
+    async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int) -> List[DocumentationRecommendationModel]:
+        """Filter generated suggestions against existing ones and post details"""
+        # Placeholder implementation
+        return [DocumentationRecommendationModel(
+            target_document="SRS.md",
+            section="3.1 Authentication",
+            recommendation_type=RecommendationType.UPDATE,
+            priority=RecommendationStatus.HIGH,
+            what_to_update="Update authentication requirements",
+            where_to_update="Section 3.1.2",
+            why_update_needed="New authentication method added",
+            how_to_update="Add specification for new auth method",
+            affected_element_id="req1",
+            affected_element_type="Requirement",
+            confidence_score=0.9,
+            status=RecommendationStatus.PENDING
+        )]
 
 def create_document_update_recommender(llm_client: Optional[DocurecoLLMClient] = None) -> DocumentUpdateRecommenderWorkflow:
     """
