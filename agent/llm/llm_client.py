@@ -70,8 +70,8 @@ class DocurecoLLMClient:
         # Ensure base_url is always set for Grok
         base_url = self.config.base_url or "https://api.x.ai/v1"
         
-        print(f"Initializing Grok with base_url: {base_url}")
-        print(f"Grok API key starts with: {self.config.api_key[:10]}...")
+        logger.info(f"Initializing Grok with base_url: {base_url}")
+        logger.info(f"Grok API key starts with: {self.config.api_key[:10]}...")
         
         return ChatOpenAI(
             model=self.config.llm_model,
@@ -94,8 +94,8 @@ class DocurecoLLMClient:
         if not self.config.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI")
         
-        print(f"Initializing OpenAI with base_url: {self.config.base_url}")
-        print(f"OpenAI API key starts with: {self.config.api_key[:10]}...")
+        logger.info(f"Initializing OpenAI with base_url: {self.config.base_url}")
+        logger.info(f"OpenAI API key starts with: {self.config.api_key[:10]}...")
         
         return ChatOpenAI(
             model=self.config.llm_model,

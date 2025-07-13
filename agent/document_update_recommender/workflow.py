@@ -44,28 +44,32 @@ logger = logging.getLogger(__name__)
 # Structured output models
 class CodeChangeClassification(BaseModel):
     """Structured output for individual code change classification"""
-    filename: str = Field(description="Path to the changed file")
+    file: str = Field(description="Path to the changed file")
     type: str = Field(description="Type of change (Addition, Deletion, Modification, Rename)")
     scope: str = Field(description="Scope of change (Function/Method, Class, Module, etc.)")
     nature: str = Field(description="Nature of change (New Feature, Bug Fix, Refactoring, etc.)")
     volume: str = Field(description="Volume of change (Trivial, Small, Medium, Large, Very Large)")
     reasoning: str = Field(description="Brief explanation of the classification")
 
+class CommitWithClassifications(BaseModel):
+    """Structured output for a commit with its file classifications"""
+    commit_hash: str = Field(description="SHA hash of the commit")
+    commit_message: str = Field(description="Commit message")
+    classifications: List[CodeChangeClassification] = Field(description="List of classified file changes for this commit")
+
 class BatchClassificationOutput(BaseModel):
-    """Structured output for batch classification of all changed files"""
-    classifications: List[CodeChangeClassification] = Field(description="List of classified code changes")
+    """Structured output for batch classification organized by commits"""
+    commits: List[CommitWithClassifications] = Field(description="List of commits with their classified changes")
 
 class LogicalChangeSet(BaseModel):
     """Structured output for logical change sets"""
-    name: str = Field(description="Descriptive name for the change set")
+    name: str = Field(description="Descriptive name for the logical change set")
     description: str = Field(description="Brief description of what this change set accomplishes")
-    change_indices: List[int] = Field(description="Indices of changes in this set (1-based)")
-    primary_nature: str = Field(description="Primary nature of changes in this set")
-    estimated_impact: str = Field(description="Estimated impact level (Low/Medium/High)")
+    changes: List[Dict[str, Any]] = Field(description="Array of files with classifications that belong to this logical change set")
 
 class ChangeGroupingOutput(BaseModel):
     """Structured output for grouping changes into logical change sets"""
-    change_sets: List[LogicalChangeSet] = Field(description="List of logical change sets")
+    logical_change_sets: List[LogicalChangeSet] = Field(description="List of logical change sets")
 
 class DocumentationRecommendation(BaseModel):
     """Structured output for documentation recommendations"""
@@ -92,7 +96,7 @@ class DocumentUpdateRecommenderState:
     
     # Step 1: Scan PR - PR Event Data and Context
     pr_event_data: Dict[str, Any] = field(default_factory=dict)
-    requested_repo_content: Dict[str, Any] = field(default_factory=dict)
+    document_content: Dict[str, Any] = field(default_factory=dict)
     commit_info: Dict[str, Any] = field(default_factory=dict)
     changed_files_list: List[str] = field(default_factory=list)
     
@@ -144,7 +148,7 @@ class DocumentUpdateRecommenderWorkflow:
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
         
-        logger.info("Initialized DocumentUpdateRecommenderWorkflow")
+        logger.info("Initialized Document Update Recommender Workflow")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow with conditional logic"""
@@ -152,13 +156,17 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Add nodes for each step of the 5-step process
         workflow.add_node("scan_pr", self._scan_pr)
-        # workflow.add_node("analyze_code_changes", self._analyze_code_changes)
+        workflow.add_node("analyze_code_changes", self._analyze_code_changes)
         # workflow.add_node("assess_documentation_impact", self._assess_documentation_impact)
         # workflow.add_node("generate_and_post_recommendations", self._generate_and_post_recommendations)
         
         # Define workflow edges following the exact sequence
         workflow.set_entry_point("scan_pr")
-        workflow.add_edge("scan_pr", END)
+        workflow.add_conditional_edges("scan_pr", self._route_after_scan, {
+            "analyze_code_changes": "analyze_code_changes",
+            "end": END
+        })
+        workflow.add_edge("analyze_code_changes", END)
         # workflow.add_edge("scan_pr", "analyze_code_changes")
         # workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
         # workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
@@ -199,97 +207,97 @@ class DocumentUpdateRecommenderWorkflow:
             initial_state.errors.append(str(e))
             raise
     
+    def _route_after_scan(self, state: DocumentUpdateRecommenderState) -> str:
+        """Route after scan"""
+        if state.processing_stats["srs_count"] <= 0 and state.processing_stats["sdd_count"] <= 0 and state.processing_stats["commit_count"] <= 0 and state.processing_stats["files_changed"] <= 0:
+            return "end"
+        return "analyze_code_changes"
+    
     async def _scan_pr(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
-        Step 1: Scan PR and Repository Context
+        Step 1: Scan PR and Documentation Context
         
         Implements:
         - PR Event Data scanning
-        - Requested Repository Content retrieval
-        - Commit Information gathering
-        - Changed Files List compilation
+        - Fetch documentation content
         """
-        logger.info(f"Step 1: Scanning PR #{state.pr_number} and repository context")
+        logger.info(f"Step 1: Scanning PR #{state.pr_number} and documentation context")
         
         try:
             # Scan PR event data
             pr_event_data = await self._fetch_pr_event_data(state.repository, state.pr_number)
             state.pr_event_data = pr_event_data
             
-            # Get requested repository content
-            repo_content = await self._fetch_repo_content(state.repository, state.branch)
-            state.requested_repo_content = repo_content
+            # Get documentation content
+            document_content = await self._fetch_document_content(state.repository, state.branch)
+            state.document_content = document_content
             
             commit_count = len(pr_event_data["commit_info"]["commits"])
             files_changed = sum(len(commit.get("files", [])) for commit in pr_event_data["commit_info"]["commits"])
             additions = sum(commit.get("additions", 0) for commit in pr_event_data["commit_info"]["commits"])
             deletions = sum(commit.get("deletions", 0) for commit in pr_event_data["commit_info"]["commits"])
             
+            srs_count = len(document_content.get("srs_content", {}))
+            sdd_count = len(document_content.get("sdd_content", {}))
+            
             # Update processing statistics
             state.processing_stats.update({
-                "pr_files_changed": files_changed,
-                "pr_commits": commit_count,
+                "files_changed": files_changed,
+                "commit_count": commit_count,
                 "pr_additions": additions,
-                "pr_deletions": deletions
+                "pr_deletions": deletions,
+                "srs_count": srs_count,
+                "sdd_count": sdd_count
             })
             
-            print("PR EVENT DATA", pr_event_data)
-            print("REPO CONTENT", repo_content)
-            
-            logger.info(f"Scanned PR with {files_changed} changed files, {commit_count} commits, {additions} additions, {deletions} deletions")
+            logger.info(f"Step 1: Successfully scanned PR #{state.pr_number} and documentation context")
+            logger.info(f"  - {files_changed} changed files")
+            logger.info(f"  - {commit_count} commits")
+            logger.info(f"  - {additions} additions")
+            logger.info(f"  - {deletions} deletions")
+            logger.info(f"  - {srs_count} SRS files")
+            logger.info(f"  - {sdd_count} SDD files")
                 
         except Exception as e:
-            error_msg = f"Error scanning PR: {str(e)}"
-            logger.error(error_msg)
+            error_msg = f"Step 1: Error scanning PR: {str(e)}"
             state.errors.append(error_msg)
+            raise
         
         return state
     
     async def _analyze_code_changes(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
-        Analyze code changes from PR event data and classify them.
+        Step 2: Analyze code changes from PR event data, classify them, and group them into logical change sets.
         
         This workflow step:
-        1. Classifies individual code changes using enhanced per-commit analysis
+        1. Classifies individual code changes from PR event data
         2. Groups classified changes into logical change sets using commit semantics
-        3. Handles multi-purpose files correctly by analyzing each commit separately
         
         Args:
             state: Current workflow state containing PR event data
             
         Returns:
-            Updated state with classified changes and logical change sets
-        """
-        try:
-            if not state.pr_event_data:
-                logger.warning("No PR event data available for code change analysis")
-                state.classified_changes = []
-                state.logical_change_sets = []
-                return state
-                
-            logger.info("Starting enhanced per-commit code change analysis")
-            
-            # Step 1: Classify individual changes using enhanced per-commit analysis
-            classified_changes = await self._llm_classify_individual_changes(state.pr_event_data)
-            
-            # Step 2: Group classified changes into logical change sets
-            logical_change_sets = await self._llm_group_classified_changes(
-                classified_changes,
-                state.pr_event_data.get("commit_info", {})
-            )
-            
-            # Update state
-            state.classified_changes = classified_changes
-            state.logical_change_sets = logical_change_sets
-            
-            logger.info(f"Successfully analyzed {len(classified_changes)} classified changes into {len(logical_change_sets)} logical change sets")
-                
-        except Exception as e:
-            logger.error(f"Error in code change analysis: {str(e)}")
-            # Set fallback empty data
-            state.classified_changes = []
-            state.logical_change_sets = []
+            Logical change sets
+        """        
+        logger.info("Step 2: Analyzing code changes")
         
+        # Step 2.1: Classify changes organized by commit
+        commits_with_classifications = await self._llm_classify_individual_changes(state.pr_event_data)
+        state.classified_changes = commits_with_classifications
+        
+        print("COMMITS WITH CLASSIFICATIONS:", commits_with_classifications)
+
+        # Step 2.2: Group classified changes into logical change sets
+        logical_change_sets = await self._llm_group_classified_changes(
+            commits_with_classifications,
+            state.pr_event_data.get("commit_info", {})
+        )
+        state.logical_change_sets = logical_change_sets
+        
+        print("LOGICAL CHANGE SETS:", logical_change_sets)
+        
+        total_files = sum(len(commit["classifications"]) for commit in commits_with_classifications)
+        logger.info(f"Step 2: Successfully analyzed {total_files} file classifications across {len(commits_with_classifications)} commits into {len(logical_change_sets)} logical change sets")
         return state
     
     async def _assess_documentation_impact(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
@@ -354,9 +362,9 @@ class DocumentUpdateRecommenderWorkflow:
             logger.info(f"Identified {len(potentially_impacted_elements)} potentially impacted elements")
             
         except Exception as e:
-            error_msg = f"Error assessing documentation impact: {str(e)}"
-            logger.error(error_msg)
+            error_msg = f"Step 3: Error assessing documentation impact: {str(e)}"
             state.errors.append(error_msg)
+            raise
         
         return state
     
@@ -389,7 +397,7 @@ class DocumentUpdateRecommenderWorkflow:
             
             # 4.3 Fetch Current Documentation Context
             current_docs = await self._fetch_current_documentation(
-                state.requested_repo_content,
+                state.document_content,
                 filtered_findings
             )
             
@@ -421,9 +429,9 @@ class DocumentUpdateRecommenderWorkflow:
             logger.info(f"Generated {len(final_recommendations)} final recommendations")
             
         except Exception as e:
-            error_msg = f"Error generating recommendations: {str(e)}"
-            logger.error(error_msg)
+            error_msg = f"Step 4: Error generating recommendations: {str(e)}"
             state.errors.append(error_msg)
+            raise
         
         return state
     
@@ -484,23 +492,19 @@ class DocumentUpdateRecommenderWorkflow:
                         "pr_number": pr_number,
                         "branch": "main"
                     }
-            
         except Exception as e:
-            logger.warning(f"Error fetching PR details: {str(e)}, using default branch 'main'")
-        return {
-                "repository": repository,
-                "pr_number": pr_number,
-            "branch": "main"
-        }
-    
+            raise ValueError(f"Error fetching PR details: {str(e)}")
+
     async def _fetch_pr_event_data(self, repository: str, pr_number: int) -> Dict[str, Any]:
         """Fetch PR event data from GitHub REST API with per-commit file changes"""
-        github_token = os.getenv("GITHUB_TOKEN")
-        if not github_token:
-            logger.warning("GITHUB_TOKEN not found, using placeholder data")
-            return self._get_placeholder_pr_data()
+        
+        logger.info(f"Step 1.1: Fetching PR event data from GitHub REST API for {repository}:{pr_number}")
         
         try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                raise ValueError("GITHUB_TOKEN not found")
+            
             # Parse repository owner and name
             owner, repo_name = repository.split("/")
             
@@ -509,7 +513,6 @@ class DocumentUpdateRecommenderWorkflow:
                 "Accept": "application/vnd.github.v3+json"
             }
                 
-            # Step 1: Get PR details and commits
             async with httpx.AsyncClient(timeout=60.0) as client:
                 # Get PR details
                 pr_response = await client.get(
@@ -529,7 +532,6 @@ class DocumentUpdateRecommenderWorkflow:
                 
                 # Step 2: Get file changes for each commit (N+1 approach)
                 enhanced_commits = []
-                logger.info(f"Fetching file changes for {len(commits_data)} commits")
                 
                 # Process commits with controlled concurrency
                 semaphore = asyncio.Semaphore(5)  # Limit concurrent requests
@@ -627,192 +629,52 @@ class DocumentUpdateRecommenderWorkflow:
                     }
                 }
                 
-                logger.info(f"Successfully fetched PR data with {len(enhanced_commits)} commits and detailed file changes")
+                logger.info(f"Step 1.1: Successfully fetched PR event data from GitHub REST API for {repository}:{pr_number}")
                 return structured_data
                 
         except Exception as e:
-            logger.error(f"Error fetching PR event data: {str(e)}")
-            return self._get_placeholder_pr_data()
-
-    def _get_placeholder_pr_data(self) -> Dict[str, Any]:
-        """Get placeholder PR data for development/testing"""
-        return {
-            "commit_info": {
-            "commits": [
-                {
-                    "sha": "abc123",
-                    "message": "Fix auth timeout bug",
-                    "author": "Developer",
-                    "date": "2024-01-01T00:00:00Z",
-                    "additions": 5,
-                    "deletions": 2,
-                    "changed_files_count": 1,
-                    "files": [
-                        {
-                            "path": "src/auth/service.py",
-                            "status": "modified",
-                            "additions": 5,
-                            "deletions": 2,
-                            "changes": 7,
-                            "patch": "- setTimeout(5000)\n+ setTimeout(30000)"
-                        }
-                    ]
-                },
-                {
-                    "sha": "def456",
-                    "message": "Add OAuth 2.0 support",
-                    "author": "Developer",
-                    "date": "2024-01-02T00:00:00Z",
-                    "additions": 45,
-                    "deletions": 0,
-                    "changed_files_count": 2,
-                    "files": [
-                        {
-                            "path": "src/auth/service.py",
-                            "status": "modified",
-                            "additions": 40,
-                            "deletions": 0,
-                            "changes": 40,
-                            "patch": "+ class OAuthHandler:\n+   def __init__(self):"
-                        },
-                        {
-                            "path": "src/auth/oauth.py",
-                            "status": "added",
-                            "additions": 5,
-                            "deletions": 0,
-                            "changes": 5,
-                            "patch": "+ def oauth_login():\n+   pass"
-                        }
-                    ]
-                }
-                ],
-                "additions": 50,
-                "deletions": 2,
-                "total_commits": 2,
-                "total_files_changed": 2
-            },
-            "pr_details": {
-                "title": "Add OAuth 2.0 support and fix auth timeout",
-                "body": "This PR adds OAuth 2.0 support and fixes the auth timeout bug.",
-                "state": "open",
-                "created_at": "2024-01-01T00:00:00Z",
-                "updated_at": "2024-01-02T00:00:00Z",
-                "head": {"ref": "feature/oauth", "sha": "def456"},
-                "base": {"ref": "main", "sha": "xyz789"}
-            },
-            "fetch_method": "placeholder"
-        }
+            raise ValueError(f"Error fetching PR event data: {str(e)}")
     
-    async def _fetch_repo_content(self, repository: str, branch: str) -> Dict[str, Any]:
-        """Fetch repository content using Repomix for comprehensive analysis"""
+    async def _fetch_document_content(self, repository: str, branch: str) -> Dict[str, Any]:
+        """Fetch documentation content using Repomix"""
         
-        logger.info(f"Fetching repository content using Repomix for {repository}:{branch}")
+        logger.info(f"Step 1.2: Fetching documentation content using Repomix for {repository}:{branch}")
         
+        # Check if Repomix is available
         try:
-            # Check if Repomix is available
-            try:
-                subprocess.run(["repomix", "--version"], capture_output=True, check=True)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                logger.warning("Repomix not available, falling back to placeholder content")
-                logger.info("To install Repomix: npm install -g repomix")
-                logger.info("Repomix provides faster and more comprehensive repository scanning")
-                return {"repo_name": repository, "branch": branch, "content": {"README.md": "Project Overview", "docs/": "Documentation"}}
-            
-            # Use Repomix to scan the repository
-            repo_data = await self._scan_repository_with_repomix(repository, branch)
-            
-            # Categorize files by type
-            documentation_files = []
-            source_files = []
-            config_files = []
-            other_files = []
-            documentation_content = {}
-            
-            doc_extensions = {'.md', '.rst', '.txt', '.doc', '.docx', '.pdf'}
-            source_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.cs', '.go', '.rs', '.php', '.rb', '.scala', '.kt', '.swift'}
-            config_extensions = {'.json', '.yaml', '.yml', '.xml', '.ini', '.cfg', '.conf', '.toml', '.properties'}
-            
-            for file_info in repo_data.get("files", []):
-                file_path = file_info.get("path", "")
-                file_content = file_info.get("content", "")
-                file_name = os.path.basename(file_path)
-                file_ext = os.path.splitext(file_name)[1].lower()
-                
-                file_metadata = {
-                    "path": file_path,
-                    "name": file_name,
-                    "size": len(file_content),
-                    "has_content": bool(file_content.strip())
-                }
-                
-                # Categorize documentation files
-                if (file_ext in doc_extensions or 
-                    'readme' in file_name.lower() or 
-                    'doc' in file_path.lower() or
-                    'documentation' in file_path.lower() or
-                    file_path.startswith('docs/')):
-                    documentation_files.append(file_metadata)
-                    
-                    # Store content for key documentation files
-                    if ('readme' in file_name.lower() or 
-                        file_path.startswith('docs/') or
-                        'srs' in file_name.lower() or
-                        'sdd' in file_name.lower() or
-                        'requirements' in file_name.lower() or
-                        'design' in file_name.lower()):
-                        documentation_content[file_path] = file_content[:]
-                
-                # Categorize source files
-                elif file_ext in source_extensions:
-                    source_files.append(file_metadata)
-                
-                # Categorize configuration files
-                elif file_ext in config_extensions or file_name.lower() in ['dockerfile', 'makefile', 'rakefile', 'gemfile']:
-                    config_files.append(file_metadata)
-                
-                else:
-                    other_files.append(file_metadata)
-            
-            # Structure the repository content
-            repo_content = {
-                "repo_name": repository,
-                "branch": branch,
-                "file_structure": {
-                    "documentation_files": documentation_files,
-                    "source_files": source_files,
-                    "config_files": config_files,
-                    "other_files": other_files,
-                    "total_files": len(documentation_files) + len(source_files) + len(config_files) + len(other_files)
-                },
-                "documentation_content": documentation_content,
-                "statistics": {
-                    "documentation_files_count": len(documentation_files),
-                    "source_files_count": len(source_files),
-                    "config_files_count": len(config_files),
-                    "other_files_count": len(other_files),
-                    "documentation_with_content_count": len(documentation_content)
-                },
-                "scan_method": "repomix"
-            }
-            
-            logger.info(f"Successfully scanned repository with Repomix:")
-            logger.info(f"  - Documentation files: {len(documentation_files)} ({len(documentation_content)} with content)")
-            logger.info(f"  - Source files: {len(source_files)}")
-            logger.info(f"  - Config files: {len(config_files)}")
-            logger.info(f"  - Other files: {len(other_files)}")
-            
-            return repo_content
-            
-        except Exception as e:
-            logger.error(f"Error fetching repository content with Repomix: {str(e)}")
-            # Return fallback content on error
-            return {
-                "repo_name": repository,
-                "branch": branch,
-                "error": str(e),
-                "content": {"error": f"Failed to fetch repository content: {str(e)}"},
-                "scan_method": "fallback"
-            }
+            subprocess.run(["repomix", "--version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            logger.warning("Repomix not available, falling back to placeholder content")
+            raise ValueError("Repomix not available")
+        
+        # Use Repomix to scan the repository
+        repo_data = await self._scan_repository_with_repomix(repository, branch)
+        
+        # Extract SDD (Software Design Documents) files
+        sdd_content = self._extract_documentation_files(repo_data, [
+            "design.md", "sdd.md", "software-design.md", "architecture.md",
+            "docs/design.md", "docs/sdd.md", "docs/architecture.md", "doc/sdd.md",
+            "traceability.md", "traceability-matrix.md"
+        ])
+        
+        # Extract SRS (Software Requirements Specification) files  
+        srs_content = self._extract_documentation_files(repo_data, [
+            "requirements.md", "srs.md", "software-requirements.md",
+            "docs/requirements.md", "docs/srs.md", "doc/srs.md",
+            "documentation/requirements.md"
+        ])
+        
+        # Structure the documentation content
+        document_content = {
+            "repo_name": repository,
+            "branch": branch,
+            "sdd_content": sdd_content,
+            "srs_content": srs_content,
+        }
+        
+        logger.info(f"Step 1.2: Successfully fetched {len(srs_content)} SRS files and {len(sdd_content)} SDD files")
+        
+        return document_content         
     
     async def _scan_repository_with_repomix(self, repository: str, branch: str) -> Dict[str, Any]:
         """
@@ -959,7 +821,7 @@ class DocumentUpdateRecommenderWorkflow:
         current_content = []
         in_code_block = False
         
-        for i, line in enumerate(lines):
+        for _, line in enumerate(lines):
             # Look for file headers: ## path/to/file (must contain a file extension or be in recognizable directory)
             if line.startswith('## '):
                 if '/' in line or '.' in line:
@@ -1005,696 +867,161 @@ class DocumentUpdateRecommenderWorkflow:
             
         return {"files": files}
     
+    def _extract_documentation_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> Dict[str, str]:
+        """
+        Extract documentation files from Repomix output
+        
+        Args:
+            repo_data: Repomix output data
+            patterns: File patterns to match
+            
+        Returns:
+            Dict mapping file paths to their content
+        """
+        documentation_files = {}
+        
+        if "files" not in repo_data:
+            return documentation_files
+        
+        for file_info in repo_data["files"]:
+            file_path = file_info.get("path", "")
+            file_content = file_info.get("content", "")
+            
+            if self._matches_patterns(file_path, patterns):
+                documentation_files[file_path] = file_content
+        
+        return documentation_files
+    
+    def _matches_patterns(self, file_path: str, patterns: List[str]) -> bool:
+        """Check if file path matches any of the given patterns"""
+        for pattern in patterns:
+            # Handle glob patterns (*.py) and exact matches
+            if fnmatch.fnmatch(file_path, pattern) or fnmatch.fnmatch(file_path.lower(), pattern.lower()):
+                return True
+            
+            # Also check just the filename
+            filename = os.path.basename(file_path)
+            if fnmatch.fnmatch(filename, pattern) or fnmatch.fnmatch(filename.lower(), pattern.lower()):
+                return True
+        
+        return False
+    
     async def _llm_classify_individual_changes(self, pr_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Classify individual code changes using enhanced per-commit file analysis with structured output.
-        
-        This method leverages the enhanced per-commit data structure to analyze each commit's file changes
-        separately, then intelligently aggregates them to handle multi-purpose files correctly.
+        Classify individual code changes by passing the entire PR data directly to the LLM.
+        Returns classifications organized by commit.
         
         Args:
-            pr_data: Enhanced PR event data containing per-commit file changes
+            pr_data: Complete PR event data with all commits and file changes
             
         Returns:
-            List of classified changes with proper multi-purpose handling
+            List of commits with their classifications
         """
         try:
-            # Get enhanced commit data with per-commit file changes
-            commits = pr_data.get("commit_info", {}).get("commits", [])
-            
-            if not commits:
-                logger.warning("No commits found in PR data")
-                return []
-            
-            logger.info(f"Processing {len(commits)} commits for classification")
-            
-            # Strategy: Classify each commit's changes separately, then aggregate
-            all_classifications = []
-            
-            for commit in commits:
-                commit_sha = commit.get("sha", "")
-                commit_message = commit.get("message", "")
-                commit_files = commit.get("files", [])
-                
-                if not commit_files:
-                    logger.warning(f"No files found for commit {commit_sha}")
-                    continue
-                
-                # Classify changes for this specific commit
-                try:
-                    # Build single commit classification prompt
-                    system_prompt = prompts.single_commit_classification_system_prompt()
-                    human_prompt = prompts.single_commit_classification_human_prompt(
-                        commit_sha, commit_message, commit_files
-                    )
-                    
-                    # Use structured output parsing
-                    parser = JsonOutputParser(pydantic_object=prompts.SingleCommitClassificationOutput)
-                    
-                    # Get LLM classification
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "human", "content": human_prompt}
-                    ]
-                    
-                    classification_response = await self.llm_client.generate_response(
-                        messages=messages,
-                        temperature=0.1,
-                        response_format={"type": "json_object"}
-                    )
-                    
-                    # Parse the structured response
-                    parsed_response = parser.parse(classification_response.content)
-                    
-                    # Add commit context to each classification
-                    for classification in parsed_response.get("classifications", []):
-                        classification["commit_sha"] = commit_sha
-                        classification["commit_message"] = commit_message
-                        classification["commit_author"] = commit.get("author", {}).get("name", "")
-                        classification["commit_date"] = commit.get("author", {}).get("date", "")
-                        all_classifications.append(classification)
-                    
-                    logger.info(f"Successfully classified {len(parsed_response.get('classifications', []))} files for commit {commit_sha}")
-                    
-                except Exception as e:
-                    logger.error(f"Error classifying commit {commit_sha}: {str(e)}")
-                    # Create fallback classifications for this commit
-                    fallback_classifications = self._create_fallback_commit_classifications(
-                        commit_files, commit_message
-                    )
-                    for classification in fallback_classifications:
-                        classification["commit_sha"] = commit_sha
-                        classification["commit_message"] = commit_message
-                        classification["commit_author"] = commit.get("author", {}).get("name", "")
-                        classification["commit_date"] = commit.get("author", {}).get("date", "")
-                        all_classifications.append(classification)
-                    
-                    logger.info(f"Used fallback classification for commit {commit_sha}")
-            
-            # Aggregate classifications for files that appear in multiple commits
-            aggregated_classifications = self._aggregate_multi_commit_classifications(all_classifications)
-            
-            logger.info(f"Successfully classified {len(aggregated_classifications)} unique files across {len(commits)} commits")
-            return aggregated_classifications
-            
-        except Exception as e:
-            logger.error(f"Error in per-commit classification: {str(e)}")
-            # Create simple fallback for all commits
-            fallback_classifications = []
-            commits = pr_data.get("commit_info", {}).get("commits", [])
-            
-            for commit in commits:
-                commit_files = commit.get("files", [])
-                commit_message = commit.get("message", "")
-                
-                for file_data in commit_files:
-                    classification = self._create_fallback_classification(
-                        file_data.get("filename", ""),
-                        file_data.get("status", "modified"),
-                        file_data.get("additions", 0),
-                        file_data.get("deletions", 0),
-                        file_data.get("changes", 0),
-                        commit_message
-                    )
-                    classification["commit_sha"] = commit.get("sha", "")
-                    classification["commit_message"] = commit_message
-                    fallback_classifications.append(classification)
-            
-            return fallback_classifications
-    
-    async def _classify_commit_changes(self, commit_files: List[Dict[str, Any]], 
-                                     commit_message: str, commit_sha: str, 
-                                     commit_author: str, commit_date: str) -> Dict[str, Any]:
-        """
-        Classify file changes for a single commit using LLM with focused context.
-        
-        Args:
-            commit_files: List of files changed in this commit
-            commit_message: Commit message for context
-            commit_sha: Commit SHA
-            commit_author: Commit author
-            commit_date: Commit date
-            
-        Returns:
-            Dict containing commit metadata and classified file changes
-        """
-        try:
-            if not commit_files:
-                return {
-                    "commit_sha": commit_sha,
-                    "commit_message": commit_message,
-                    "commit_author": commit_author,
-                    "commit_date": commit_date,
-                    "classified_files": []
-                }
-            
-            # Prepare commit-specific context
-            commit_context = {
-                "message": commit_message,
-                "sha": commit_sha,
-                "author": commit_author,
-                "date": commit_date,
-                "files_count": len(commit_files)
-            }
-            
-            # Format files for LLM prompt
-            formatted_files = []
-            for file_data in commit_files:
-                formatted_files.append({
-                    "filename": file_data.get("path", ""),
-                    "status": file_data.get("status", "modified"),
-                    "additions": file_data.get("additions", 0),
-                    "deletions": file_data.get("deletions", 0),
-                    "changes": file_data.get("changes", 0),
-                    "patch": file_data.get("patch", "")[:500]  # Truncate for efficiency
-                })
-            
-            # Use enhanced prompts for single-commit classification
-            system_message = prompts.single_commit_classification_system_prompt()
-            human_prompt = prompts.single_commit_classification_human_prompt(formatted_files, commit_context)
-            
+            logger.info(f"Step 2.1: Classifying code changes from complete PR data")
+
             # Create output parser for JSON format
             output_parser = JsonOutputParser(pydantic_object=BatchClassificationOutput)
-            
+
+            # Get prompts
+            system_message = prompts.individual_code_classification_system_prompt()
+            human_prompt = prompts.individual_code_classification_human_prompt(pr_data)
+
             # Generate JSON response
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 task_type="code_analysis",
-                output_format="json",
-                temperature=0.1
+                output_format="json",  # Use text so we can parse into Pydantic model
+                temperature=0.1  # Low temperature for consistent extraction
             )
-                
+
             classification_result = response.content
             
-            # Structure the response
-            classified_files = []
-            for classification in classification_result.get('classifications', []):
-                classified_files.append({
-                    "filename": classification.get('filename', ''),
-                    "type": classification.get('type', ''),
-                    "scope": classification.get('scope', ''),
-                    "nature": classification.get('nature', ''),
-                    "volume": classification.get('volume', ''),
-                    "reasoning": classification.get('reasoning', ''),
-                    "additions": next((f['additions'] for f in formatted_files if f['filename'] == classification.get('filename', '')), 0),
-                    "deletions": next((f['deletions'] for f in formatted_files if f['filename'] == classification.get('filename', '')), 0),
-                    "changes": next((f['changes'] for f in formatted_files if f['filename'] == classification.get('filename', '')), 0)
-                })
-            
-            return {
-                "commit_sha": commit_sha,
-                "commit_message": commit_message,
-                "commit_author": commit_author,
-                "commit_date": commit_date,
-                "classified_files": classified_files
-            }
+            # Convert Pydantic model to our internal format
+            commits_with_classifications = []
+            for commit_data in classification_result["commits"]:
+                commit_dict = {
+                    "commit_hash": commit_data["commit_hash"],
+                    "commit_message": commit_data["commit_message"],
+                    "classifications": []
+                }
                 
+                for classification in commit_data["classifications"]:
+                    commit_dict["classifications"].append({
+                        "file": classification["file"],
+                        "type": classification["type"],
+                        "scope": classification["scope"],
+                        "nature": classification["nature"],
+                        "volume": classification["volume"],
+                        "reasoning": classification["reasoning"]
+                    })
+                
+                commits_with_classifications.append(commit_dict)
+            
+            total_files = sum(len(commit["classifications"]) for commit in commits_with_classifications)
+            logger.info(f"Step 2.1: Successfully classified {total_files} file classifications across {len(commits_with_classifications)} commits")
+            
+            return commits_with_classifications
+            
         except Exception as e:
-            logger.error(f"Error classifying commit {commit_sha}: {str(e)}")
-            # Return fallback classification for this commit
-            return {
-                "commit_sha": commit_sha,
-                "commit_message": commit_message,
-                "commit_author": commit_author,
-                "commit_date": commit_date,
-                "classified_files": self._create_fallback_commit_classifications(commit_files, commit_message)
-            }
-
-    def _aggregate_file_classifications(self, commit_classifications: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Aggregate per-commit file classifications into final per-file classifications.
-        
-        This method intelligently combines classifications from multiple commits for the same file,
-        detecting multi-purpose files and preserving the granular commit-level context.
-        
-        Args:
-            commit_classifications: List of commit-level classifications
-            
-        Returns:
-            List of aggregated per-file classifications with multi-purpose detection
-        """
-        file_aggregations = {}
-        
-        # Group classifications by filename
-        for commit_data in commit_classifications:
-            commit_sha = commit_data.get("commit_sha", "")
-            commit_message = commit_data.get("commit_message", "")
-            
-            for file_classification in commit_data.get("classified_files", []):
-                filename = file_classification.get("filename", "")
-                
-                if filename not in file_aggregations:
-                    file_aggregations[filename] = {
-                        "filename": filename,
-                        "commit_changes": [],
-                        "total_additions": 0,
-                        "total_deletions": 0,
-                        "total_changes": 0
-                    }
-                
-                # Add this commit's classification for this file
-                file_aggregations[filename]["commit_changes"].append({
-                    "commit_sha": commit_sha,
-                    "commit_message": commit_message,
-                    "type": file_classification.get("type", ""),
-                    "scope": file_classification.get("scope", ""),
-                    "nature": file_classification.get("nature", ""),
-                    "volume": file_classification.get("volume", ""),
-                    "reasoning": file_classification.get("reasoning", ""),
-                    "additions": file_classification.get("additions", 0),
-                    "deletions": file_classification.get("deletions", 0),
-                    "changes": file_classification.get("changes", 0)
-                })
-                
-                # Update totals
-                file_aggregations[filename]["total_additions"] += file_classification.get("additions", 0)
-                file_aggregations[filename]["total_deletions"] += file_classification.get("deletions", 0)
-                file_aggregations[filename]["total_changes"] += file_classification.get("changes", 0)
-        
-        # Create final aggregated classifications
-        final_classifications = []
-        for filename, file_data in file_aggregations.items():
-            commit_changes = file_data["commit_changes"]
-            
-            # Detect if this is a multi-purpose file
-            unique_natures = set(change["nature"] for change in commit_changes)
-            unique_types = set(change["type"] for change in commit_changes)
-            unique_scopes = set(change["scope"] for change in commit_changes)
-            
-            is_multi_purpose = len(unique_natures) > 1
-            
-            # Determine primary characteristics
-            primary_nature = self._get_primary_characteristic([change["nature"] for change in commit_changes])
-            primary_type = self._get_primary_characteristic([change["type"] for change in commit_changes])
-            primary_scope = self._get_primary_characteristic([change["scope"] for change in commit_changes])
-            
-            # Determine overall volume
-            total_changes = file_data["total_changes"]
-            if total_changes <= 5:
-                overall_volume = "Trivial"
-            elif total_changes <= 25:
-                overall_volume = "Small"
-            elif total_changes <= 100:
-                overall_volume = "Medium"
-            elif total_changes <= 500:
-                overall_volume = "Large"
-            else:
-                overall_volume = "Very Large"
-            
-            # Create comprehensive reasoning
-            if is_multi_purpose:
-                reasoning = f"Multi-purpose file changed across {len(commit_changes)} commits: {', '.join(unique_natures)}"
-            else:
-                reasoning = f"Single-purpose file with {primary_nature} changes"
-            
-            final_classifications.append({
-                "filename": filename,
-                "type": primary_type if not is_multi_purpose else "Mixed",
-                "scope": primary_scope if not is_multi_purpose else "Multiple",
-                "nature": primary_nature,
-                "volume": overall_volume,
-                "reasoning": reasoning,
-                "additions": file_data["total_additions"],
-                "deletions": file_data["total_deletions"],
-                "changes": file_data["total_changes"],
-                # Enhanced multi-purpose detection
-                "is_multi_purpose": is_multi_purpose,
-                "unique_natures": list(unique_natures),
-                "unique_types": list(unique_types),
-                "unique_scopes": list(unique_scopes),
-                "commit_breakdown": commit_changes,
-                "commits_count": len(commit_changes)
-            })
-        
-        return final_classifications
-
-    def _get_primary_characteristic(self, characteristics: List[str]) -> str:
-        """Get the most common characteristic from a list"""
-        if not characteristics:
-            return "Unknown"
-        
-        # Count occurrences
-        char_counts = {}
-        for char in characteristics:
-            char_counts[char] = char_counts.get(char, 0) + 1
-        
-        # Return most common
-        return max(char_counts, key=char_counts.get)
-
-    def _create_fallback_classification(self, filename: str, status: str, additions: int, deletions: int, changes: int, commit_context: str) -> Dict[str, Any]:
-        """Create fallback classification when LLM fails"""
-        
-        # Simple heuristic-based classification
-        file_ext = filename.split('.')[-1].lower() if '.' in filename else ''
-        
-        # Determine scope based on file extension and path
-        scope = "File"
-        if file_ext in ['py', 'js', 'ts', 'java', 'cpp', 'c', 'cs', 'go', 'rs']:
-            scope = "Module/Package/Namespace"
-        elif 'test' in filename.lower():
-            scope = "Test Code"
-        elif file_ext in ['md', 'rst', 'txt']:
-            scope = "Documentation"
-        elif file_ext in ['json', 'yaml', 'yml', 'xml', 'ini', 'cfg', 'toml']:
-            scope = "Configuration"
-        
-        # Determine nature based on commit message
-        nature = "Other"
-        if commit_context:
-            msg_lower = commit_context.lower()
-            if any(word in msg_lower for word in ['feat', 'feature', 'add']):
-                nature = "New Feature"
-            elif any(word in msg_lower for word in ['fix', 'bug']):
-                nature = "Bug Fix"
-            elif any(word in msg_lower for word in ['refactor', 'refactoring']):
-                nature = "Refactoring"
-            elif any(word in msg_lower for word in ['style', 'format']):
-                nature = "Code Style/Formatting"
-            elif any(word in msg_lower for word in ['doc', 'documentation']):
-                nature = "Documentation Updates"
-        
-        # Determine volume based on total changes
-        if changes <= 5:
-            volume = "Trivial"
-        elif changes <= 25:
-            volume = "Small"
-        elif changes <= 100:
-            volume = "Medium"
-        elif changes <= 500:
-            volume = "Large"
-        else:
-            volume = "Very Large"
-                
-        return {
-            "filename": filename,
-            "type": status,
-            "scope": scope,
-            "nature": nature,
-            "volume": volume,
-            "reasoning": "Fallback heuristic classification",
-            "commit_hash": "N/A", # Commit hash is not directly available in this method's signature
-            "additions": additions,
-            "deletions": deletions,
-            "changes": changes # Include total changes for volume
-        }
+            err_message = f"Step 2.1: Error in _llm_classify_individual_changes: {str(e)}"
+            logger.error(err_message)
+            raise
     
-    def _create_fallback_commit_classifications(self, commit_files: List[Dict[str, Any]], commit_message: str) -> List[Dict[str, Any]]:
-        """Create fallback classifications for a single commit when LLM fails"""
-        fallback_classifications = []
-        
-        for file_data in commit_files:
-            filename = file_data.get("filename", "")
-            status = file_data.get("status", "modified")
-            additions = file_data.get("additions", 0)
-            deletions = file_data.get("deletions", 0)
-            changes = file_data.get("changes", additions + deletions)
-            
-            classification = self._create_fallback_classification(
-                filename, status, additions, deletions, changes, commit_message
-            )
-            fallback_classifications.append(classification)
-        
-        return fallback_classifications
-    
-    def _create_fallback_classifications(self, pr_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Create fallback classifications using cumulative data when enhanced classification fails"""
-        classifications = []
-        
-        # Use cumulative files data as fallback
-        files_data = pr_data.get("files", [])
-        commits = pr_data.get("commit_info", {}).get("commits", [])
-        
-        # Create combined commit context
-        commit_messages = [commit.get("message", "") for commit in commits]
-        combined_commit_context = " | ".join(commit_messages)
-        
-        for file_data in files_data:
-            filename = file_data.get("filename", "")
-            status = file_data.get("status", "modified")
-            additions = file_data.get("additions", 0)
-            deletions = file_data.get("deletions", 0)
-            changes = file_data.get("changes", additions + deletions)
-            
-            classification = self._create_fallback_classification(
-                filename, status, additions, deletions, changes, combined_commit_context
-            )
-            
-            # Add fallback multi-purpose detection
-            classification.update({
-                "is_multi_purpose": False,
-                "unique_natures": [classification["nature"]],
-                "unique_types": [classification["type"]],
-                "unique_scopes": [classification["scope"]],
-                "commit_breakdown": [],
-                "commits_count": len(commits)
-            })
-            
-            classifications.append(classification)
-        
-        return classifications
-    
-    async def _llm_batch_classify_changes(self, relevant_files: List[Dict[str, Any]], commit_context: Dict[str, Any]) -> BatchClassificationOutput:
+    async def _llm_group_classified_changes(self, commits_with_classifications: List[Dict[str, Any]], commit_info: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Batch classify all changed files using LLM with structured JSON output.
-        Returns a Pydantic model with validated structure.
-        """
-        # Get prompts from the prompts module
-        system_message = prompts.batch_code_classification_system_prompt()
-        human_prompt = prompts.batch_code_classification_human_prompt(relevant_files, commit_context)
-
-        # Create output parser for JSON format
-        output_parser = JsonOutputParser(pydantic_object=BatchClassificationOutput)
-
-        # Generate JSON response
-        response = await self.llm_client.generate_response(
-            prompt=human_prompt,
-            system_message=system_message + "\n" + output_parser.get_format_instructions(),
-            task_type="code_analysis",
-            output_format="text",  # Use text so we can parse into Pydantic model
-            temperature=0.1  # Low temperature for consistent extraction
-        )
-
-        # Parse the JSON response into Pydantic model
-        classification_result = output_parser.parse(response.content)
-
-        logger.info(f"Batch classified {len(classification_result.classifications)} files using structured LLM analysis")
-        return classification_result
-    
-    async def _llm_group_classified_changes(self, classified_changes: List[Dict[str, Any]], commit_info: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Group classified changes into logical change sets using commit messages as semantic keys with structured output.
+        Group classified changes into logical change sets using commit messages as semantic keys.
         
         This method uses commit messages to understand the development intent and groups
         file changes that serve the same logical purpose or feature development goal.
         
         Args:
-            classified_changes: List of classified individual file changes
+            commits_with_classifications: List of commits with their file classifications
             commit_info: Commit information containing messages and metadata
             
         Returns:
             List of logical change sets with grouped changes
         """
         try:
-            if not classified_changes:
-                return []
+            logger.info(f"Step 2.2: Grouping classified changes into logical change sets")
             
-            # Extract commit messages as primary semantic drivers
-            commits = commit_info.get("commits", [])
-            commit_messages = [commit.get("message", "") for commit in commits]
-            
-            # Prepare comprehensive context for LLM grouping
-            grouping_context = {
-                "commit_messages": commit_messages,
-                "pr_metadata": {
-                    "total_commits": len(commits),
-                    "total_files_changed": len(classified_changes),
-                    "total_additions": sum(change.get("additions", 0) for change in classified_changes),
-                    "total_deletions": sum(change.get("deletions", 0) for change in classified_changes)
-                }
-            }
-            
-            # Use structured output with Pydantic model
-            grouping_result = await self._llm_group_changes_structured(classified_changes, grouping_context)
+            # Create output parser for JSON format
+            output_parser = JsonOutputParser(pydantic_object=ChangeGroupingOutput)
+
+            # Get prompts
+            system_message = prompts.change_grouping_system_prompt()
+            human_prompt = prompts.change_grouping_human_prompt(commits_with_classifications)
+
+            # Generate JSON response
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                system_message=system_message + "\n" + output_parser.get_format_instructions(),
+                task_type="code_analysis",
+                output_format="json",  # Use text so we can parse into Pydantic model
+                temperature=0.1  # Low temperature for consistent grouping
+            )
+
+            # Parse the JSON response into Pydantic model
+            grouping_result = response.content
             
             # Convert Pydantic model output to our internal format
             logical_change_sets = []
-            for change_set in grouping_result.change_sets:
-                # Get the actual changes for these indices
-                changes_in_set = []
-                for idx in change_set.change_indices:
-                    if 1 <= idx <= len(classified_changes):
-                        changes_in_set.append(classified_changes[idx - 1])  # Convert to 0-based indexing
-                    
-                    if changes_in_set:
-                        logical_change_sets.append({
-                        "name": change_set.name,
-                        "description": change_set.description,
-                            "changes": changes_in_set,
-                        "primary_nature": change_set.primary_nature,
-                        "estimated_impact": change_set.estimated_impact
-                    })
+            for change_set in grouping_result["logical_change_sets"]:
+                logical_change_sets.append({
+                    "name": change_set["name"],
+                    "description": change_set["description"],
+                    "changes": change_set["changes"]
+                })
             
-            # Fallback if no valid change sets were created
-            if not logical_change_sets:
-                return self._create_semantic_fallback_grouping(classified_changes, commit_messages)
-            
-            logger.info(f"Grouped {len(classified_changes)} changes into {len(logical_change_sets)} logical change sets using structured commit semantics")
+            total_files = sum(len(change_set["changes"]) for change_set in logical_change_sets)
+            logger.info(f"Step 2.2: Successfully grouped {total_files} changes into {len(logical_change_sets)} logical change sets using structured commit semantics")
             return logical_change_sets
                 
         except Exception as e:
-            logger.error(f"Error in structured LLM grouping: {str(e)}")
-            # Fallback to semantic grouping by commit patterns
-            return self._create_semantic_fallback_grouping(classified_changes, commit_messages)
-    
-    async def _llm_group_changes_structured(self, classified_changes: List[Dict[str, Any]], grouping_context: Dict[str, Any]) -> ChangeGroupingOutput:
-        """
-        Group classified changes using LLM with structured JSON output.
-        Returns a Pydantic model with validated structure.
-        """
-        # Get prompts from the prompts module
-        system_message = prompts.change_grouping_system_prompt()
-        human_prompt = prompts.change_grouping_human_prompt(classified_changes, grouping_context)
-
-        # Create output parser for JSON format
-        output_parser = JsonOutputParser(pydantic_object=ChangeGroupingOutput)
-
-        # Generate JSON response
-        response = await self.llm_client.generate_response(
-            prompt=human_prompt,
-            system_message=system_message + "\n" + output_parser.get_format_instructions(),
-            task_type="code_analysis",
-            output_format="text",  # Use text so we can parse into Pydantic model
-            temperature=0.1  # Low temperature for consistent grouping
-        )
-
-        # Parse the JSON response into Pydantic model
-        grouping_result = output_parser.parse(response.content)
-
-        logger.info(f"Structured grouping created {len(grouping_result.change_sets)} logical change sets")
-        return grouping_result
-    
-    def _create_fallback_classification(self, filename: str, status: str, additions: int, deletions: int, changes: int, commit_context: str) -> Dict[str, Any]:
-        """Create fallback classification when LLM fails"""
-        
-        # Simple heuristic-based classification
-        file_ext = filename.split('.')[-1].lower() if '.' in filename else ''
-        
-        # Determine scope based on file extension and path
-        scope = "File"
-        if file_ext in ['py', 'js', 'ts', 'java', 'cpp', 'c', 'cs', 'go', 'rs']:
-            scope = "Module/Package/Namespace"
-        elif 'test' in filename.lower():
-            scope = "Test Code"
-        elif file_ext in ['md', 'rst', 'txt']:
-            scope = "Documentation"
-        elif file_ext in ['json', 'yaml', 'yml', 'xml', 'ini', 'cfg', 'toml']:
-            scope = "Configuration"
-        
-        # Determine nature based on commit message
-        nature = "Other"
-        if commit_context:
-            msg_lower = commit_context.lower()
-            if any(word in msg_lower for word in ['feat', 'feature', 'add']):
-                nature = "New Feature"
-            elif any(word in msg_lower for word in ['fix', 'bug']):
-                nature = "Bug Fix"
-            elif any(word in msg_lower for word in ['refactor', 'refactoring']):
-                nature = "Refactoring"
-            elif any(word in msg_lower for word in ['style', 'format']):
-                nature = "Code Style/Formatting"
-            elif any(word in msg_lower for word in ['doc', 'documentation']):
-                nature = "Documentation Updates"
-        
-        # Determine volume based on total changes
-        if changes <= 5:
-            volume = "Trivial"
-        elif changes <= 25:
-            volume = "Small"
-        elif changes <= 100:
-            volume = "Medium"
-        elif changes <= 500:
-            volume = "Large"
-        else:
-            volume = "Very Large"
-        
-        return {
-            "filename": filename,
-            "type": status,
-            "scope": scope,
-            "nature": nature,
-            "volume": volume,
-            "reasoning": "Fallback heuristic classification",
-            "commit_hash": "N/A", # Commit hash is not directly available in this method's signature
-            "additions": additions,
-            "deletions": deletions,
-            "changes": changes # Include total changes for volume
-        }
-    
-    def _create_semantic_fallback_grouping(self, classified_changes: List[Dict[str, Any]], commit_messages: List[str]) -> List[Dict[str, Any]]:
-        """Create fallback grouping when LLM fails to use commit semantics"""
-        if not classified_changes:
-            return []
-        
-        # Simple grouping by commit hash (fallback)
-        commit_groups = {}
-        for i, change in enumerate(classified_changes):
-            commit_hash = change.get("commit_hash", "unknown")
-            if commit_hash not in commit_groups:
-                commit_groups[commit_hash] = []
-            commit_groups[commit_hash].append(change)
-        
-        # Convert to logical change sets
-        logical_change_sets = []
-        for i, (commit_hash, changes) in enumerate(commit_groups.items()):
-            # Determine primary nature
-            natures = [change.get("nature", "Other") for change in changes]
-            primary_nature = max(set(natures), key=natures.count)
-            
-            # Estimate impact based on the changes in the set
-            total_changes = sum(change.get("changes", 0) for change in changes)
-            if total_changes <= 5:
-                estimated_impact = "Low"
-            elif total_changes <= 25:
-                estimated_impact = "Medium"
-            else:
-                estimated_impact = "High"
-            
-            logical_change_sets.append({
-                "name": f"Change Set {i+1} - {commit_hash[:8]}",
-                "description": f"Changes from commit {commit_hash[:8]}",
-                "changes": changes,
-                "primary_nature": primary_nature,
-                "estimated_impact": estimated_impact
-            })
-        
-        return logical_change_sets
-    
-    def _create_simple_fallback_grouping(self, classified_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Create simple fallback grouping when LLM fails"""
-        if not classified_changes:
-            return []
-        
-        # Group all changes into a single logical change set as last resort
-        natures = [change.get("nature", "Other") for change in classified_changes]
-        primary_nature = max(set(natures), key=natures.count) if natures else "Other"
-        
-        # Estimate impact based on total changes
-        total_changes = sum(change.get("changes", 0) for change in classified_changes)
-        if total_changes <= 10:
-            estimated_impact = "Low"
-        elif total_changes <= 50:
-            estimated_impact = "Medium"
-        else:
-            estimated_impact = "High"
-        
-        return [{
-            "name": "All Changes",
-            "description": "All file changes grouped together (fallback)",
-            "changes": classified_changes,
-            "primary_nature": primary_nature,
-            "estimated_impact": estimated_impact
-        }]
+            err_message = f"Step 2.2: Error in _llm_group_classified_changes: {str(e)}"
+            self.state.errors.append(err_message)
+            raise
     
     async def _determine_traceability_status(self, logical_change_sets: List[Dict[str, Any]], repository: str, branch: str, baseline_map_data: Optional[BaselineMapModel]) -> Dict[str, Any]:
         """Determine if traceability status is available and if it's sufficient"""
@@ -1748,115 +1075,6 @@ class DocumentUpdateRecommenderWorkflow:
             confidence_score=0.9,
             status=RecommendationStatus.PENDING
         )]
-
-    def _aggregate_multi_commit_classifications(self, all_classifications: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Aggregate classifications for files that appear in multiple commits.
-        
-        This method handles the multi-purpose file problem by creating composite classifications
-        that capture all the different reasons a file was changed across multiple commits.
-        
-        Args:
-            all_classifications: List of all classifications from all commits
-            
-        Returns:
-            List of aggregated classifications with multi-purpose detection
-        """
-        # Group by filename
-        file_groups = {}
-        for classification in all_classifications:
-            filename = classification.get("filename", "")
-            if filename not in file_groups:
-                file_groups[filename] = []
-            file_groups[filename].append(classification)
-        
-        aggregated_classifications = []
-        
-        for filename, classifications in file_groups.items():
-            if len(classifications) == 1:
-                # Single commit - use as-is
-                aggregated_classifications.append(classifications[0])
-            else:
-                # Multiple commits - create composite classification
-                composite = self._create_composite_classification(filename, classifications)
-                aggregated_classifications.append(composite)
-        
-        return aggregated_classifications
-    
-    def _create_composite_classification(self, filename: str, classifications: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Create a composite classification for a file changed across multiple commits.
-        
-        Args:
-            filename: Name of the file
-            classifications: List of individual commit classifications for this file
-            
-        Returns:
-            Composite classification that captures all purposes
-        """
-        # Aggregate basic stats
-        total_additions = sum(c.get("additions", 0) for c in classifications)
-        total_deletions = sum(c.get("deletions", 0) for c in classifications)
-        total_changes = sum(c.get("changes", 0) for c in classifications)
-        
-        # Collect all unique types, scopes, and natures
-        types = list(set(c.get("type", "") for c in classifications))
-        scopes = list(set(c.get("scope", "") for c in classifications))
-        natures = list(set(c.get("nature", "") for c in classifications))
-        
-        # Get all commit info
-        commit_info = []
-        for c in classifications:
-            commit_info.append({
-                "sha": c.get("commit_sha", ""),
-                "message": c.get("commit_message", ""),
-                "author": c.get("commit_author", ""),
-                "date": c.get("commit_date", ""),
-                "purpose": c.get("nature", "")
-            })
-        
-        # Determine primary purpose (most frequent)
-        nature_counts = {}
-        for nature in natures:
-            nature_counts[nature] = nature_counts.get(nature, 0) + 1
-        primary_nature = max(nature_counts, key=nature_counts.get) if nature_counts else "Other"
-        
-        # Create composite classification
-        composite = {
-            "filename": filename,
-            "type": " + ".join(types) if len(types) > 1 else types[0] if types else "Modified",
-            "scope": " + ".join(scopes) if len(scopes) > 1 else scopes[0] if scopes else "File",
-            "nature": primary_nature,
-            "is_multi_purpose": True,
-            "all_purposes": natures,
-            "purpose_breakdown": nature_counts,
-            "additions": total_additions,
-            "deletions": total_deletions,
-            "changes": total_changes,
-            "commit_count": len(classifications),
-            "commits": commit_info,
-            "reasoning": f"Multi-purpose file changed across {len(classifications)} commits for: {', '.join(natures)}"
-        }
-        
-        return composite
-    
-    def _create_fallback_commit_classifications(self, commit_files: List[Dict[str, Any]], commit_message: str) -> List[Dict[str, Any]]:
-        """Create fallback classifications for a single commit when LLM fails"""
-        fallback_classifications = []
-        
-        for file_data in commit_files:
-            filename = file_data.get("filename", "")
-            status = file_data.get("status", "modified")
-            additions = file_data.get("additions", 0)
-            deletions = file_data.get("deletions", 0)
-            changes = file_data.get("changes", additions + deletions)
-            
-            classification = self._create_fallback_classification(
-                filename, status, additions, deletions, changes, commit_message
-            )
-            fallback_classifications.append(classification)
-        
-        return fallback_classifications
 
 def create_document_update_recommender(llm_client: Optional[DocurecoLLMClient] = None) -> DocumentUpdateRecommenderWorkflow:
     """

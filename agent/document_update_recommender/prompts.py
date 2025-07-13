@@ -11,55 +11,38 @@ class DocumentUpdateRecommenderPrompts:
     
     # Step 2: Code Change Classification Prompts
     @staticmethod
-    def batch_code_classification_system_prompt() -> str:
+    def individual_code_classification_system_prompt() -> str:
         """System prompt for batch classification of code changes"""
-        return """You are a software engineering expert analyzing code changes. Your task is to classify ALL changed files in a pull request using the 4W framework for documentation impact analysis.
+        return """You are a software development analyst. Analyze the GitHub PR data and classify each file changed in each commit.
+For each commit, include:
+- commit_hash: The SHA hash of the commit
+- commit_message: The commit message
+- classifications: Array of file classifications for this commit
 
-For EACH file, analyze:
-1. **Type** (What changed):
-   - Addition, Deletion, Modification, Rename
-2. **Scope** (Where the change occurred):
-   - Function/Method, Class/Interface/Struct/Type, Module/Package/Namespace, File, API Contract, Configuration, Dependencies, Build Scripts, Infrastructure Code, Test Code, Documentation, Cross-cutting
-3. **Nature** (Why the change was made - analyze commit context):
-   - New Feature, Feature Enhancement, Bug Fix, Security Fix, Refactoring, Performance Optimization, Code Style/Formatting, Technical Debt Reduction, Readability Improvement, Error Handling Improvement, Dependency Management, Build Process Improvement, Tooling Configuration, API Changes, External System Integration Changes, Documentation Updates, UI/UX Adjustments, Static Content Updates, Code/Deprecation Removal, Revert, Merge Conflict Resolution, License Updates, Experimental, Chore, Other
-4. **Volume** (How much changed - cumulative effect):
-   - Trivial (1-5 lines, typo fixes)
-   - Small (localized changes, single function)
-   - Medium (affects important parts of class/module)
-   - Large (substantial changes across multiple modules)
-   - Very Large (extensive architectural changes)
-5. **Reasoning**: 
-   - Brief explanation of the classification based on cumulative changes and commit context
+For each file classification, determine:
+- file: The file path
+- type: Type of change (Added, Modified, Deleted, Renamed)  
+- scope: Scope of change (Function/Method, Class, Module, Configuration, Documentation, Test, etc.)
+- nature: Nature of change (New Feature, Bug Fix, Refactoring, Documentation Updates, Performance Improvement, etc.)
+- volume: Volume of change (Trivial, Small, Medium, Large, Very Large) based on total lines changed
+- reasoning: Brief explanation of your classification
 
+Look at the commit messages, file paths, and changes to understand the overall purpose.
 The response will be automatically structured. Analyze the cumulative net effect of changes per file across all commits, using commit messages to understand the development intent."""
     
     @staticmethod
-    def batch_code_classification_human_prompt(relevant_files: List[Dict[str, Any]], commit_context: Dict[str, Any]) -> str:
+    def individual_code_classification_human_prompt(pr_data: List[Dict[str, Any]]) -> str:
         """Human prompt for batch code classification"""
-        
-        files_section = ""
-        for i, file_data in enumerate(relevant_files):
-            files_section += f"""
-File {i+1}:
-- Filename: {file_data['filename']}
-- Status: {file_data['status']}
-- Additions: {file_data['additions']}
-- Deletions: {file_data['deletions']}
-- Total Changes: {file_data['changes']}
-- Code Diff: {file_data['patch'][:1000]}...
+        return f"""Analyze this GitHub PR data and classify each file changed in each commit:
 
-"""
-        
-        return f"""Analyze and classify ALL the following changed files using the 4W framework:
+    {pr_data}
 
-**PR Context:**
-- Total Commits: {commit_context.get("count", 1)}
-- Commit Messages: {commit_context.get("combined_context", "N/A")}
+    Return a JSON object with a 'commits' array. Each commit should have:
+    - commit_hash (the SHA)
+    - commit_message 
+    - classifications array with file classifications for that commit
 
-**Files to Classify:**
-{files_section}
-
-Classify each file and return the results as a structured JSON array."""
+    Organize the output by commit, so each commit shows only the files that were changed in that specific commit."""
     
     # Step 2: Code Change Grouping Prompts
     @staticmethod
@@ -74,55 +57,23 @@ Group changes based on:
 2. **Functional Similarity** - Changes that serve the same feature or purpose  
 3. **Development Task Coherence** - Changes that together complete a logical development task
 
-Each group should represent a cohesive development task (e.g., "Feature X Implementation", "Bug Y Fix", "Documentation Updates").
+Each group should represent a cohesive development task (e.g., "Feature - User Profile Implementation", "Bug Fix - Authentication Issue", "Documentation Updates").
 
-For each group, determine:
-- **Name**: Descriptive name derived from commit messages
-- **Description**: What this change set accomplishes
-- **Primary Nature**: Most common nature of changes in the set
-- **Estimated Impact**: Low/Medium/High based on total changes and scope
+For each logical change set, provide:
+- **name**: Descriptive name derived from commit messages (e.g., "Feature - User Profile Implementation")
+- **description**: What this change set accomplishes
+- **changes**: Array of file changes with their classifications that belong to this logical grouping
 
-The response will be automatically structured with the grouped changes."""
+The response will be automatically structured as a JSON object with a 'logical_change_sets' array."""
     
     @staticmethod
-    def change_grouping_human_prompt(classified_changes: List[Dict[str, Any]], grouping_context: Dict[str, Any]) -> str:
+    def change_grouping_human_prompt(commits_with_classifications: List[Dict[str, Any]]) -> str:
         """Human prompt for change grouping"""
-        
-        # Format classified changes for prompt
-        changes_summary = []
-        for i, change in enumerate(classified_changes):
-            changes_summary.append(f"""
-Change {i+1}:
-- File: {change.get('filename', 'unknown')}
-- Type: {change.get('type', 'unknown')}
-- Scope: {change.get('scope', 'unknown')}  
-- Nature: {change.get('nature', 'unknown')}
-- Volume: {change.get('volume', 'unknown')}
-- Changes: {change.get('changes', 0)}
-- Reasoning: {change.get('reasoning', 'N/A')}
-""")
-        
-        commits_summary = []
-        for i, message in enumerate(grouping_context.get("commit_messages", [])):
-            commits_summary.append(f"- Commit {i+1}: {message}")
-        
-        pr_metadata = grouping_context.get("pr_metadata", {})
-        
-        return f"""Group the following classified changes into logical change sets using commit messages as semantic keys:
+        return f"""Analyze these commits with their file classifications and group related files into logical change sets:
 
-**PR Overview:**
-- Total Commits: {pr_metadata.get('total_commits', 0)}
-- Total Files Changed: {pr_metadata.get('total_files_changed', 0)}
-- Total Additions: {pr_metadata.get('total_additions', 0)}
-- Total Deletions: {pr_metadata.get('total_deletions', 0)}
+{commits_with_classifications}
 
-**Commit Messages (Primary Semantic Drivers):**
-{chr(10).join(commits_summary)}
-
-**Classified Changes:**
-{chr(10).join(changes_summary)}
-
-Group these changes into logical change sets and return them as a structured JSON object."""
+Group files that are semantically related across commits (e.g., files that implement the same feature, fix the same bug, etc.) into logical change sets. Each logical change set should have a descriptive name and contain the related file changes."""
     
     # Step 4: Recommendation Generation Prompts
     @staticmethod

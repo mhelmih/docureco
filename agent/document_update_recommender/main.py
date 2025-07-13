@@ -23,7 +23,6 @@ from agent.config.llm_config import setup_logging
 
 logger = logging.getLogger(__name__)
 
-
 async def main():
     """Main function for document update recommender"""
     parser = argparse.ArgumentParser(description="Recommend documentation updates based on code changes and traceability analysis")

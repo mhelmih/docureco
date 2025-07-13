@@ -9,6 +9,8 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 
+logger = logging.getLogger(__name__)
+
 class LLMProvider(str, Enum):
     """Supported LLM providers"""
     GROK = "grok"
@@ -85,15 +87,15 @@ def get_llm_config() -> LLMConfig:
     elif grok_api_key and grok_api_key.startswith("xai-"):
         # Auto-detect Grok/xAI based on key format
         provider = LLMProvider.GROK
-        print(f"Auto-detected Grok provider based on xAI API key format")
+        logger.info(f"Auto-detected Grok provider based on xAI API key format")
     elif openai_api_key and openai_api_key.startswith("sk-"):
         # Auto-detect OpenAI based on key format
         provider = LLMProvider.OPENAI
-        print(f"Auto-detected OpenAI provider based on key format")
+        logger.info(f"Auto-detected OpenAI provider based on key format")
     else:
         # Default to Grok as specified in requirements
         provider = LLMProvider.GROK
-        print(f"Using default Grok provider")
+        logger.info(f"Using default Grok provider")
     
     if provider == LLMProvider.GROK:
         # Grok 3 configuration
