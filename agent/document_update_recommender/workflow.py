@@ -326,6 +326,9 @@ class DocumentUpdateRecommenderWorkflow:
                 state.document_content
             )
             
+            print("CHANGES WITH STATUS: ", changes_with_status)
+            print("DOCUMENTATION CHANGES: ", documentation_changes)
+            
             # 3.2 Trace Code Impact Through Map
             logger.info("Step 3.2: Tracing code impact through baseline map")
             # Get potentially impacted elements through traceability map tracing
@@ -336,6 +339,8 @@ class DocumentUpdateRecommenderWorkflow:
             )
             state.potentially_impacted_elements = potentially_impacted_elements
             
+            print("POTENTIALLY IMPACTED ELEMENTS: ", potentially_impacted_elements)
+            
             # 3.3 Assess Likelihood and Severity (considering existing documentation updates)
             logger.info("Step 3.3: Assessing likelihood and severity with consideration of existing documentation updates")
             prioritized_findings = await self._assess_likelihood_and_severity(
@@ -344,6 +349,8 @@ class DocumentUpdateRecommenderWorkflow:
                 documentation_changes
             )
             state.prioritized_finding_list = prioritized_findings
+            
+            print("PRIORITIZED FINDINGS: ", prioritized_findings)
             
             # Update processing statistics
             state.processing_stats.update({
