@@ -31,7 +31,7 @@ Look at the commit messages, file paths, and changes to understand the overall p
 The response will be automatically structured. Analyze the cumulative net effect of changes per file across all commits, using commit messages to understand the development intent."""
     
     @staticmethod
-    def individual_code_classification_human_prompt(pr_data: List[Dict[str, Any]]) -> str:
+    def individual_code_classification_human_prompt(pr_data: Dict[str, Any]) -> str:
         """Human prompt for batch code classification"""
         return f"""Analyze this GitHub PR data and classify each file changed in each commit:
 
@@ -130,7 +130,7 @@ IMPORTANT: Consider these existing documentation updates when assessing likeliho
 - If documentation updates seem to address the finding, mark likelihood as "Unlikely" or "Possibly"
 - If documentation was updated but doesn't seem to address the specific finding, keep original assessment"""
         
-        return f"""Assess the likelihood and severity for each documentation impact finding:
+        return f"""Assess the likelihood and severity for each documentation impact finding and return the complete findings with added assessment fields:
 
 **Findings to assess:**
 {json.dumps(findings, indent=2)}
@@ -138,12 +138,12 @@ IMPORTANT: Consider these existing documentation updates when assessing likeliho
 **Context - Logical Change Sets:**
 {json.dumps(logical_change_sets, indent=2)}{doc_changes_section}
 
-For each finding, provide:
+For each finding, return the COMPLETE finding with these additional fields:
 - likelihood: One of "Very Likely", "Likely", "Possibly", "Unlikely"
 - severity: One of "Fundamental", "Major", "Moderate", "Minor", "Trivial", "None"  
 - reasoning: Brief explanation of your assessment
 
-Return a JSON object with an "assessments" array containing the likelihood and severity for each finding in the same order."""
+Return the complete findings array with all original fields plus the new assessment fields. Do NOT just return the assessments separately - return the full findings with assessments integrated."""
 
     # Step 4: Recommendation Generation Prompts
     @staticmethod
@@ -171,11 +171,11 @@ For each high-priority finding, generate:
 The response will be automatically structured with detailed recommendations."""
     
     @staticmethod
-    def recommendation_generation_human_prompt(filtered_findings: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> str:
+    def recommendation_generation_human_prompt(findings_with_actions: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> str:
         """Human prompt for recommendation generation"""
         
         findings_summary = []
-        for i, finding in enumerate(filtered_findings):
+        for i, finding in enumerate(findings_with_actions):
             findings_summary.append(f"""
 Finding {i+1}:
 - Type: {finding.get('finding_type', 'unknown')}
@@ -183,25 +183,27 @@ Finding {i+1}:
 - Element Type: {finding.get('affected_element_type', 'unknown')}
 - Likelihood: {finding.get('likelihood', 'unknown')}
 - Severity: {finding.get('severity', 'unknown')}
-- Source Change Set: {finding.get('source_change_set_id', 'unknown')}
+- Source Change Set: {finding.get('source_change_set', 'unknown')}
+- Recommended Action: {finding.get('recommended_action', 'unknown')}
 """)
         
         change_sets_summary = []
         for i, change_set in enumerate(logical_change_sets):
+            changes = change_set.get('changes', [])
+            files_list = [change.get('file', 'unknown') for change in changes] if changes else []
             change_sets_summary.append(f"""
 Change Set {i+1}: {change_set.get('name', 'Unknown')}
 - Description: {change_set.get('description', 'N/A')}
-- Primary Nature: {change_set.get('primary_nature', 'Other')}
-- Estimated Impact: {change_set.get('estimated_impact', 'Medium')}
-- Files Changed: {len(change_set.get('changes', []))}
+- Number of Files: {len(files_list)}
+- Files: {', '.join(files_list)}
 """)
         
-        docs_summary = []
-        for doc_path, doc_info in current_docs.items():
-            content_preview = str(doc_info.get('content', ''))[:200] + "..." if doc_info.get('content') else "No content available"
-            docs_summary.append(f"""
-Document: {doc_path}
-- Content Preview: {content_preview}
+        docs = []
+        for file_path, value in current_docs.items():
+            docs.append(f"""
+Document: {file_path}
+- Document Type: {value.get('document_type', 'N/A')}
+- Content: {value.get('content', 'N/A')}
 """)
         
         return f"""Generate specific documentation update recommendations for the following high-priority findings:
@@ -213,57 +215,9 @@ Document: {doc_path}
 {chr(10).join(change_sets_summary)}
 
 **Current Documentation Context:**
-{chr(10).join(docs_summary)}
+{chr(10).join(docs)}
 
 Generate detailed, actionable recommendations and return them as a structured JSON array."""
-    
-    # Quality Assessment Prompts
-    @staticmethod
-    def quality_assessment_system_prompt() -> str:
-        """System prompt for assessing documentation quality after updates"""
-        return """You are an expert technical writer assessing documentation quality and consistency. Your task is to evaluate the completeness and quality of documentation updates against the original recommendations.
-
-For the quality assessment, provide:
-- **Completeness Score**: Score from 1-10 for how well recommendations were addressed
-- **Consistency Score**: Score from 1-10 for consistency across different documents
-- **Quality Issues**: List of identified quality problems or gaps
-- **Improvement Suggestions**: Specific suggestions for improvement
-- **Overall Rating**: Overall quality rating (excellent, good, fair, poor)
-- **Compliance Status**: Compliance with documentation standards
-
-The response will be automatically structured with detailed quality metrics."""
-    
-    @staticmethod
-    def quality_assessment_human_prompt(updated_documentation: Dict[str, str], recommendations: List[Dict[str, Any]]) -> str:
-        """Human prompt for quality assessment"""
-        
-        updated_docs_summary = []
-        for doc_path, content in updated_documentation.items():
-            content_preview = content[:300] + "..." if len(content) > 300 else content
-            updated_docs_summary.append(f"""
-Document: {doc_path}
-Updated Content: {content_preview}
-""")
-        
-        recommendations_summary = []
-        for i, rec in enumerate(recommendations):
-            recommendations_summary.append(f"""
-Recommendation {i+1}:
-- Target: {rec.get('target_document', 'Unknown')}
-- Type: {rec.get('recommendation_type', 'Unknown')}
-- What: {rec.get('what_to_update', 'N/A')}
-- Priority: {rec.get('priority', 'Unknown')}
-""")
-        
-        return f"""Assess the quality of the following updated documentation against the original recommendations:
-
-**Updated Documentation:**
-{chr(10).join(updated_docs_summary)}
-
-**Original Recommendations:**
-{chr(10).join(recommendations_summary)}
-
-Provide a comprehensive quality assessment as a structured JSON object.""" 
 
     # Step 2: Single Commit Classification Prompts (for enhanced per-commit analysis)
     @staticmethod
@@ -304,7 +258,7 @@ File {i+1}:
 - Additions: {file_data['additions']}
 - Deletions: {file_data['deletions']}
 - Total Changes: {file_data['changes']}
-- Code Diff: {file_data['patch'][:800]}...
+- Code Diff: {file_data['patch'][:]}
 
 """
         

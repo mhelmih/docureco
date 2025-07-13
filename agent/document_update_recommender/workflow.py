@@ -87,6 +87,22 @@ class RecommendationGenerationOutput(BaseModel):
     """Structured output for recommendation generation"""
     recommendations: List[DocumentationRecommendation] = Field(description="List of generated recommendations")
 
+class AssessedFinding(BaseModel):
+    """Finding with likelihood and severity assessment"""
+    finding_type: str = Field(description="Type of finding")
+    affected_element_type: str = Field(description="Type of affected element") 
+    affected_element_id: str = Field(description="ID of affected element")
+    source_change_set: str = Field(description="Source change set name")
+    trace_path_type: Optional[str] = Field(description="Type of trace path", default=None)
+    anomaly_type: Optional[str] = Field(description="Type of anomaly if applicable", default=None)
+    likelihood: str = Field(description="Likelihood assessment (Very Likely, Likely, Possibly, Unlikely)")
+    severity: str = Field(description="Severity assessment (Fundamental, Major, Moderate, Minor, Trivial, None)")
+    reasoning: str = Field(description="Reasoning for the assessment")
+
+class LikelihoodSeverityAssessmentOutput(BaseModel):
+    """Structured output for likelihood and severity assessment"""
+    assessed_findings: List[AssessedFinding] = Field(description="List of findings with likelihood and severity assessments")
+
 @dataclass
 class DocumentUpdateRecommenderState:
     """State for the Document Update Recommender workflow"""
@@ -337,7 +353,7 @@ class DocumentUpdateRecommenderWorkflow:
             
             # 3.3 Assess Likelihood and Severity (considering existing documentation updates)
             logger.info("Step 3.3: Assessing likelihood and severity with consideration of existing documentation updates")
-            prioritized_findings = await self._assess_likelihood_and_severity(
+            prioritized_findings = await self._llm_assess_likelihood_and_severity(
                 potentially_impacted_elements,
                 state.logical_change_sets,
                 documentation_changes
@@ -673,7 +689,7 @@ class DocumentUpdateRecommenderWorkflow:
         
         return all_findings
 
-    async def _assess_likelihood_and_severity(self, findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _llm_assess_likelihood_and_severity(self, findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Assess likelihood and severity for each finding using LLM, considering existing documentation updates.
         
@@ -688,38 +704,44 @@ class DocumentUpdateRecommenderWorkflow:
                 "documentation_changes": documentation_changes
             }
             
+            # Create output parser for structured response
+            output_parser = JsonOutputParser(pydantic_object=LikelihoodSeverityAssessmentOutput)
+            
             # Get prompts for likelihood and severity assessment
             system_message = prompts.likelihood_severity_assessment_system_prompt()
             human_prompt = prompts.likelihood_severity_assessment_human_prompt(assessment_context)
             
-            # Generate assessment using LLM
+            # Generate assessment using LLM with structured output
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
-                system_message=system_message,
+                system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 task_type="impact_assessment",
                 output_format="json",
                 temperature=0.1  # Low temperature for consistent assessment
             )
             
-            # Parse the response and add likelihood/severity to findings
-            if isinstance(response.content, dict) and "assessments" in response.content:
-                assessments = response.content["assessments"]
-                
-                # Match assessments back to findings
-                for i, finding in enumerate(findings):
-                    if i < len(assessments):
-                        assessment = assessments[i]
-                        finding["likelihood"] = assessment.get("likelihood", "Possibly")
-                        finding["severity"] = assessment.get("severity", "Minor") 
-                        finding["reasoning"] = assessment.get("reasoning", "")
-            else:
-                raise ValueError("Unexpected LLM response format for likelihood/severity assessment")
+            # Parse the structured response
+            assessed_findings = response.content["assessed_findings"]
             
-            # Filter findings based on minimum thresholds
+            # Convert Pydantic models back to dictionaries and filter
             filtered_findings = []
-            for finding in findings:
-                if self._meets_minimum_criteria(finding):
-                    filtered_findings.append(finding)
+            for assessed_finding in assessed_findings:
+                # Convert to dict format
+                finding_dict = {
+                    "finding_type": assessed_finding["finding_type"],
+                    "affected_element_type": assessed_finding["affected_element_type"],
+                    "affected_element_id": assessed_finding["affected_element_id"],
+                    "source_change_set": assessed_finding["source_change_set"],
+                    "trace_path_type": assessed_finding.get("trace_path_type"),
+                    "anomaly_type": assessed_finding.get("anomaly_type"),
+                    "likelihood": assessed_finding["likelihood"],
+                    "severity": assessed_finding["severity"],
+                    "reasoning": assessed_finding["reasoning"]
+                }
+                
+                # Apply filtering based on minimum criteria
+                if self._meets_minimum_criteria(finding_dict):
+                    filtered_findings.append(finding_dict)
             
             return filtered_findings
             
@@ -758,16 +780,12 @@ class DocumentUpdateRecommenderWorkflow:
         logger.info("Step 4: Generating and posting documentation recommendations")
         
         try:
-            logger.info(f"PRIORITIZED FINDINGS: {state.prioritized_finding_list}")
-            
             # 4.1 Filter High-Priority Findings
             logger.info("Step 4.1: Filtering high-priority findings")
             filtered_findings = await self._filter_high_priority_findings(
                 state.prioritized_finding_list
             )
             state.filtered_high_priority_findings = filtered_findings
-            
-            logger.info(f"FILTERED FINDINGS: {state.filtered_high_priority_findings}")
             
             # 4.2 Query Existing Suggestions
             logger.info("Step 4.2: Fetching existing suggestions")
@@ -777,16 +795,27 @@ class DocumentUpdateRecommenderWorkflow:
             )
             state.existing_suggestions = existing_suggestions
             
-            logger.info(f"EXISTING SUGGESTIONS: {state.existing_suggestions}")
+            # 4.3 Use Current Documentation Context from state
+            logger.info("Step 4.3: Using current documentation context from state")
+            current_docs = {}
             
-            # 4.3 Fetch Current Documentation Context
-            logger.info("Step 4.3: Fetching current documentation context")
-            current_docs = await self._fetch_current_documentation(
-                state.document_content,
-                filtered_findings
-            )
+            # Extract SRS and SDD content from state.document_content
+            srs_content = state.document_content.get("srs_content", {})
+            sdd_content = state.document_content.get("sdd_content", {})
             
-            logger.info(f"CURRENT DOCS: {current_docs}")
+            # Add all SRS files to current docs
+            for file_path, content in srs_content.items():
+                current_docs[file_path] = {
+                    "document_type": "SRS",
+                    "content": content
+                }
+            
+            # Add all SDD files to current docs  
+            for file_path, content in sdd_content.items():
+                current_docs[file_path] = {
+                    "document_type": "SDD", 
+                    "content": content
+                }
             
             # 4.4 Findings Iteration & Suggestion Generation
             logger.info("Step 4.4: Generating suggestions")
@@ -795,8 +824,6 @@ class DocumentUpdateRecommenderWorkflow:
                 current_docs,
                 state.logical_change_sets
             )
-            
-            logger.info(f"GENERATED SUGGESTIONS: {generated_suggestions}")
             
             state.generated_suggestions = generated_suggestions
             
@@ -808,8 +835,6 @@ class DocumentUpdateRecommenderWorkflow:
                 state.repository,
                 state.pr_number
             )
-            
-            logger.info(f"FINAL RECOMMENDATIONS: {final_recommendations}")
             
             state.recommendations = final_recommendations
             
@@ -1486,38 +1511,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error fetching existing suggestions: {str(e)}")
             return []
     
-    async def _fetch_current_documentation(self, repo_content: Dict[str, Any], filtered_findings: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Fetch current documentation context for suggestions.
-        Returns relevant SRS and SDD content based on the findings.
-        """
-        current_docs = {}
-        
-        try:
-            # Extract SRS and SDD content from repo_content
-            srs_content = repo_content.get("srs_content", {})
-            sdd_content = repo_content.get("sdd_content", {})
-            
-            # Add all SRS files to current docs
-            for file_path, content in srs_content.items():
-                current_docs[file_path] = {
-                    "document_type": "SRS",
-                    "content": content
-                }
-            
-            # Add all SDD files to current docs  
-            for file_path, content in sdd_content.items():
-                current_docs[file_path] = {
-                    "document_type": "SDD", 
-                    "content": content
-                }
-            
-            logger.info(f"Fetched current documentation context: {len(srs_content)} SRS files, {len(sdd_content)} SDD files")
-            return current_docs
-            
-        except Exception as e:
-            logger.error(f"Error fetching current documentation: {str(e)}")
-            return {}
+
     
     async def _llm_generate_suggestions(self, filtered_findings: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -1547,45 +1541,52 @@ class DocumentUpdateRecommenderWorkflow:
                 
                 findings_with_actions.append(finding_with_action)
             
+            # Create output parser for structured response
+            output_parser = JsonOutputParser(pydantic_object=RecommendationGenerationOutput)
+            
             # Get prompts for recommendation generation
             system_message = prompts.recommendation_generation_system_prompt()
             human_prompt = prompts.recommendation_generation_human_prompt(
                 findings_with_actions, current_docs, logical_change_sets
             )
             
-            # Generate recommendations using LLM
+            # Generate recommendations using LLM with structured output
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
-                system_message=system_message,
+                system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 task_type="recommendation_generation",
                 output_format="json",
                 temperature=0.2  # Slightly higher for more creative recommendations
             )
             
-            # Parse the response
+            # Parse the structured response
+            recommendation_result = response.content
+            suggestions = recommendation_result["recommendations"]
+            
+            # Process each suggestion and add metadata
             all_suggestions = []
-            if isinstance(response.content, dict):
-                # Check for different possible response formats
-                if "recommendations" in response.content:
-                    suggestions = response.content["recommendations"]
-                elif isinstance(response.content, list):
-                    suggestions = response.content
-                else:
-                    suggestions = [response.content]
+            for i, suggestion in enumerate(suggestions):
+                # Convert to dict format and add finding metadata
+                suggestion_dict = {
+                    "target_document": suggestion["target_document"],
+                    "section": suggestion["section"],
+                    "recommendation_type": suggestion["recommendation_type"],
+                    "priority": suggestion["priority"],
+                    "what_to_update": suggestion["what_to_update"],
+                    "where_to_update": suggestion["where_to_update"],
+                    "why_update_needed": suggestion["why_update_needed"],
+                    "how_to_update": suggestion["how_to_update"],
+                    "suggested_content": suggestion.get("suggested_content", "")
+                }
                 
-                # Process each suggestion and add metadata
-                for i, suggestion in enumerate(suggestions):
-                    if isinstance(suggestion, dict):
-                        # Add finding metadata if available
-                        if i < len(findings_with_actions):
-                            finding = findings_with_actions[i]
-                            suggestion["finding_id"] = finding.get("affected_element_id", "")
-                            suggestion["finding_type"] = finding.get("finding_type", "")
-                            suggestion["source_change_set"] = finding.get("source_change_set", "")
-                        
-                        all_suggestions.append(suggestion)
-            else:
-                logger.warning("Unexpected LLM response format for recommendation generation")
+                # Add finding metadata if available
+                if i < len(findings_with_actions):
+                    finding = findings_with_actions[i]
+                    suggestion_dict["finding_id"] = finding.get("affected_element_id", "")
+                    suggestion_dict["finding_type"] = finding.get("finding_type", "")
+                    suggestion_dict["source_change_set"] = finding.get("source_change_set", "")
+                
+                all_suggestions.append(suggestion_dict)
             
             logger.info(f"Generated {len(all_suggestions)} suggestions from {len(filtered_findings)} findings")
             return all_suggestions
