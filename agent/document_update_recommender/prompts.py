@@ -48,33 +48,103 @@ The response will be automatically structured. Analyze the cumulative net effect
     @staticmethod
     def change_grouping_system_prompt() -> str:
         """System prompt for grouping classified changes into logical change sets"""
-        return """You are a software engineering expert grouping related code changes into logical change sets for documentation impact analysis.
+        return """You are a software development analyst. Group related file changes into logical change sets that represent cohesive development tasks or features.
 
-Your task is to use commit messages as the primary semantic keys to group file changes that serve the same logical purpose or feature development goal.
-
-Group changes based on:
-1. **Commit Message Semantics** - Changes mentioned in related commit messages
-2. **Functional Similarity** - Changes that serve the same feature or purpose  
-3. **Development Task Coherence** - Changes that together complete a logical development task
-
-Each group should represent a cohesive development task (e.g., "Feature - User Profile Implementation", "Bug Fix - Authentication Issue", "Documentation Updates").
+Each logical change set should represent changes that serve the same purpose or implement related functionality. Use commit messages and file relationships to identify logical groupings.
 
 For each logical change set, provide:
-- **name**: Descriptive name derived from commit messages (e.g., "Feature - User Profile Implementation")
-- **description**: What this change set accomplishes
-- **changes**: Array of file changes with their classifications that belong to this logical grouping
+- name: A descriptive name for the logical change set
+- description: Brief description of what this change set accomplishes  
+- changes: Array of file changes that belong to this logical change set (include all original classification data)
 
-The response will be automatically structured as a JSON object with a 'logical_change_sets' array."""
-    
+Group changes based on:
+- Commit message semantics and keywords
+- Related functionality or features
+- Shared components or modules
+- Sequential development tasks
+
+The response will be automatically structured."""
+
     @staticmethod
     def change_grouping_human_prompt(commits_with_classifications: List[Dict[str, Any]]) -> str:
         """Human prompt for change grouping"""
-        return f"""Analyze these commits with their file classifications and group related files into logical change sets:
+        return f"""Group these classified code changes into logical change sets:
 
-{commits_with_classifications}
+{json.dumps(commits_with_classifications, indent=2)}
 
-Group files that are semantically related across commits (e.g., files that implement the same feature, fix the same bug, etc.) into logical change sets. Each logical change set should have a descriptive name and contain the related file changes."""
-    
+Analyze the commit messages and file changes to identify related changes that serve the same logical purpose. Group them into meaningful change sets that represent coherent development tasks."""
+
+    # Step 3: Likelihood and Severity Assessment Prompts  
+    @staticmethod
+    def likelihood_severity_assessment_system_prompt() -> str:
+        """System prompt for assessing likelihood and severity of documentation impact findings"""
+        return """You are a software documentation analyst. Assess the likelihood and severity of documentation updates needed based on code changes and their traced impact on documentation elements.
+
+For each finding, assess:
+
+**Likelihood** (how likely the documentation needs updating):
+- "Very Likely": Direct impact, clear connection between code change and documentation element
+- "Likely": Strong indication that documentation needs updating
+- "Possibly": Some indication, but may not require immediate update
+- "Unlikely": Minimal indication that documentation needs updating
+
+**Severity** (how significant the documentation change would be):
+- "Fundamental": Complete rewrite or major restructuring of documentation section
+- "Major": Significant additions, deletions, or modifications to content
+- "Moderate": Noticeable changes to descriptions, examples, or procedures  
+- "Minor": Small updates, clarifications, or detail corrections
+- "Trivial": Very minor changes like typos, formatting, or trivial updates
+- "None": No change needed
+
+Consider:
+- Finding type (Standard_Impact, Documentation_Gap, Outdated_Documentation, Traceability_Anomaly)
+- Trace path type (Direct vs Indirect impact)
+- Nature and volume of the source code changes
+- Element type (DesignElement vs Requirement)
+
+**Special Consideration for Existing Documentation Updates:**
+- If documentation changes are provided in the context, analyze if they address the findings
+- Reduce likelihood if documentation has already been updated in the same logical change set
+- If documentation seems to address the finding, mark likelihood as "Unlikely" or "Possibly"
+- If documentation was updated but doesn't address the specific finding, keep original assessment
+- Documentation updates in the same change set indicate the developer was already aware of the impact
+
+Provide brief reasoning for each assessment."""
+
+    @staticmethod
+    def likelihood_severity_assessment_human_prompt(assessment_context: Dict[str, Any]) -> str:
+        """Human prompt for likelihood and severity assessment"""
+        findings = assessment_context.get("findings", [])
+        logical_change_sets = assessment_context.get("logical_change_sets", [])
+        documentation_changes = assessment_context.get("documentation_changes", [])
+        
+        doc_changes_section = ""
+        if documentation_changes:
+            doc_changes_section = f"""
+
+**Documentation Changes Already Made in This PR:**
+{json.dumps(documentation_changes, indent=2)}
+
+IMPORTANT: Consider these existing documentation updates when assessing likelihood and severity:
+- If documentation has already been updated in the same change set as the code change, reduce likelihood
+- If documentation updates seem to address the finding, mark likelihood as "Unlikely" or "Possibly"
+- If documentation was updated but doesn't seem to address the specific finding, keep original assessment"""
+        
+        return f"""Assess the likelihood and severity for each documentation impact finding:
+
+**Findings to assess:**
+{json.dumps(findings, indent=2)}
+
+**Context - Logical Change Sets:**
+{json.dumps(logical_change_sets, indent=2)}{doc_changes_section}
+
+For each finding, provide:
+- likelihood: One of "Very Likely", "Likely", "Possibly", "Unlikely"
+- severity: One of "Fundamental", "Major", "Moderate", "Minor", "Trivial", "None"  
+- reasoning: Brief explanation of your assessment
+
+Return a JSON object with an "assessments" array containing the likelihood and severity for each finding in the same order."""
+
     # Step 4: Recommendation Generation Prompts
     @staticmethod
     def recommendation_generation_system_prompt() -> str:

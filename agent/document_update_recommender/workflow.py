@@ -13,7 +13,7 @@ import httpx
 import subprocess
 import tempfile
 import fnmatch
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import JsonOutputParser
@@ -157,7 +157,7 @@ class DocumentUpdateRecommenderWorkflow:
         # Add nodes for each step of the 5-step process
         workflow.add_node("scan_pr", self._scan_pr)
         workflow.add_node("analyze_code_changes", self._analyze_code_changes)
-        # workflow.add_node("assess_documentation_impact", self._assess_documentation_impact)
+        workflow.add_node("assess_documentation_impact", self._assess_documentation_impact)
         # workflow.add_node("generate_and_post_recommendations", self._generate_and_post_recommendations)
         
         # Define workflow edges following the exact sequence
@@ -166,9 +166,8 @@ class DocumentUpdateRecommenderWorkflow:
             "analyze_code_changes": "analyze_code_changes",
             "end": END
         })
-        workflow.add_edge("analyze_code_changes", END)
-        # workflow.add_edge("scan_pr", "analyze_code_changes")
-        # workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
+        workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
+        workflow.add_edge("assess_documentation_impact", END)
         # workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
         # workflow.add_edge("generate_and_post_recommendations", END)
         
@@ -209,7 +208,7 @@ class DocumentUpdateRecommenderWorkflow:
     
     def _route_after_scan(self, state: DocumentUpdateRecommenderState) -> str:
         """Route after scan"""
-        if state.processing_stats["srs_count"] <= 0 and state.processing_stats["sdd_count"] <= 0 and state.processing_stats["commit_count"] <= 0 and state.processing_stats["files_changed"] <= 0:
+        if state.processing_stats["srs_count"] <= 0 or state.processing_stats["sdd_count"] <= 0 or state.processing_stats["commit_count"] <= 0 or state.processing_stats["files_changed"] <= 0:
             return "end"
         return "analyze_code_changes"
     
@@ -282,84 +281,82 @@ class DocumentUpdateRecommenderWorkflow:
         logger.info("Step 2: Analyzing code changes")
         
         # Step 2.1: Classify changes organized by commit
+        logger.info("Step 2.1: Classifying changes organized by commit")
         commits_with_classifications = await self._llm_classify_individual_changes(state.pr_event_data)
         state.classified_changes = commits_with_classifications
-        
-        print("COMMITS WITH CLASSIFICATIONS:", commits_with_classifications)
 
         # Step 2.2: Group classified changes into logical change sets
+        logger.info("Step 2.2: Grouping classified changes into logical change sets")
         logical_change_sets = await self._llm_group_classified_changes(
             commits_with_classifications,
             state.pr_event_data.get("commit_info", {})
         )
         state.logical_change_sets = logical_change_sets
         
-        print("LOGICAL CHANGE SETS:", logical_change_sets)
-        
-        total_files = sum(len(commit["classifications"]) for commit in commits_with_classifications)
+        total_files = sum(len(change_set["changes"]) for change_set in logical_change_sets)
         logger.info(f"Step 2: Successfully analyzed {total_files} file classifications across {len(commits_with_classifications)} commits into {len(logical_change_sets)} logical change sets")
+        
         return state
     
     async def _assess_documentation_impact(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
         Step 3: Assess Documentation Impact
         
-        Implements:
-        - Determine Traceability Status
-        - Impact Tracing through Map
-        - Combine Findings
-        - Assess Likelihood and Severity
+        Implements the comprehensive impact analysis process:
+        1. Determine Traceability Status and Detect Documentation Changes (combined)
+        2. Trace Code Impact Through Map  
+        3. Assess Likelihood and Severity (considering existing documentation updates)
         """
         logger.info("Step 3: Assessing documentation impact using traceability analysis")
         
         try:
-            # 3.1 Determine Traceability Status
+            # 3.1 Determine Traceability Status and Detect Documentation Changes
+            logger.info("Step 3.1: Determining traceability status and detecting documentation changes")
             baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, state.branch)
             if not baseline_map_data:
+                logger.warning("No baseline map found - terminating workflow")
                 return state    # Terminate workflow if no baseline map is found
-                
-            traceability_status = await self._determine_traceability_status(
-                state.logical_change_sets,
-                state.repository,
-                state.branch,
-                baseline_map_data
+            
+            state.baseline_map = baseline_map_data
+            
+            # Process all file changes in one pass to determine traceability status and detect documentation changes
+            changes_with_status, documentation_changes = await self._determine_traceability_status_and_detect_docs(
+                state.logical_change_sets, 
+                baseline_map_data,
+                state.document_content
             )
             
-            # 3.2 Trace Impact Through Map
-            # Get changes with traceability status modification, outdated, rename
-            changes_modification_outdated_rename = []
-            changes_gap_anomaly = []
-            for change in state.logical_change_sets:
-                status = change.get("traceability_status")
-                if status == "modification" or status == "outdated" or status == "rename":
-                    changes_modification_outdated_rename.append(change)
-                elif status == "gap" or status == "anomaly":
-                    changes_gap_anomaly.append(change)
-                    
-            # Get potentially impacted elements
-            potentially_impacted_elements = await self._trace_impact_through_map(
-                changes_modification_outdated_rename,
-                state.traceability_map
+            # 3.2 Trace Code Impact Through Map
+            logger.info("Step 3.2: Tracing code impact through baseline map")
+            # Get potentially impacted elements through traceability map tracing
+            # Process each logical change set separately to maintain source attribution
+            potentially_impacted_elements = await self._trace_code_impact_through_map(
+                changes_with_status,
+                baseline_map_data
             )
             state.potentially_impacted_elements = potentially_impacted_elements
             
-            # 3.3 Combine Findings
-            findings = potentially_impacted_elements + changes_gap_anomaly
-            
-            # 3.4 Assess Likelihood and Severity
-            prioritized_findings = await self._llm_assess_likelihood_and_severity(
-                findings,
-                state.logical_change_sets
+            # 3.3 Assess Likelihood and Severity (considering existing documentation updates)
+            logger.info("Step 3.3: Assessing likelihood and severity with consideration of existing documentation updates")
+            prioritized_findings = await self._assess_likelihood_and_severity(
+                potentially_impacted_elements,
+                state.logical_change_sets,
+                documentation_changes
             )
             state.prioritized_finding_list = prioritized_findings
             
             # Update processing statistics
             state.processing_stats.update({
                 "potentially_impacted_elements": len(potentially_impacted_elements),
+                "documentation_changes_detected": len(documentation_changes),
+                "total_findings": len(potentially_impacted_elements),
                 "prioritized_findings": len(prioritized_findings)
             })
             
-            logger.info(f"Identified {len(potentially_impacted_elements)} potentially impacted elements")
+            logger.info(f"Step 3: Successfully assessed documentation impact")
+            logger.info(f"  - {len(potentially_impacted_elements)} potentially impacted elements")
+            logger.info(f"  - {len(documentation_changes)} documentation changes detected in PR")
+            logger.info(f"  - {len(prioritized_findings)} prioritized findings")
             
         except Exception as e:
             error_msg = f"Step 3: Error assessing documentation impact: {str(e)}"
@@ -367,6 +364,400 @@ class DocumentUpdateRecommenderWorkflow:
             raise
         
         return state
+
+    async def _determine_traceability_status_and_detect_docs(self, logical_change_sets: List[Dict[str, Any]], baseline_map_data: BaselineMapModel, document_content: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Efficiently determine traceability status for code files and detect documentation changes in one pass.
+        
+        Traceability status:
+        - Addition + not in map = Gap
+        - Addition + in map = Anomaly (addition mapped) - treat as modification
+        - Deletion + in map = Outdated 
+        - Deletion + not in map = Anomaly (deletion unmapped)
+        - Modification + in map = Modification
+        - Modification + not in map = Anomaly (modification unmapped)
+        - Rename + old file in map = Rename
+        - Rename + old file not in map = Anomaly (rename unmapped)
+        
+        Returns:
+            tuple: (changes_with_status, documentation_changes)
+        """
+        # Convert baseline map to lookup structure for efficiency
+        code_component_lookup = set()
+        if baseline_map_data.code_to_design_mappings:
+            for mapping in baseline_map_data.code_to_design_mappings:
+                code_component_lookup.add(mapping.code_component_path)
+        
+        # Define patterns for SRS and SDD files
+        srs_patterns = [
+            "**/srs.md", "**/requirements.md", "**/software-requirements.md",
+            "**/SRS.md", "**/REQUIREMENTS.md", 
+            "srs.md", "requirements.md", "software-requirements.md"
+        ]
+        
+        sdd_patterns = [
+            "**/sdd.md", "**/design.md", "**/software-design.md", "**/architecture.md",
+            "**/SDD.md", "**/DESIGN.md", "**/ARCHITECTURE.md",
+            "sdd.md", "design.md", "software-design.md", "architecture.md"
+        ]
+        
+        changes_with_status = []
+        documentation_changes = []
+        
+        for change_set in logical_change_sets:
+            change_set_name = change_set.get("name", "Unknown Change Set")
+            new_change_set = {
+                "name": change_set_name,
+                "description": change_set["description"],
+                "changes": []
+            }
+            
+            for change in change_set.get("changes", []):
+                file_path = change.get("file", "")
+                change_type = change.get("type", "").lower()
+                
+                # Check if this is a documentation file
+                doc_type = None
+                if self._matches_patterns(file_path, srs_patterns):
+                    doc_type = "SRS"
+                elif self._matches_patterns(file_path, sdd_patterns):
+                    doc_type = "SDD"
+                
+                if doc_type:
+                    # This is a documentation file - add to documentation changes
+                    doc_change = {
+                        "file_path": file_path,
+                        "document_type": doc_type,
+                        "change_type": change_type,
+                        "scope": change.get("scope", ""),
+                        "nature": change.get("nature", ""),
+                        "volume": change.get("volume", ""),
+                        "source_change_set": change_set_name,
+                        "reasoning": change.get("reasoning", "")
+                    }
+                    documentation_changes.append(doc_change)
+                    
+                    # Also add to changes_with_status for completeness, but mark as documentation
+                    change_with_status = change.copy()
+                    change_with_status["traceability_status"] = "documentation_file"
+                    change_with_status["is_documentation"] = True
+                    new_change_set["changes"].append(change_with_status)
+                else:
+                    # This is a code file - determine traceability status
+                    traceability_status = self._get_traceability_status(
+                        change_type, 
+                        file_path, 
+                        code_component_lookup
+                    )
+                    
+                    # Add status to change record
+                    change_with_status = change.copy()
+                    change_with_status["traceability_status"] = traceability_status
+                    change_with_status["is_documentation"] = False
+                    new_change_set["changes"].append(change_with_status)
+            
+            changes_with_status.append(new_change_set)
+        
+        return changes_with_status, documentation_changes
+
+    def _get_traceability_status(self, change_type: str, file_path: str, code_component_lookup: set) -> str:
+        """
+        Get traceability status based on change type and baseline map presence.
+        
+        Returns status according to Table III.1 in BAB III.md.
+        """
+        is_in_baseline = file_path in code_component_lookup
+        
+        if change_type == "addition":
+            return "anomaly (addition unmapped)" if is_in_baseline else "gap"
+        elif change_type == "deletion":
+            return "outdated" if is_in_baseline else "anomaly (deletion unmapped)"
+        elif change_type == "modification":
+            return "modification" if is_in_baseline else "anomaly (modification unmapped)"
+        elif change_type == "rename":
+            # For rename, we should check if the old file name was in baseline
+            # For simplicity, using current file path - in practice would need old path
+            return "rename" if is_in_baseline else "anomaly (rename unmapped)"
+        else:
+            # Unknown change type - treat as anomaly
+            return "anomaly (unknown change type)"
+
+    async def _trace_code_impact_through_map(self, changes_with_status: List[Dict[str, Any]], baseline_map_data: BaselineMapModel) -> List[Dict[str, Any]]:
+        """
+        Trace code impact through the traceability map by processing each logical change set separately.
+        This ensures accurate source attribution even when the same file appears in multiple change sets.
+        
+        Process:
+        1. For each logical change set:
+           a. Identify Directly Impacted Design Elements (DIDE) and Outdated Design Elements (ODE)
+           b. Trace Indirect Impact on Design Elements (IIDE)
+           c. Combine to form Potentially Impacted Design Elements (PIDE)
+           d. Trace to Requirements (PIR and OR)
+           e. Form Finding Records with proper source attribution
+        2. Combine all findings from all change sets
+        """
+        all_findings = []
+        
+        # Create lookup structures for efficient access (build once, use for all change sets)
+        code_to_design_map = {}
+        design_to_design_map = {}
+        design_to_requirement_map = {}
+        
+        # Build code-to-design mapping
+        if baseline_map_data.code_to_design_mappings:
+            for mapping in baseline_map_data.code_to_design_mappings:
+                if mapping.code_component_path not in code_to_design_map:
+                    code_to_design_map[mapping.code_component_path] = []
+                code_to_design_map[mapping.code_component_path].append(mapping.design_element_id)
+        
+        # Build design-to-design mapping
+        if baseline_map_data.design_to_design_mappings:
+            for mapping in baseline_map_data.design_to_design_mappings:
+                if mapping.source_design_element_id not in design_to_design_map:
+                    design_to_design_map[mapping.source_design_element_id] = []
+                design_to_design_map[mapping.source_design_element_id].append(mapping.target_design_element_id)
+        
+        # Build design-to-requirement mapping  
+        if baseline_map_data.design_to_requirement_mappings:
+            for mapping in baseline_map_data.design_to_requirement_mappings:
+                if mapping.design_element_id not in design_to_requirement_map:
+                    design_to_requirement_map[mapping.design_element_id] = []
+                design_to_requirement_map[mapping.design_element_id].append(mapping.requirement_id)
+        
+        # Process each logical change set separately
+        for change_set in changes_with_status:
+            change_set_name = change_set.get("name", "Unknown Change Set")
+            change_set_findings = []
+            
+            # Identify Directly Impacted Design Elements (DIDE) and Outdated Design Elements (ODE) for this change set
+            dide = set()  # Directly Impacted Design Elements for this change set
+            ode = set()   # Outdated Design Elements for this change set
+            
+            # Process changes in this change set that need traceability map tracing
+            for change in change_set.get("changes", []):
+                file_path = change.get("file", "")
+                status = change.get("traceability_status", "")
+                
+                # Skip documentation files - they're handled separately
+                if change.get("is_documentation", False):
+                    continue
+                
+                # Only process changes that can be traced through the map
+                if status in ["modification", "anomaly (addition unmapped)", "rename", "outdated"]:
+                    if file_path in code_to_design_map:
+                        design_elements = code_to_design_map[file_path]
+                        
+                        if status in ["modification", "anomaly (addition unmapped)", "rename"]:
+                            dide.update(design_elements)
+                        elif status == "outdated":
+                            ode.update(design_elements)
+                
+                # Handle gap and anomaly findings directly for this change set
+                elif status in ["gap", "anomaly (addition unmapped)", "anomaly (deletion unmapped)", 
+                              "anomaly (modification unmapped)", "anomaly (rename unmapped)", "anomaly (unknown change type)"]:
+                    
+                    if status == "gap":
+                        finding_type = "Documentation_Gap"
+                    else:
+                        finding_type = "Traceability_Anomaly"
+                    
+                    finding = {
+                        "finding_type": finding_type,
+                        "affected_element_type": "CodeComponent",
+                        "affected_element_id": file_path,
+                        "trace_path_type": None,
+                        "source_change_set": change_set_name,
+                        "anomaly_type": status if finding_type == "Traceability_Anomaly" else None
+                    }
+                    change_set_findings.append(finding)
+            
+            # Trace Indirect Impact on Design Elements (IIDE) for this change set
+            iide = set()  # Indirectly Impacted Design Elements for this change set
+            
+            for design_element in dide:
+                if design_element in design_to_design_map:
+                    related_elements = design_to_design_map[design_element]
+                    iide.update(related_elements)
+            
+            # Combine to form Potentially Impacted Design Elements (PIDE) for this change set
+            pide = dide.union(iide)
+            
+            # Trace to Requirements for this change set
+            pir = set()  # Potentially Impacted Requirements for this change set
+            or_set = set()  # Outdated Requirements for this change set
+            
+            # Trace PIDE to requirements
+            for design_element in pide:
+                if design_element in design_to_requirement_map:
+                    requirements = design_to_requirement_map[design_element]
+                    pir.update(requirements)
+            
+            # Trace ODE to requirements  
+            for design_element in ode:
+                if design_element in design_to_requirement_map:
+                    requirements = design_to_requirement_map[design_element]
+                    or_set.update(requirements)
+            
+            # Form Finding Records for this change set
+            # Standard Impact findings for PIDE and PIR
+            for design_element in pide:
+                finding = {
+                    "finding_type": "Standard_Impact",
+                    "affected_element_type": "DesignElement", 
+                    "affected_element_id": design_element,
+                    "trace_path_type": "Direct" if design_element in dide else "Indirect",
+                    "source_change_set": change_set_name
+                }
+                change_set_findings.append(finding)
+            
+            for requirement in pir:
+                finding = {
+                    "finding_type": "Standard_Impact",
+                    "affected_element_type": "Requirement",
+                    "affected_element_id": requirement, 
+                    "trace_path_type": "Direct",
+                    "source_change_set": change_set_name
+                }
+                change_set_findings.append(finding)
+            
+            # Outdated Documentation findings for ODE and OR
+            for design_element in ode:
+                finding = {
+                    "finding_type": "Outdated_Documentation",
+                    "affected_element_type": "DesignElement",
+                    "affected_element_id": design_element,
+                    "trace_path_type": None,
+                    "source_change_set": change_set_name
+                }
+                change_set_findings.append(finding)
+            
+            for requirement in or_set:
+                finding = {
+                    "finding_type": "Outdated_Documentation", 
+                    "affected_element_type": "Requirement",
+                    "affected_element_id": requirement,
+                    "trace_path_type": None,
+                    "source_change_set": change_set_name
+                }
+                change_set_findings.append(finding)
+            
+            # Add all findings from this change set to the overall findings
+            all_findings.extend(change_set_findings)
+        
+        return all_findings
+
+    async def _assess_likelihood_and_severity(self, findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Assess likelihood and severity for each finding using LLM, considering existing documentation updates.
+        
+        Likelihood values: Very Likely, Likely, Possibly, Unlikely
+        Severity values: None, Trivial, Minor, Moderate, Major, Fundamental
+        """
+        try:
+            # Create structured assessment for LLM including documentation changes
+            assessment_context = {
+                "findings": findings,
+                "logical_change_sets": logical_change_sets,
+                "documentation_changes": documentation_changes
+            }
+            
+            # Get prompts for likelihood and severity assessment
+            system_message = prompts.likelihood_severity_assessment_system_prompt()
+            human_prompt = prompts.likelihood_severity_assessment_human_prompt(assessment_context)
+            
+            # Generate assessment using LLM
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                system_message=system_message,
+                task_type="impact_assessment",
+                output_format="json",
+                temperature=0.1  # Low temperature for consistent assessment
+            )
+            
+            # Parse the response and add likelihood/severity to findings
+            if isinstance(response.content, dict) and "assessments" in response.content:
+                assessments = response.content["assessments"]
+                
+                # Match assessments back to findings
+                for i, finding in enumerate(findings):
+                    if i < len(assessments):
+                        assessment = assessments[i]
+                        finding["likelihood"] = assessment.get("likelihood", "Possibly")
+                        finding["severity"] = assessment.get("severity", "Minor") 
+                        finding["reasoning"] = assessment.get("reasoning", "")
+            else:
+                # Fallback to default values if LLM response is unexpected
+                logger.warning("Unexpected LLM response format for likelihood/severity assessment, using defaults")
+                for finding in findings:
+                    finding["likelihood"] = self._get_default_likelihood(finding)
+                    finding["severity"] = self._get_default_severity(finding)
+                    finding["reasoning"] = "Default assessment due to LLM response issue"
+            
+            # Filter findings based on minimum thresholds
+            filtered_findings = []
+            for finding in findings:
+                if self._meets_minimum_criteria(finding):
+                    filtered_findings.append(finding)
+            
+            return filtered_findings
+            
+        except Exception as e:
+            logger.error(f"Error in likelihood/severity assessment: {str(e)}")
+            # Fallback to default assessment
+            for finding in findings:
+                finding["likelihood"] = self._get_default_likelihood(finding)
+                finding["severity"] = self._get_default_severity(finding) 
+                finding["reasoning"] = f"Default assessment due to error: {str(e)}"
+            
+            return findings
+    
+    def _get_default_likelihood(self, finding: Dict[str, Any]) -> str:
+        """Get default likelihood based on finding type and characteristics"""
+        finding_type = finding.get("finding_type", "")
+        trace_path = finding.get("trace_path_type", "")
+        
+        if finding_type == "Documentation_Gap":
+            return "Likely"
+        elif finding_type == "Outdated_Documentation":
+            return "Very Likely" 
+        elif finding_type == "Traceability_Anomaly":
+            return "Likely"
+        elif finding_type == "Standard_Impact":
+            return "Very Likely" if trace_path == "Direct" else "Possibly"
+        else:
+            return "Possibly"
+    
+    def _get_default_severity(self, finding: Dict[str, Any]) -> str:
+        """Get default severity based on finding type and characteristics"""
+        finding_type = finding.get("finding_type", "")
+        element_type = finding.get("affected_element_type", "")
+        
+        if finding_type == "Documentation_Gap":
+            return "Moderate" if element_type == "DesignElement" else "Minor"
+        elif finding_type == "Outdated_Documentation":
+            return "Major"
+        elif finding_type == "Traceability_Anomaly":
+            return "Moderate"
+        elif finding_type == "Standard_Impact":
+            return "Moderate" if element_type == "Requirement" else "Minor"
+        else:
+            return "Minor"
+    
+    def _meets_minimum_criteria(self, finding: Dict[str, Any]) -> bool:
+        """Check if finding meets minimum criteria for inclusion"""
+        likelihood = finding.get("likelihood", "")
+        severity = finding.get("severity", "")
+        finding_type = finding.get("finding_type", "")
+        
+        # Always include certain critical finding types
+        if finding_type in ["Documentation_Gap", "Outdated_Documentation", "Traceability_Anomaly"]:
+            return True
+        
+        # For Standard_Impact, check minimum thresholds
+        likelihood_threshold = likelihood in ["Very Likely", "Likely", "Possibly"]
+        severity_threshold = severity in ["Fundamental", "Major", "Moderate", "Minor"]
+        
+        return likelihood_threshold and severity_threshold
     
     async def _generate_and_post_recommendations(self, state: DocumentUpdateRecommenderState) -> DocumentUpdateRecommenderState:
         """
@@ -918,8 +1309,6 @@ class DocumentUpdateRecommenderWorkflow:
             List of commits with their classifications
         """
         try:
-            logger.info(f"Step 2.1: Classifying code changes from complete PR data")
-
             # Create output parser for JSON format
             output_parser = JsonOutputParser(pydantic_object=BatchClassificationOutput)
 
@@ -959,9 +1348,6 @@ class DocumentUpdateRecommenderWorkflow:
                 
                 commits_with_classifications.append(commit_dict)
             
-            total_files = sum(len(commit["classifications"]) for commit in commits_with_classifications)
-            logger.info(f"Step 2.1: Successfully classified {total_files} file classifications across {len(commits_with_classifications)} commits")
-            
             return commits_with_classifications
             
         except Exception as e:
@@ -984,8 +1370,6 @@ class DocumentUpdateRecommenderWorkflow:
             List of logical change sets with grouped changes
         """
         try:
-            logger.info(f"Step 2.2: Grouping classified changes into logical change sets")
-            
             # Create output parser for JSON format
             output_parser = JsonOutputParser(pydantic_object=ChangeGroupingOutput)
 
@@ -1014,29 +1398,12 @@ class DocumentUpdateRecommenderWorkflow:
                     "changes": change_set["changes"]
                 })
             
-            total_files = sum(len(change_set["changes"]) for change_set in logical_change_sets)
-            logger.info(f"Step 2.2: Successfully grouped {total_files} changes into {len(logical_change_sets)} logical change sets using structured commit semantics")
             return logical_change_sets
                 
         except Exception as e:
             err_message = f"Step 2.2: Error in _llm_group_classified_changes: {str(e)}"
             self.state.errors.append(err_message)
             raise
-    
-    async def _determine_traceability_status(self, logical_change_sets: List[Dict[str, Any]], repository: str, branch: str, baseline_map_data: Optional[BaselineMapModel]) -> Dict[str, Any]:
-        """Determine if traceability status is available and if it's sufficient"""
-        # Placeholder implementation
-        return {"traceability_status": "sufficient", "details": "Traceability map available"}
-    
-    async def _trace_impact_through_map(self, changes_modification_outdated_rename: List[Dict[str, Any]], traceability_map: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Trace impact through the traceability map"""
-        # Placeholder implementation
-        return [{"element_id": "req1", "element_type": "Requirement", "impact_reason": "Code changes in src/auth/service.py", "likelihood": 0.9, "severity": "High", "change_details": {"file": "src/auth/service.py", "additions": 15, "deletions": 3}}]
-    
-    async def _llm_assess_likelihood_and_severity(self, combined_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Assess likelihood and severity for each combined finding"""
-        # Placeholder implementation
-        return [{"element_id": "req1", "element_type": "Requirement", "impact_reason": "Code changes in src/auth/service.py", "likelihood": 0.9, "severity": "High", "change_details": {"file": "src/auth/service.py", "additions": 15, "deletions": 3}}]
     
     async def _filter_high_priority_findings(self, prioritized_findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Filter findings to include only high-priority ones"""
