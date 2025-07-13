@@ -1743,14 +1743,15 @@ class DocumentUpdateRecommenderWorkflow:
             else:
                 rec_type = RecommendationType.UPDATE
             
-            # Map priority  
+            # Map priority (priority is a string field, not an enum)
             priority_str = suggestion.get('priority', 'MEDIUM').upper()
-            if priority_str == 'HIGH':
-                priority = RecommendationStatus.HIGH
-            elif priority_str == 'LOW':
-                priority = RecommendationStatus.LOW
+            # Normalize priority values
+            if priority_str in ['HIGH', 'CRITICAL']:
+                priority = 'HIGH'
+            elif priority_str in ['LOW', 'MINOR']:
+                priority = 'LOW'
             else:
-                priority = RecommendationStatus.MEDIUM
+                priority = 'MEDIUM'
             
             return DocumentationRecommendationModel(
                 target_document=suggestion.get('target_document', 'Unknown'),
@@ -1774,7 +1775,7 @@ class DocumentUpdateRecommenderWorkflow:
                 target_document="Unknown",
                 section="Unknown", 
                 recommendation_type=RecommendationType.REVIEW,
-                priority=RecommendationStatus.MEDIUM,
+                priority="MEDIUM",  # String value, not enum
                 what_to_update="Error creating recommendation",
                 where_to_update="Unknown",
                 why_update_needed="Error occurred",
