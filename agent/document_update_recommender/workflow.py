@@ -1023,8 +1023,7 @@ class DocumentUpdateRecommenderWorkflow:
                         "count": len(enhanced_commits)
                     }
                 }
-                
-                logger.info(f"Step 1.1: Successfully fetched PR event data from GitHub REST API for {repository}:{pr_number}")
+
                 return structured_data
                 
         except Exception as e:
@@ -1066,8 +1065,6 @@ class DocumentUpdateRecommenderWorkflow:
             "sdd_content": sdd_content,
             "srs_content": srs_content,
         }
-        
-        logger.info(f"Step 1.2: Successfully fetched {len(srs_content)} SRS files and {len(sdd_content)} SDD files")
         
         return document_content         
     
