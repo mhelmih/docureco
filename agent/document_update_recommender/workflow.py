@@ -167,9 +167,8 @@ class DocumentUpdateRecommenderWorkflow:
             "end": END
         })
         workflow.add_edge("analyze_code_changes", "assess_documentation_impact")
-        workflow.add_edge("assess_documentation_impact", END)
-        # workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
-        # workflow.add_edge("generate_and_post_recommendations", END)
+        workflow.add_edge("assess_documentation_impact", "generate_and_post_recommendations")
+        workflow.add_edge("generate_and_post_recommendations", END)
         
         return workflow
     
