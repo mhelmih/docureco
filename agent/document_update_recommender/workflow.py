@@ -391,9 +391,9 @@ class DocumentUpdateRecommenderWorkflow:
         """
         # Convert baseline map to lookup structure for efficiency
         code_component_lookup = set()
-        if baseline_map_data.code_to_design_mappings:
-            for mapping in baseline_map_data.code_to_design_mappings:
-                code_component_lookup.add(mapping.code_component_path)
+        if baseline_map_data.code_components:
+            for component in baseline_map_data.code_components:
+                code_component_lookup.add(component.path)
         
         # Define patterns for SRS and SDD files
         srs_patterns = [
@@ -510,26 +510,52 @@ class DocumentUpdateRecommenderWorkflow:
         design_to_design_map = {}
         design_to_requirement_map = {}
         
-        # Build code-to-design mapping
-        if baseline_map_data.code_to_design_mappings:
-            for mapping in baseline_map_data.code_to_design_mappings:
-                if mapping.code_component_path not in code_to_design_map:
-                    code_to_design_map[mapping.code_component_path] = []
-                code_to_design_map[mapping.code_component_path].append(mapping.design_element_id)
+        # Create path-to-component-id mapping for efficient lookups
+        path_to_component_id = {}
+        if baseline_map_data.code_components:
+            for component in baseline_map_data.code_components:
+                path_to_component_id[component.path] = component.id
         
-        # Build design-to-design mapping
-        if baseline_map_data.design_to_design_mappings:
-            for mapping in baseline_map_data.design_to_design_mappings:
-                if mapping.source_design_element_id not in design_to_design_map:
-                    design_to_design_map[mapping.source_design_element_id] = []
-                design_to_design_map[mapping.source_design_element_id].append(mapping.target_design_element_id)
-        
-        # Build design-to-requirement mapping  
-        if baseline_map_data.design_to_requirement_mappings:
-            for mapping in baseline_map_data.design_to_requirement_mappings:
-                if mapping.design_element_id not in design_to_requirement_map:
-                    design_to_requirement_map[mapping.design_element_id] = []
-                design_to_requirement_map[mapping.design_element_id].append(mapping.requirement_id)
+        # Build mappings from traceability links (handling many-to-many relationships)
+        if baseline_map_data.traceability_links:
+            for link in baseline_map_data.traceability_links:
+                # Code-to-design mapping (bidirectional)
+                if link.source_type == "CodeComponent" and link.target_type == "DesignElement":
+                    if link.source_id not in code_to_design_map:
+                        code_to_design_map[link.source_id] = []
+                    if link.target_id not in code_to_design_map[link.source_id]:
+                        code_to_design_map[link.source_id].append(link.target_id)
+                elif link.source_type == "DesignElement" and link.target_type == "CodeComponent":
+                    if link.target_id not in code_to_design_map:
+                        code_to_design_map[link.target_id] = []
+                    if link.source_id not in code_to_design_map[link.target_id]:
+                        code_to_design_map[link.target_id].append(link.source_id)
+                
+                # Design-to-design mapping (bidirectional)
+                elif link.source_type == "DesignElement" and link.target_type == "DesignElement":
+                    # Source -> Target
+                    if link.source_id not in design_to_design_map:
+                        design_to_design_map[link.source_id] = []
+                    if link.target_id not in design_to_design_map[link.source_id]:
+                        design_to_design_map[link.source_id].append(link.target_id)
+                    
+                    # Target -> Source (bidirectional)
+                    if link.target_id not in design_to_design_map:
+                        design_to_design_map[link.target_id] = []
+                    if link.source_id not in design_to_design_map[link.target_id]:
+                        design_to_design_map[link.target_id].append(link.source_id)
+                
+                # Design-to-requirement mapping (bidirectional)
+                elif link.source_type == "DesignElement" and link.target_type == "Requirement":
+                    if link.source_id not in design_to_requirement_map:
+                        design_to_requirement_map[link.source_id] = []
+                    if link.target_id not in design_to_requirement_map[link.source_id]:
+                        design_to_requirement_map[link.source_id].append(link.target_id)
+                elif link.source_type == "Requirement" and link.target_type == "DesignElement":
+                    if link.target_id not in design_to_requirement_map:
+                        design_to_requirement_map[link.target_id] = []
+                    if link.source_id not in design_to_requirement_map[link.target_id]:
+                        design_to_requirement_map[link.target_id].append(link.source_id)
         
         # Process each logical change set separately
         for change_set in changes_with_status:
@@ -551,13 +577,15 @@ class DocumentUpdateRecommenderWorkflow:
                 
                 # Only process changes that can be traced through the map
                 if status in ["modification", "anomaly (addition unmapped)", "rename", "outdated"]:
-                    if file_path in code_to_design_map:
-                        design_elements = code_to_design_map[file_path]
-                        
-                        if status in ["modification", "anomaly (addition unmapped)", "rename"]:
-                            dide.update(design_elements)
-                        elif status == "outdated":
-                            ode.update(design_elements)
+                    if file_path in path_to_component_id:
+                        component_id = path_to_component_id[file_path]
+                        if component_id in code_to_design_map:
+                            design_elements = code_to_design_map[component_id]
+                            
+                            if status in ["modification", "anomaly (addition unmapped)", "rename"]:
+                                dide.update(design_elements)
+                            elif status == "outdated":
+                                ode.update(design_elements)
                 
                 # Handle gap and anomaly findings directly for this change set
                 elif status in ["gap", "anomaly (addition unmapped)", "anomaly (deletion unmapped)", 
