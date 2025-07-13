@@ -758,40 +758,59 @@ class DocumentUpdateRecommenderWorkflow:
         logger.info("Step 4: Generating and posting documentation recommendations")
         
         try:
+            logger.info(f"PRIORITIZED FINDINGS: {state.prioritized_finding_list}")
+            
             # 4.1 Filter High-Priority Findings
+            logger.info("Step 4.1: Filtering high-priority findings")
             filtered_findings = await self._filter_high_priority_findings(
                 state.prioritized_finding_list
             )
             state.filtered_high_priority_findings = filtered_findings
             
+            logger.info(f"FILTERED FINDINGS: {state.filtered_high_priority_findings}")
+            
             # 4.2 Query Existing Suggestions
+            logger.info("Step 4.2: Fetching existing suggestions")
             existing_suggestions = await self._query_existing_suggestions(
                 state.repository,
                 state.pr_number
             )
             state.existing_suggestions = existing_suggestions
             
+            logger.info(f"EXISTING SUGGESTIONS: {state.existing_suggestions}")
+            
             # 4.3 Fetch Current Documentation Context
+            logger.info("Step 4.3: Fetching current documentation context")
             current_docs = await self._fetch_current_documentation(
                 state.document_content,
                 filtered_findings
             )
             
+            logger.info(f"CURRENT DOCS: {current_docs}")
+            
             # 4.4 Findings Iteration & Suggestion Generation
+            logger.info("Step 4.4: Generating suggestions")
             generated_suggestions = await self._llm_generate_suggestions(
                 filtered_findings,
                 current_docs,
                 state.logical_change_sets
             )
+            
+            logger.info(f"GENERATED SUGGESTIONS: {generated_suggestions}")
+            
             state.generated_suggestions = generated_suggestions
             
             # 4.5 Filter Against Existing & Post Details
+            logger.info("Step 4.5: Filtering and posting suggestions")
             final_recommendations = await self._llm_filter_and_post_suggestions(
                 generated_suggestions,
                 existing_suggestions,
                 state.repository,
                 state.pr_number
             )
+            
+            logger.info(f"FINAL RECOMMENDATIONS: {final_recommendations}")
+            
             state.recommendations = final_recommendations
             
             # Update processing statistics
