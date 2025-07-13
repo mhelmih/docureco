@@ -326,9 +326,6 @@ class DocumentUpdateRecommenderWorkflow:
                 state.document_content
             )
             
-            print("CHANGES WITH STATUS: ", changes_with_status)
-            print("DOCUMENTATION CHANGES: ", documentation_changes)
-            
             # 3.2 Trace Code Impact Through Map
             logger.info("Step 3.2: Tracing code impact through baseline map")
             # Get potentially impacted elements through traceability map tracing
@@ -339,8 +336,6 @@ class DocumentUpdateRecommenderWorkflow:
             )
             state.potentially_impacted_elements = potentially_impacted_elements
             
-            print("POTENTIALLY IMPACTED ELEMENTS: ", potentially_impacted_elements)
-            
             # 3.3 Assess Likelihood and Severity (considering existing documentation updates)
             logger.info("Step 3.3: Assessing likelihood and severity with consideration of existing documentation updates")
             prioritized_findings = await self._assess_likelihood_and_severity(
@@ -349,8 +344,6 @@ class DocumentUpdateRecommenderWorkflow:
                 documentation_changes
             )
             state.prioritized_finding_list = prioritized_findings
-            
-            print("PRIORITIZED FINDINGS: ", prioritized_findings)
             
             # Update processing statistics
             state.processing_stats.update({
@@ -721,12 +714,7 @@ class DocumentUpdateRecommenderWorkflow:
                         finding["severity"] = assessment.get("severity", "Minor") 
                         finding["reasoning"] = assessment.get("reasoning", "")
             else:
-                # Fallback to default values if LLM response is unexpected
-                logger.warning("Unexpected LLM response format for likelihood/severity assessment, using defaults")
-                for finding in findings:
-                    finding["likelihood"] = self._get_default_likelihood(finding)
-                    finding["severity"] = self._get_default_severity(finding)
-                    finding["reasoning"] = "Default assessment due to LLM response issue"
+                raise ValueError("Unexpected LLM response format for likelihood/severity assessment")
             
             # Filter findings based on minimum thresholds
             filtered_findings = []
@@ -737,46 +725,9 @@ class DocumentUpdateRecommenderWorkflow:
             return filtered_findings
             
         except Exception as e:
-            logger.error(f"Error in likelihood/severity assessment: {str(e)}")
-            # Fallback to default assessment
-            for finding in findings:
-                finding["likelihood"] = self._get_default_likelihood(finding)
-                finding["severity"] = self._get_default_severity(finding) 
-                finding["reasoning"] = f"Default assessment due to error: {str(e)}"
-            
-            return findings
-    
-    def _get_default_likelihood(self, finding: Dict[str, Any]) -> str:
-        """Get default likelihood based on finding type and characteristics"""
-        finding_type = finding.get("finding_type", "")
-        trace_path = finding.get("trace_path_type", "")
-        
-        if finding_type == "Documentation_Gap":
-            return "Likely"
-        elif finding_type == "Outdated_Documentation":
-            return "Very Likely" 
-        elif finding_type == "Traceability_Anomaly":
-            return "Likely"
-        elif finding_type == "Standard_Impact":
-            return "Very Likely" if trace_path == "Direct" else "Possibly"
-        else:
-            return "Possibly"
-    
-    def _get_default_severity(self, finding: Dict[str, Any]) -> str:
-        """Get default severity based on finding type and characteristics"""
-        finding_type = finding.get("finding_type", "")
-        element_type = finding.get("affected_element_type", "")
-        
-        if finding_type == "Documentation_Gap":
-            return "Moderate" if element_type == "DesignElement" else "Minor"
-        elif finding_type == "Outdated_Documentation":
-            return "Major"
-        elif finding_type == "Traceability_Anomaly":
-            return "Moderate"
-        elif finding_type == "Standard_Impact":
-            return "Moderate" if element_type == "Requirement" else "Minor"
-        else:
-            return "Minor"
+            error_msg = f"Step 3: Error in likelihood/severity assessment: {str(e)}"
+            self.state.errors.append(error_msg)
+            raise ValueError(error_msg)
     
     def _meets_minimum_criteria(self, finding: Dict[str, Any]) -> bool:
         """Check if finding meets minimum criteria for inclusion"""
@@ -1441,42 +1392,416 @@ class DocumentUpdateRecommenderWorkflow:
             raise
     
     async def _filter_high_priority_findings(self, prioritized_findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Filter findings to include only high-priority ones"""
-        # Placeholder implementation
-        return [{"element_id": "req1", "element_type": "Requirement", "impact_reason": "Code changes in src/auth/service.py", "likelihood": 0.9, "severity": "High", "change_details": {"file": "src/auth/service.py", "additions": 15, "deletions": 3}}]
+        """
+        Filter findings to include only high-priority ones based on the criteria:
+        - Likelihood >= 'Possibly' AND Severity >= 'Minor' 
+        - OR critical finding types (Documentation_Gap, Outdated_Documentation, Traceability_Anomaly)
+        """
+        filtered_findings = []
+        
+        for finding in prioritized_findings:
+            likelihood = finding.get("likelihood", "")
+            severity = finding.get("severity", "")
+            finding_type = finding.get("finding_type", "")
+            
+            # Always include critical finding types
+            if finding_type in ["Documentation_Gap", "Outdated_Documentation", "Traceability_Anomaly"]:
+                filtered_findings.append(finding)
+                continue
+            
+            # For Standard_Impact, check minimum thresholds
+            likelihood_meets_threshold = likelihood in ["Very Likely", "Likely", "Possibly"]
+            severity_meets_threshold = severity in ["Fundamental", "Major", "Moderate", "Minor"]
+            
+            if likelihood_meets_threshold and severity_meets_threshold:
+                filtered_findings.append(finding)
+                
+        return filtered_findings
     
     async def _query_existing_suggestions(self, repository: str, pr_number: int) -> List[Dict[str, Any]]:
-        """Query existing documentation suggestions for the PR"""
-        # Placeholder implementation
-        return [{"target_document": "SRS.md", "section": "3.1 Authentication", "type": "UPDATE", "priority": "High", "what": "Update authentication requirements", "where": "Section 3.1.2", "why": "New authentication method added", "how": "Add specification for new auth method"}]
+        """
+        Query existing documentation suggestions for the PR by fetching previous agent comments.
+        This prevents posting duplicate recommendations.
+        """
+        try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                logger.warning("GITHUB_TOKEN not found, cannot fetch existing suggestions")
+                return []
+            
+            # Parse repository owner and name
+            owner, repo_name = repository.split("/")
+            
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Get all comments on the PR
+                comments_response = await client.get(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
+                    headers=headers
+                )
+                comments_response.raise_for_status()
+                comments_data = comments_response.json()
+                
+                # Filter for comments made by the bot/agent (GitHub Actions bot)
+                bot_comments = []
+                for comment in comments_data:
+                    # Check if comment is from GitHub Actions bot or contains our agent signature
+                    user_login = comment.get("user", {}).get("login", "")
+                    comment_body = comment.get("body", "")
+                    
+                    # Look for our agent's signature or GitHub Actions bot
+                    if (user_login == "github-actions[bot]" or 
+                        "Docureco Agent" in comment_body or
+                        "Documentation Update Recommendation" in comment_body):
+                        
+                        bot_comments.append({
+                            "id": comment.get("id"),
+                            "body": comment_body,
+                            "created_at": comment.get("created_at"),
+                            "updated_at": comment.get("updated_at")
+                        })
+                        
+                return bot_comments
+                
+        except Exception as e:
+            logger.error(f"Error fetching existing suggestions: {str(e)}")
+            return []
     
     async def _fetch_current_documentation(self, repo_content: Dict[str, Any], filtered_findings: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Fetch current documentation context for suggestions"""
-        # Placeholder implementation
-        return {"SRS.md": {"content": "Authentication requirements are defined in Section 3.1.2."}}
+        """
+        Fetch current documentation context for suggestions.
+        Returns relevant SRS and SDD content based on the findings.
+        """
+        current_docs = {}
+        
+        try:
+            # Extract SRS and SDD content from repo_content
+            srs_content = repo_content.get("srs_content", {})
+            sdd_content = repo_content.get("sdd_content", {})
+            
+            # Add all SRS files to current docs
+            for file_path, content in srs_content.items():
+                current_docs[file_path] = {
+                    "document_type": "SRS",
+                    "content": content
+                }
+            
+            # Add all SDD files to current docs  
+            for file_path, content in sdd_content.items():
+                current_docs[file_path] = {
+                    "document_type": "SDD", 
+                    "content": content
+                }
+            
+            logger.info(f"Fetched current documentation context: {len(srs_content)} SRS files, {len(sdd_content)} SDD files")
+            return current_docs
+            
+        except Exception as e:
+            logger.error(f"Error fetching current documentation: {str(e)}")
+            return {}
     
     async def _llm_generate_suggestions(self, filtered_findings: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Generate specific documentation update recommendations using LLM"""
-        # Placeholder implementation
-        return [{"target_document": "SRS.md", "section": "3.1 Authentication", "type": "UPDATE", "priority": "High", "what": "Update authentication requirements", "where": "Section 3.1.2", "why": "New authentication method added", "how": "Add specification for new auth method"}]
+        """
+        Generate specific documentation update recommendations using LLM.
+        Iterates through each finding and generates actionable recommendations based on finding type.
+        """
+        all_suggestions = []
+        
+        try:
+            for finding in filtered_findings:
+                try:
+                    # Determine action based on finding type (per BAB III.md Table III.2)
+                    finding_type = finding.get("finding_type", "")
+                    if finding_type == "Standard_Impact":
+                        action = "Modification" 
+                    elif finding_type == "Outdated_Documentation":
+                        action = "Review/Delete"
+                    elif finding_type == "Documentation_Gap":
+                        action = "Create"
+                    elif finding_type == "Traceability_Anomaly":
+                        action = "Investigate Map"
+                    else:
+                        action = "Review"
+                    
+                    # Create comprehensive context for LLM
+                    recommendation_context = {
+                        "finding": finding,
+                        "action": action,
+                        "logical_change_sets": logical_change_sets,
+                        "current_documentation": current_docs
+                    }
+                    
+                    # Get prompts for recommendation generation
+                    system_message = prompts.recommendation_generation_system_prompt()
+                    human_prompt = prompts.recommendation_generation_human_prompt(recommendation_context)
+                    
+                    # Generate recommendation using LLM
+                    response = await self.llm_client.generate_response(
+                        prompt=human_prompt,
+                        system_message=system_message,
+                        task_type="recommendation_generation",
+                        output_format="json",
+                        temperature=0.2  # Slightly higher for more creative recommendations
+                    )
+                    
+                    # Parse the response
+                    if isinstance(response.content, dict) and "recommendation" in response.content:
+                        suggestion = response.content["recommendation"]
+                        suggestion["finding_id"] = finding.get("affected_element_id", "")
+                        suggestion["finding_type"] = finding_type
+                        suggestion["source_change_set"] = finding.get("source_change_set", "")
+                        all_suggestions.append(suggestion)
+                    else:
+                        logger.warning(f"Unexpected LLM response format for finding {finding.get('affected_element_id', 'unknown')}")
+                        
+                except Exception as e:
+                    logger.error(f"Error generating suggestion for finding {finding.get('affected_element_id', 'unknown')}: {str(e)}")
+                    continue
+            
+            logger.info(f"Generated {len(all_suggestions)} suggestions from {len(filtered_findings)} findings")
+            return all_suggestions
+            
+        except Exception as e:
+            logger.error(f"Error in LLM suggestion generation: {str(e)}")
+            return []
     
     async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int) -> List[DocumentationRecommendationModel]:
-        """Filter generated suggestions against existing ones and post details"""
-        # Placeholder implementation
-        return [DocumentationRecommendationModel(
-            target_document="SRS.md",
-            section="3.1 Authentication",
-            recommendation_type=RecommendationType.UPDATE,
-            priority=RecommendationStatus.HIGH,
-            what_to_update="Update authentication requirements",
-            where_to_update="Section 3.1.2",
-            why_update_needed="New authentication method added",
-            how_to_update="Add specification for new auth method",
-            affected_element_id="req1",
-            affected_element_type="Requirement",
-            confidence_score=0.9,
-            status=RecommendationStatus.PENDING
-        )]
+        """
+        Filter generated suggestions against existing ones and post new recommendations to PR.
+        Implements duplication filtering and CI/CD status management per BAB III.md.
+        """
+        try:
+            # Filter out duplicate suggestions by comparing with existing ones
+            new_suggestions = []
+            existing_bodies = [comment.get("body", "") for comment in existing_suggestions]
+            
+            for suggestion in generated_suggestions:
+                # Create suggestion content for comparison
+                suggestion_content = f"""
+                **Target Document**: {suggestion.get('target_document', 'Unknown')}
+                **Section**: {suggestion.get('section', 'Unknown')}
+                **Action**: {suggestion.get('recommendation_type', 'Unknown')}
+                **What**: {suggestion.get('what_to_update', '')}
+                **Where**: {suggestion.get('where_to_update', '')}
+                **Why**: {suggestion.get('why_update_needed', '')}
+                **How**: {suggestion.get('how_to_update', '')}
+                """
+                
+                # Simple duplicate check - in production, could use semantic similarity
+                is_duplicate = False
+                for existing_body in existing_bodies:
+                    if (suggestion.get('target_document', '') in existing_body and 
+                        suggestion.get('section', '') in existing_body and
+                        suggestion.get('what_to_update', '') in existing_body):
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
+                    new_suggestions.append(suggestion)
+            
+            logger.info(f"Filtered {len(generated_suggestions)} suggestions to {len(new_suggestions)} new suggestions")
+            
+            # Post new suggestions as PR comments
+            posted_recommendations = []
+            critical_recommendations = 0
+            
+            for suggestion in new_suggestions:
+                try:
+                    # Create formatted comment for the PR
+                    comment_body = self._format_recommendation_comment(suggestion)
+                    
+                    # Post comment to GitHub PR
+                    comment_posted = await self._post_pr_comment(repository, pr_number, comment_body)
+                    
+                    if comment_posted:
+                        # Convert to DocumentationRecommendationModel
+                        recommendation = self._create_recommendation_model(suggestion)
+                        posted_recommendations.append(recommendation)
+                        
+                        # Count critical recommendations for CI/CD status
+                        if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
+                            critical_recommendations += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error posting suggestion: {str(e)}")
+                    continue
+            
+            # Update CI/CD check status based on recommendations
+            await self._update_ci_cd_status(repository, pr_number, critical_recommendations, len(posted_recommendations))
+            
+            logger.info(f"Posted {len(posted_recommendations)} new recommendations ({critical_recommendations} critical)")
+            return posted_recommendations
+            
+        except Exception as e:
+            logger.error(f"Error in filter and post suggestions: {str(e)}")
+            return []
+    
+    def _format_recommendation_comment(self, suggestion: Dict[str, Any]) -> str:
+        """Format a recommendation as a GitHub comment with proper markdown formatting."""
+        finding_type = suggestion.get('finding_type', 'Unknown')
+        priority = suggestion.get('priority', 'Medium')
+        
+        # Create icon based on priority
+        if priority.upper() == 'HIGH':
+            icon = "🔴"
+        elif priority.upper() == 'MEDIUM': 
+            icon = "🟡"
+        else:
+            icon = "🟢"
+        
+        comment_body = f"""## {icon} Docureco Agent - Documentation Update Recommendation
+
+**Finding Type**: {finding_type}  
+**Priority**: {priority}  
+**Target Document**: `{suggestion.get('target_document', 'Unknown')}`  
+**Section**: {suggestion.get('section', 'Unknown')}  
+
+### 📝 What needs to be updated
+{suggestion.get('what_to_update', 'No description provided')}
+
+### 📍 Where to update
+{suggestion.get('where_to_update', 'No location specified')}
+
+### 🔍 Why this update is needed
+{suggestion.get('why_update_needed', 'No reason provided')}
+
+### 🛠️ How to update
+{suggestion.get('how_to_update', 'No instructions provided')}
+
+---
+**Source**: {suggestion.get('source_change_set', 'Unknown change set')}  
+**Affected Element**: {suggestion.get('finding_id', 'Unknown')}
+
+*This recommendation was generated automatically by Docureco Agent based on code changes in this PR.*
+"""
+        return comment_body
+    
+    async def _post_pr_comment(self, repository: str, pr_number: int, comment_body: str) -> bool:
+        """Post a comment to the GitHub PR and return success status."""
+        try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                logger.error("GITHUB_TOKEN not found, cannot post comment")
+                return False
+            
+            # Parse repository owner and name
+            owner, repo_name = repository.split("/")
+            
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json"
+            }
+            
+            # Prepare comment data
+            comment_data = {
+                "body": comment_body
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
+                    headers=headers,
+                    json=comment_data
+                )
+                
+                if response.status_code == 201:
+                    logger.info(f"Successfully posted comment to PR #{pr_number}")
+                    return True
+                else:
+                    logger.error(f"Failed to post comment: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error posting PR comment: {str(e)}")
+            return False
+    
+    def _create_recommendation_model(self, suggestion: Dict[str, Any]) -> DocumentationRecommendationModel:
+        """Convert suggestion dict to DocumentationRecommendationModel."""
+        try:
+            # Map recommendation type
+            rec_type_str = suggestion.get('recommendation_type', 'UPDATE').upper()
+            if rec_type_str in ['CREATE', 'ADD']:
+                rec_type = RecommendationType.CREATE
+            elif rec_type_str in ['DELETE', 'REMOVE']:
+                rec_type = RecommendationType.DELETE
+            elif rec_type_str in ['REVIEW', 'INVESTIGATE']:
+                rec_type = RecommendationType.REVIEW
+            else:
+                rec_type = RecommendationType.UPDATE
+            
+            # Map priority  
+            priority_str = suggestion.get('priority', 'MEDIUM').upper()
+            if priority_str == 'HIGH':
+                priority = RecommendationStatus.HIGH
+            elif priority_str == 'LOW':
+                priority = RecommendationStatus.LOW
+            else:
+                priority = RecommendationStatus.MEDIUM
+            
+            return DocumentationRecommendationModel(
+                target_document=suggestion.get('target_document', 'Unknown'),
+                section=suggestion.get('section', 'Unknown'),
+                recommendation_type=rec_type,
+                priority=priority,
+                what_to_update=suggestion.get('what_to_update', ''),
+                where_to_update=suggestion.get('where_to_update', ''),
+                why_update_needed=suggestion.get('why_update_needed', ''),
+                how_to_update=suggestion.get('how_to_update', ''),
+                affected_element_id=suggestion.get('finding_id', ''),
+                affected_element_type=suggestion.get('finding_type', ''),
+                confidence_score=suggestion.get('confidence_score', 0.5),
+                status=RecommendationStatus.PENDING
+            )
+            
+        except Exception as e:
+            logger.error(f"Error creating recommendation model: {str(e)}")
+            # Return a default model
+            return DocumentationRecommendationModel(
+                target_document="Unknown",
+                section="Unknown", 
+                recommendation_type=RecommendationType.REVIEW,
+                priority=RecommendationStatus.MEDIUM,
+                what_to_update="Error creating recommendation",
+                where_to_update="Unknown",
+                why_update_needed="Error occurred",
+                how_to_update="Manual review needed",
+                affected_element_id="unknown",
+                affected_element_type="Unknown",
+                confidence_score=0.1,
+                status=RecommendationStatus.PENDING
+            )
+    
+    async def _update_ci_cd_status(self, repository: str, pr_number: int, critical_count: int, total_count: int) -> None:
+        """Update CI/CD check status based on recommendations."""
+        try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                logger.warning("GITHUB_TOKEN not found, cannot update CI/CD status")
+                return
+            
+            # Determine status based on critical recommendations
+            if critical_count > 0:
+                conclusion = "action_required"
+                summary = f"⚠️ {critical_count} critical documentation updates needed"
+            elif total_count > 0:
+                conclusion = "neutral"
+                summary = f"📝 {total_count} documentation recommendations available"
+            else:
+                conclusion = "success"
+                summary = "✅ No documentation updates needed"
+            
+            logger.info(f"CI/CD Status: {conclusion} - {summary}")
+            
+            # Note: Actual GitHub Check Run API implementation would go here
+            # For now, we just log the intended status
+            
+        except Exception as e:
+            logger.error(f"Error updating CI/CD status: {str(e)}")
 
 def create_document_update_recommender(llm_client: Optional[DocurecoLLMClient] = None) -> DocumentUpdateRecommenderWorkflow:
     """
