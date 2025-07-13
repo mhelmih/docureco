@@ -1506,60 +1506,70 @@ class DocumentUpdateRecommenderWorkflow:
     async def _llm_generate_suggestions(self, filtered_findings: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Generate specific documentation update recommendations using LLM.
-        Iterates through each finding and generates actionable recommendations based on finding type.
+        Processes all findings at once for efficient batch recommendation generation.
         """
-        all_suggestions = []
-        
         try:
+            if not filtered_findings:
+                return []
+            
+            # Add action type to each finding based on finding type (per BAB III.md Table III.2)
+            findings_with_actions = []
             for finding in filtered_findings:
-                try:
-                    # Determine action based on finding type (per BAB III.md Table III.2)
-                    finding_type = finding.get("finding_type", "")
-                    if finding_type == "Standard_Impact":
-                        action = "Modification" 
-                    elif finding_type == "Outdated_Documentation":
-                        action = "Review/Delete"
-                    elif finding_type == "Documentation_Gap":
-                        action = "Create"
-                    elif finding_type == "Traceability_Anomaly":
-                        action = "Investigate Map"
-                    else:
-                        action = "Review"
-                    
-                    # Create comprehensive context for LLM
-                    recommendation_context = {
-                        "finding": finding,
-                        "action": action,
-                        "logical_change_sets": logical_change_sets,
-                        "current_documentation": current_docs
-                    }
-                    
-                    # Get prompts for recommendation generation
-                    system_message = prompts.recommendation_generation_system_prompt()
-                    human_prompt = prompts.recommendation_generation_human_prompt(recommendation_context)
-                    
-                    # Generate recommendation using LLM
-                    response = await self.llm_client.generate_response(
-                        prompt=human_prompt,
-                        system_message=system_message,
-                        task_type="recommendation_generation",
-                        output_format="json",
-                        temperature=0.2  # Slightly higher for more creative recommendations
-                    )
-                    
-                    # Parse the response
-                    if isinstance(response.content, dict) and "recommendation" in response.content:
-                        suggestion = response.content["recommendation"]
-                        suggestion["finding_id"] = finding.get("affected_element_id", "")
-                        suggestion["finding_type"] = finding_type
-                        suggestion["source_change_set"] = finding.get("source_change_set", "")
-                        all_suggestions.append(suggestion)
-                    else:
-                        logger.warning(f"Unexpected LLM response format for finding {finding.get('affected_element_id', 'unknown')}")
+                finding_with_action = finding.copy()
+                finding_type = finding.get("finding_type", "")
+                
+                if finding_type == "Standard_Impact":
+                    finding_with_action["recommended_action"] = "Modification" 
+                elif finding_type == "Outdated_Documentation":
+                    finding_with_action["recommended_action"] = "Review/Delete"
+                elif finding_type == "Documentation_Gap":
+                    finding_with_action["recommended_action"] = "Create"
+                elif finding_type == "Traceability_Anomaly":
+                    finding_with_action["recommended_action"] = "Investigate Map"
+                else:
+                    finding_with_action["recommended_action"] = "Review"
+                
+                findings_with_actions.append(finding_with_action)
+            
+            # Get prompts for recommendation generation
+            system_message = prompts.recommendation_generation_system_prompt()
+            human_prompt = prompts.recommendation_generation_human_prompt(
+                findings_with_actions, current_docs, logical_change_sets
+            )
+            
+            # Generate recommendations using LLM
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                system_message=system_message,
+                task_type="recommendation_generation",
+                output_format="json",
+                temperature=0.2  # Slightly higher for more creative recommendations
+            )
+            
+            # Parse the response
+            all_suggestions = []
+            if isinstance(response.content, dict):
+                # Check for different possible response formats
+                if "recommendations" in response.content:
+                    suggestions = response.content["recommendations"]
+                elif isinstance(response.content, list):
+                    suggestions = response.content
+                else:
+                    suggestions = [response.content]
+                
+                # Process each suggestion and add metadata
+                for i, suggestion in enumerate(suggestions):
+                    if isinstance(suggestion, dict):
+                        # Add finding metadata if available
+                        if i < len(findings_with_actions):
+                            finding = findings_with_actions[i]
+                            suggestion["finding_id"] = finding.get("affected_element_id", "")
+                            suggestion["finding_type"] = finding.get("finding_type", "")
+                            suggestion["source_change_set"] = finding.get("source_change_set", "")
                         
-                except Exception as e:
-                    logger.error(f"Error generating suggestion for finding {finding.get('affected_element_id', 'unknown')}: {str(e)}")
-                    continue
+                        all_suggestions.append(suggestion)
+            else:
+                logger.warning("Unexpected LLM response format for recommendation generation")
             
             logger.info(f"Generated {len(all_suggestions)} suggestions from {len(filtered_findings)} findings")
             return all_suggestions
