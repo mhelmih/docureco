@@ -9,11 +9,103 @@ import json
 class DocumentUpdateRecommenderPrompts:
     """Collection of prompts for document update recommender workflow"""
     
+    @staticmethod
+    def get_docureco_system_context() -> str:
+        """Comprehensive context about the Docureco system and workflows"""
+        return """
+**DOCURECO SYSTEM OVERVIEW**
+
+Docureco is an intelligent documentation maintenance system that automatically tracks relationships between code and documentation, then recommends updates when code changes. The system consists of three core workflows:
+
+**1. BASELINE MAP CREATOR WORKFLOW**
+- **Purpose**: Creates initial traceability maps from existing repositories
+- **Input**: Repository with documentation (SRS, SDD) and code files
+- **Process**: 
+  - Scans repository documentation and code
+  - Extracts Requirements (from SRS files)
+  - Extracts Design Elements (from SDD files) 
+  - Extracts Code Components (from source code)
+  - Creates Traceability Links between Requirements ↔ Design Elements ↔ Code Components
+- **Output**: Baseline Map containing all elements and their relationships
+- **When Used**: Initial setup for a repository
+
+**2. DOCUMENT UPDATE RECOMMENDER WORKFLOW (Your Current Role)**
+- **Purpose**: Analyzes PR code changes and recommends documentation updates
+- **Input**: PR with code changes + existing Baseline Map
+- **Process**:
+  - Scans PR code changes and documentation context
+  - Classifies and groups changes into logical change sets
+  - Traces impact through the baseline map to find affected documentation elements
+  - Assesses likelihood and severity of documentation impact
+  - Generates specific update recommendations with targeted diff snippets
+- **Output**: Documentation update recommendations with targeted change snippets
+- **When Used**: When developers submit PRs with code changes
+
+**3. BASELINE MAP UPDATER WORKFLOW**
+- **Purpose**: Updates baseline maps when repository structure changes
+- **Input**: Repository changes + existing Baseline Map
+- **Process**:
+  - Analyzes significant repository changes
+  - Identifies new/modified requirements, design elements, and code components
+  - Updates traceability links to reflect new relationships
+- **Output**: Updated Baseline Map
+- **When Used**: When major architectural changes occur
+
+**BASELINE MAP CONCEPT**
+
+A Baseline Map is a comprehensive traceability matrix that captures:
+
+1. **Requirements** (from SRS documents):
+   - Business requirements, functional requirements, non-functional requirements
+   - Each has: ID, title, description, type, priority, section reference
+
+2. **Design Elements** (from SDD documents):
+   - Architecture components, classes, interfaces, services, databases, UI elements
+   - Each has: ID, name, description, type, section reference
+
+3. **Code Components** (from source code):
+   - Files, classes, functions, modules, APIs
+   - Each has: ID, path, name, type, description
+
+4. **Traceability Links** (relationships between elements):
+   - Requirements → Design Elements (what implements each requirement)
+   - Design Elements → Code Components (what code implements each design)
+   - Design Elements → Design Elements (dependencies and relationships)
+
+**Example Baseline Map Structure:**
+```
+Requirements: REQ-001 "User can add books" → 
+Design Elements: DE-001 "BookService class" → 
+Code Components: CC-001 "src/book/book_collection.py"
+```
+
+**YOUR ROLE AS DOCUMENT UPDATE RECOMMENDER**
+
+You analyze code changes in PRs and use the baseline map to:
+1. **Trace Impact**: Follow traceability links to find which documentation elements are affected
+2. **Classify Findings**: Identify gaps, outdated content, standard impacts, and anomalies
+3. **Generate Recommendations**: Create targeted documentation update suggestions
+4. **Handle Anomalies**: When code changes don't match the baseline map, recommend map updates
+
+**CRITICAL UNDERSTANDING:**
+- **Baseline Map**: The source of truth for code-documentation relationships
+- **Traceability Links**: Show which documentation describes which code
+- **Documentation Gap**: Code exists but isn't documented
+- **Outdated Documentation**: Documentation refers to deleted/obsolete code  
+- **Standard Impact**: Code changes affect documented elements (normal case)
+- **Traceability Anomaly**: Code changes don't match baseline map (map needs updating)
+"""
+    
     # Step 2: Code Change Classification Prompts
     @staticmethod
     def individual_code_classification_system_prompt() -> str:
         """System prompt for batch classification of code changes"""
-        return """You are a software development analyst. Analyze the GitHub PR data and classify each file changed in each commit.
+        return DocumentUpdateRecommenderPrompts.get_docureco_system_context() + """
+
+**YOUR TASK: CODE CHANGE CLASSIFICATION**
+
+You are a software development analyst working within the Docureco system. Analyze the GitHub PR data and classify each file changed in each commit.
+
 For each commit, include:
 - commit_hash: The SHA hash of the commit
 - commit_message: The commit message
@@ -25,7 +117,7 @@ For each file classification, determine:
 - scope: Scope of change (Function/Method, Class, Module, Configuration, Documentation, Test, etc.)
 - nature: Nature of change (New Feature, Bug Fix, Refactoring, Documentation Updates, Performance Improvement, etc.)
 - volume: Volume of change (Trivial, Small, Medium, Large, Very Large) based on total lines changed
-- reasoning: Brief explanation of your classification
+- reasoning: Brief explanation of the classification
 
 Look at the commit messages, file paths, and changes to understand the overall purpose.
 The response will be automatically structured. Analyze the cumulative net effect of changes per file across all commits, using commit messages to understand the development intent."""
@@ -48,7 +140,11 @@ The response will be automatically structured. Analyze the cumulative net effect
     @staticmethod
     def change_grouping_system_prompt() -> str:
         """System prompt for grouping classified changes into logical change sets"""
-        return """You are a software development analyst. Group related file changes into logical change sets that represent cohesive development tasks or features.
+        return DocumentUpdateRecommenderPrompts.get_docureco_system_context() + """
+
+**YOUR TASK: CHANGE GROUPING**
+
+You are a software development analyst working within the Docureco system. Group related file changes into logical change sets that represent cohesive development tasks or features.
 
 Each logical change set should represent changes that serve the same purpose or implement related functionality. Use commit messages and file relationships to identify logical groupings.
 
@@ -78,7 +174,11 @@ Analyze the commit messages and file changes to identify related changes that se
     @staticmethod
     def likelihood_severity_assessment_system_prompt() -> str:
         """System prompt for assessing likelihood and severity of documentation impact findings"""
-        return """You are a software documentation analyst. Assess the likelihood and severity of documentation updates needed based on code changes and their traced impact on documentation elements.
+        return DocumentUpdateRecommenderPrompts.get_docureco_system_context() + """
+
+**YOUR TASK: LIKELIHOOD AND SEVERITY ASSESSMENT**
+
+You are a software documentation analyst working within the Docureco system. Assess the likelihood and severity of documentation updates needed based on code changes and their traced impact on documentation elements.
 
 For each finding, assess:
 
@@ -149,7 +249,11 @@ Return the complete findings array with all original fields plus the new assessm
     @staticmethod
     def recommendation_generation_system_prompt() -> str:
         """System prompt for generating specific documentation update recommendations WITH content snippets"""
-        return """You are an expert technical writer generating specific documentation update recommendations based on code changes and impact analysis.
+        return DocumentUpdateRecommenderPrompts.get_docureco_system_context() + """
+
+**YOUR TASK: RECOMMENDATION GENERATION**
+
+You are an expert technical writer working within the Docureco system, generating specific documentation update recommendations based on code changes and impact analysis.
 
 **CRITICAL: Understanding Finding Types and Required Actions**
 
@@ -280,24 +384,52 @@ Document: {doc_path}
 {chr(10).join(docs_summary)}
 
 **CRITICAL REQUIREMENTS:**
-1. **Recommendation Metadata**: Include all standard fields (target_document, section, recommendation_type, priority, what_to_update, where_to_update, why_update_needed, how_to_update)
-2. **Targeted Diff Snippets**: For each recommendation, provide ONLY the specific lines that need to change in the 'suggested_content' field
-3. **Quality Content**: Documentation content should be professional and focused on the specific change needed
+1. **Group by Target Document**: Group all recommendations by target_document 
+2. **Summary per Document**: For each document group, provide a summary with:
+   - target_document: Document path
+   - total_recommendations: Count of recommendations for this document
+   - high_priority_count, medium_priority_count, low_priority_count: Priority breakdown
+   - overview: Brief description of what needs updating in this document
+   - sections_affected: List of sections that need updates
+3. **Detailed Recommendations**: For each recommendation, provide all standard fields including targeted diff snippets
 4. **GitHub-Style Diff Format**: The 'suggested_content' should use minimal diff format:
    - Lines starting with `+` for content to be added
    - Lines starting with `-` for content to be removed/replaced  
    - 1-2 context lines (no prefix) above and below the change
    - Show ONLY the affected section, not entire documents
-5. **Example Targeted Diff**:
-   ```
-   ### User Management
-   - GET /api/users - Get all users
-   + GET /api/users - Get all users  
-   + POST /api/users/favorites - Add user favorite
-   + DELETE /api/users/favorites/:id - Remove user favorite
+5. **Example Output Structure**:
+   ```json
+   {
+     "document_groups": [
+       {
+         "summary": {
+           "target_document": "sample-project/doc/srs.md",
+           "total_recommendations": 2,
+           "high_priority_count": 1,
+           "medium_priority_count": 1,
+           "low_priority_count": 0,
+           "overview": "Update user management requirements to include favorite functionality",
+           "sections_affected": ["3.1 User Requirements", "5. Traceability"]
+         },
+         "recommendations": [
+           {
+             "target_document": "sample-project/doc/srs.md",
+             "section": "3.1 User Requirements",
+             "recommendation_type": "UPDATE",
+             "priority": "HIGH",
+             "what_to_update": "Add favorite functionality requirement",
+             "where_to_update": "User management section",
+             "why_update_needed": "New favorite feature was implemented",
+             "how_to_update": "Add requirement for favorite books",
+             "suggested_content": "### User Requirements\n- UR-001: User can add books\n+ UR-001: User can add books\n+ UR-002: User can mark books as favorites\n+ UR-003: User can view favorite books list"
+           }
+         ]
+       }
+     ]
+   }
    ```
 
-Generate detailed, actionable recommendations with complete documentation content and return them as a structured JSON array. 
+Generate recommendations grouped by target document with summaries and detailed recommendations. 
 
 REMEMBER: Match your recommendations to the finding type - anomalies need baseline map fixes, not doc updates!"""
 
