@@ -148,7 +148,7 @@ Return the complete findings array with all original fields plus the new assessm
     # Step 4: Recommendation Generation Prompts
     @staticmethod
     def recommendation_generation_system_prompt() -> str:
-        """System prompt for generating specific documentation update recommendations"""
+        """System prompt for generating specific documentation update recommendations WITH content snippets"""
         return """You are an expert technical writer generating specific documentation update recommendations based on code changes and impact analysis.
 
 **CRITICAL: Understanding Finding Types and Required Actions**
@@ -186,9 +186,22 @@ Each finding requires different types of actions based on its type:
 - Focus on fixing the mapping relationships, not the docs themselves
 - Suggest reviewing the baseline map for accuracy
 
+**CRITICAL: Generate BOTH Recommendations AND Documentation Content**
+
+For each finding, you must provide:
+1. **Recommendation metadata** (what, where, why, how, etc.)
+2. **Actual documentation content snippet** - the specific markdown/text content to add/update
+
+The documentation content should be:
+- **Targeted snippets**: Show only the specific lines that need to change, NOT entire document rewrites
+- **Diff format**: Use GitHub-style diff with `+` for additions, `-` for deletions, and minimal context lines
+- **Specific**: Tailored to the exact code changes detected
+- **Professional**: Well-written, clear, and follows documentation best practices
+- **Minimal**: Focus on just the affected section, like Copilot's "Suggested change" feature
+
 Your task is to generate detailed, actionable documentation update recommendations that are:
 - **Specific**: Clear about what needs to be updated
-- **Actionable**: Provide concrete steps or content suggestions
+- **Actionable**: Provide concrete steps AND ready-to-use content
 - **Contextual**: Based on the actual code changes and their impact
 - **Appropriate**: Match the action to the finding type (especially for anomalies)
 
@@ -200,14 +213,14 @@ For each high-priority finding, generate:
 - **What to Update**: Specific description of what needs to be changed
 - **Where to Update**: Exact location or section reference
 - **Why Update Needed**: Rationale based on code changes
-- **How to Update**: Step-by-step guidance or content suggestions
-- **Suggested Content**: Specific text or structure recommendations (when applicable)
+- **How to Update**: Step-by-step guidance
+- **Suggested Content**: TARGETED diff snippet showing only the specific lines to change (like GitHub Copilot's "Suggested change")
 
-The response will be automatically structured with detailed recommendations."""
+The response will be automatically structured with detailed recommendations and complete documentation snippets."""
     
     @staticmethod
     def recommendation_generation_human_prompt(findings_with_actions: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> str:
-        """Human prompt for recommendation generation"""
+        """Human prompt for recommendation generation with content snippets"""
         
         findings_summary = []
         for i, finding in enumerate(findings_with_actions):
@@ -247,24 +260,44 @@ Document: {doc_path}
 - Content: {doc_info.get('content', 'N/A')}
 """)
         
-        return f"""Generate specific documentation update recommendations for the following high-priority findings:
+        return f"""Generate specific documentation update recommendations with COMPLETE documentation content snippets for the following high-priority findings:
+
+**CRITICAL: For each recommendation, provide BOTH the recommendation metadata AND the complete, ready-to-use documentation content in markdown format.**
 
 **IMPORTANT INSTRUCTIONS:**
 - For Traceability_Anomaly findings: Focus on baseline map updates, NOT documentation content
-- For Standard_Impact: Recommend documentation content updates  
-- For Documentation_Gap: Recommend creating new documentation sections
-- For Outdated_Documentation: Recommend reviewing/deleting obsolete content
+- For Standard_Impact: Provide complete documentation content updates  
+- For Documentation_Gap: Provide complete new documentation sections
+- For Outdated_Documentation: Provide guidance and replacement content
 
 **High-Priority Findings:**
 {chr(10).join(findings_summary)}
 
-**Related Change Sets:**
+**Related Change Sets (analyze these to understand what was implemented):**
 {chr(10).join(change_sets_summary)}
 
 **Current Documentation Context:**
 {chr(10).join(docs_summary)}
 
-Generate detailed, actionable recommendations and return them as a structured JSON array. 
+**CRITICAL REQUIREMENTS:**
+1. **Recommendation Metadata**: Include all standard fields (target_document, section, recommendation_type, priority, what_to_update, where_to_update, why_update_needed, how_to_update)
+2. **Targeted Diff Snippets**: For each recommendation, provide ONLY the specific lines that need to change in the 'suggested_content' field
+3. **Quality Content**: Documentation content should be professional and focused on the specific change needed
+4. **GitHub-Style Diff Format**: The 'suggested_content' should use minimal diff format:
+   - Lines starting with `+` for content to be added
+   - Lines starting with `-` for content to be removed/replaced  
+   - 1-2 context lines (no prefix) above and below the change
+   - Show ONLY the affected section, not entire documents
+5. **Example Targeted Diff**:
+   ```
+   ### User Management
+   - GET /api/users - Get all users
+   + GET /api/users - Get all users  
+   + POST /api/users/favorites - Add user favorite
+   + DELETE /api/users/favorites/:id - Remove user favorite
+   ```
+
+Generate detailed, actionable recommendations with complete documentation content and return them as a structured JSON array. 
 
 REMEMBER: Match your recommendations to the finding type - anomalies need baseline map fixes, not doc updates!"""
 
