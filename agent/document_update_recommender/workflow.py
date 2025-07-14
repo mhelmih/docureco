@@ -1584,35 +1584,15 @@ class DocumentUpdateRecommenderWorkflow:
             
             # Parse the structured response
             recommendation_result = response.content
-            suggestions = recommendation_result["recommendations"]
+            document_groups = recommendation_result["document_groups"]
             
-            # Process each suggestion and add metadata
-            all_suggestions = []
-            for i, suggestion in enumerate(suggestions):
-                # Convert to dict format and add finding metadata
-                suggestion_dict = {
-                    "target_document": suggestion["target_document"],
-                    "section": suggestion["section"],
-                    "recommendation_type": suggestion["recommendation_type"],
-                    "priority": suggestion["priority"],
-                    "what_to_update": suggestion["what_to_update"],
-                    "where_to_update": suggestion["where_to_update"],
-                    "why_update_needed": suggestion["why_update_needed"],
-                    "how_to_update": suggestion["how_to_update"],
-                    "suggested_content": suggestion.get("suggested_content", "")
-                }
-                
-                # Add finding metadata if available
-                if i < len(findings_with_actions):
-                    finding = findings_with_actions[i]
-                    suggestion_dict["finding_id"] = finding.get("affected_element_id", "")
-                    suggestion_dict["finding_type"] = finding.get("finding_type", "")
-                    suggestion_dict["source_change_set"] = finding.get("source_change_set", "")
-                
-                all_suggestions.append(suggestion_dict)
+            # Optionally flatten all suggestions if needed elsewhere
+            # all_suggestions = []
+            # for group in document_groups:
+            #     all_suggestions.extend(group["recommendations"])
             
-            logger.info(f"Generated {len(all_suggestions)} suggestions from {len(filtered_findings)} findings")
-            return all_suggestions
+            logger.info(f"Generated recommendations for {len(document_groups)} document groups from {len(filtered_findings)} findings")
+            return document_groups
             
         except Exception as e:
             logger.error(f"Error in LLM suggestion generation: {str(e)}")
