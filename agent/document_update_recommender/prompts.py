@@ -398,36 +398,36 @@ Document: {doc_path}
    - 1-2 context lines (no prefix) above and below the change
    - Show ONLY the affected section, not entire documents
 5. **Example Output Structure**:
-   ```json
-   {
-     "document_groups": [
-       {
-         "summary": {
-           "target_document": "sample-project/doc/srs.md",
-           "total_recommendations": 2,
-           "high_priority_count": 1,
-           "medium_priority_count": 1,
-           "low_priority_count": 0,
-           "overview": "Update user management requirements to include favorite functionality",
-           "sections_affected": ["3.1 User Requirements", "5. Traceability"]
-         },
-         "recommendations": [
-           {
-             "target_document": "sample-project/doc/srs.md",
-             "section": "3.1 User Requirements",
-             "recommendation_type": "UPDATE",
-             "priority": "HIGH",
-             "what_to_update": "Add favorite functionality requirement",
-             "where_to_update": "User management section",
-             "why_update_needed": "New favorite feature was implemented",
-             "how_to_update": "Add requirement for favorite books",
-             "suggested_content": "### User Requirements\n- UR-001: User can add books\n+ UR-001: User can add books\n+ UR-002: User can mark books as favorites\n+ UR-003: User can view favorite books list"
-           }
-         ]
-       }
-     ]
-   }
-   ```
+    ```json
+    {{
+      "document_groups": [
+        {{
+          "summary": {{
+            "target_document": "sample-project/doc/srs.md",
+            "total_recommendations": 2,
+            "high_priority_count": 1,
+            "medium_priority_count": 1,
+            "low_priority_count": 0,
+            "overview": "Update user management requirements to include favorite functionality",
+            "sections_affected": ["3.1 User Requirements", "5. Traceability"]
+          }},
+          "recommendations": [
+            {{
+              "target_document": "sample-project/doc/srs.md",
+              "section": "3.1 User Requirements",
+              "recommendation_type": "UPDATE",
+              "priority": "HIGH",
+              "what_to_update": "Add favorite functionality requirement",
+              "where_to_update": "User management section",
+              "why_update_needed": "New favorite feature was implemented",
+              "how_to_update": "Add requirement for favorite books",
+              "suggested_content": "### User Requirements\n- UR-001: User can add books\n+ UR-001: User can add books\n+ UR-002: User can mark books as favorites\n+ UR-003: User can view favorite books list"
+            }}
+          ]
+        }}
+      ]
+    }}
+    ```
 
 Generate recommendations grouped by target document with summaries and detailed recommendations. 
 
