@@ -150,21 +150,29 @@ class DocumentUpdateRecommenderWorkflow:
     
     def __init__(self, 
                  llm_client: Optional[DocurecoLLMClient] = None,
-                 baseline_map_repo = None):
+                 baseline_map_repo = None,
+                 use_review_mode: bool = True,
+                 review_threshold: int = 2):
         """
         Initialize Document Update Recommender workflow
         
         Args:
             llm_client: Optional LLM client for analysis and recommendations
             baseline_map_repo: Optional repository for baseline map operations
+            use_review_mode: Whether to use GitHub Review API for comprehensive reviews
+            review_threshold: Minimum number of suggestions to trigger review mode (default: 2)
         """
         self.llm_client = llm_client or DocurecoLLMClient()
         self.baseline_map_repo = baseline_map_repo or create_baseline_map_repository()
+        self.use_review_mode = use_review_mode
+        self.review_threshold = review_threshold
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
         
         logger.info("Initialized Document Update Recommender Workflow")
+        logger.info(f"Review mode: {'enabled' if use_review_mode else 'disabled'}")
+        logger.info(f"Review threshold: {review_threshold} suggestions")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow with conditional logic"""
@@ -307,7 +315,7 @@ class DocumentUpdateRecommenderWorkflow:
             state.pr_event_data.get("commit_info", {})
         )
         state.logical_change_sets = logical_change_sets
-        
+            
         total_files = sum(len(change_set["changes"]) for change_set in logical_change_sets)
         logger.info(f"Step 2: Successfully analyzed {total_files} file classifications across {len(commits_with_classifications)} commits into {len(logical_change_sets)} logical change sets")
         
@@ -331,12 +339,12 @@ class DocumentUpdateRecommenderWorkflow:
             if not baseline_map_data:
                 logger.warning("No baseline map found - terminating workflow")
                 return state    # Terminate workflow if no baseline map is found
-            
+                
             state.baseline_map = baseline_map_data
             
             # Process all file changes in one pass to determine traceability status and detect documentation changes
             changes_with_status, documentation_changes = await self._determine_traceability_status_and_detect_docs(
-                state.logical_change_sets, 
+                state.logical_change_sets,
                 baseline_map_data,
                 state.document_content
             )
@@ -484,7 +492,7 @@ class DocumentUpdateRecommenderWorkflow:
         is_in_baseline = file_path in code_component_lookup
         
         if change_type == "addition":
-            return "anomaly (addition unmapped)" if is_in_baseline else "gap"
+            return "anomaly (addition mapped)" if is_in_baseline else "gap"
         elif change_type == "deletion":
             return "outdated" if is_in_baseline else "anomaly (deletion unmapped)"
         elif change_type == "modification":
@@ -584,19 +592,19 @@ class DocumentUpdateRecommenderWorkflow:
                     continue
                 
                 # Only process changes that can be traced through the map
-                if status in ["modification", "anomaly (addition unmapped)", "rename", "outdated"]:
+                if status in ["modification", "anomaly (addition mapped)", "rename", "outdated"]:
                     if file_path in path_to_component_id:
                         component_id = path_to_component_id[file_path]
                         if component_id in code_to_design_map:
                             design_elements = code_to_design_map[component_id]
                             
-                            if status in ["modification", "anomaly (addition unmapped)", "rename"]:
+                            if status in ["modification", "anomaly (addition mapped)", "rename"]:
                                 dide.update(design_elements)
                             elif status == "outdated":
                                 ode.update(design_elements)
                 
                 # Handle gap and anomaly findings directly for this change set
-                elif status in ["gap", "anomaly (addition unmapped)", "anomaly (deletion unmapped)", 
+                elif status in ["gap", "anomaly (deletion unmapped)", 
                               "anomaly (modification unmapped)", "anomaly (rename unmapped)", "anomaly (unknown change type)"]:
                     
                     if status == "gap":
@@ -914,7 +922,7 @@ class DocumentUpdateRecommenderWorkflow:
                     }
         except Exception as e:
             raise ValueError(f"Error fetching PR details: {str(e)}")
-
+    
     async def _fetch_pr_event_data(self, repository: str, pr_number: int) -> Dict[str, Any]:
         """Fetch PR event data from GitHub REST API with per-commit file changes"""
         
@@ -1048,7 +1056,7 @@ class DocumentUpdateRecommenderWorkflow:
                         "count": len(enhanced_commits)
                     }
                 }
-
+                
                 return structured_data
                 
         except Exception as e:
@@ -1065,10 +1073,10 @@ class DocumentUpdateRecommenderWorkflow:
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.warning("Repomix not available, falling back to placeholder content")
             raise ValueError("Repomix not available")
-        
+            
         # Use Repomix to scan the repository
         repo_data = await self._scan_repository_with_repomix(repository, branch)
-        
+            
         # Extract SDD (Software Design Documents) files
         sdd_content = self._extract_documentation_files(repo_data, [
             "design.md", "sdd.md", "software-design.md", "architecture.md",
@@ -1085,8 +1093,8 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Structure the documentation content
         document_content = {
-            "repo_name": repository,
-            "branch": branch,
+                "repo_name": repository,
+                "branch": branch,
             "sdd_content": sdd_content,
             "srs_content": srs_content,
         }
@@ -1402,7 +1410,7 @@ class DocumentUpdateRecommenderWorkflow:
             # Get prompts
             system_message = prompts.change_grouping_system_prompt()
             human_prompt = prompts.change_grouping_human_prompt(commits_with_classifications)
-
+            
             # Generate JSON response
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
@@ -1631,30 +1639,41 @@ class DocumentUpdateRecommenderWorkflow:
             
             logger.info(f"Filtered {len(generated_suggestions)} suggestions to {len(new_suggestions)} new suggestions")
             
-            # Post new suggestions as PR comments
+            # Post new suggestions - use comprehensive review mode for multiple suggestions
             posted_recommendations = []
             critical_recommendations = 0
             
-            for suggestion in new_suggestions:
-                try:
-                    # Create formatted comment for the PR
-                    comment_body = self._format_recommendation_comment(suggestion)
-                    
-                    # Post comment to GitHub PR
-                    comment_posted = await self._post_pr_comment(repository, pr_number, comment_body)
-                    
-                    if comment_posted:
-                        # Convert to DocumentationRecommendationModel
+            if self.use_review_mode and len(new_suggestions) >= self.review_threshold:
+                # Use GitHub Review API for multiple suggestions (Copilot-style)
+                logger.info(f"Creating comprehensive PR review for {len(new_suggestions)} suggestions")
+                review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, new_suggestions)
+                
+                if review_posted:
+                    for suggestion in new_suggestions:
                         recommendation = self._create_recommendation_model(suggestion)
                         posted_recommendations.append(recommendation)
                         
-                        # Count critical recommendations for CI/CD status
                         if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
                             critical_recommendations += 1
-                    
-                except Exception as e:
-                    logger.error(f"Error posting suggestion: {str(e)}")
-                    continue
+            else:
+                # Use threaded comments for single suggestions
+                for suggestion in new_suggestions:
+                    try:
+                        # Post threaded recommendation with preview and actions
+                        comment_posted = await self._post_threaded_recommendation(repository, pr_number, suggestion)
+                        
+                        if comment_posted:
+                            # Convert to DocumentationRecommendationModel
+                            recommendation = self._create_recommendation_model(suggestion)
+                            posted_recommendations.append(recommendation)
+                            
+                            # Count critical recommendations for CI/CD status
+                            if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
+                                critical_recommendations += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error posting suggestion: {str(e)}")
+                        continue
             
             # Update CI/CD check status based on recommendations
             await self._update_ci_cd_status(repository, pr_number, critical_recommendations, len(posted_recommendations))
@@ -1784,7 +1803,7 @@ class DocumentUpdateRecommenderWorkflow:
                 confidence_score=suggestion.get('confidence_score', 0.5),
                 status=RecommendationStatus.PENDING
             )
-            
+                
         except Exception as e:
             logger.error(f"Error creating recommendation model: {str(e)}")
             # Return a default model
@@ -1830,17 +1849,425 @@ class DocumentUpdateRecommenderWorkflow:
         except Exception as e:
             logger.error(f"Error updating CI/CD status: {str(e)}")
 
-def create_document_update_recommender(llm_client: Optional[DocurecoLLMClient] = None) -> DocumentUpdateRecommenderWorkflow:
+    async def _post_threaded_recommendation(self, repository: str, pr_number: int, suggestion: Dict[str, Any]) -> bool:
+        """
+        Post a threaded recommendation with:
+        1. Main recommendation comment
+        2. Reply with detailed suggestion and code preview
+        3. Reply with resolve/commit buttons
+        """
+        try:
+            # 1. Post main recommendation comment
+            main_comment_body = self._format_main_recommendation_comment(suggestion)
+            main_comment_id = await self._post_pr_comment_with_id(repository, pr_number, main_comment_body)
+            
+            if not main_comment_id:
+                return False
+            
+            # 2. Reply with detailed suggestion and preview
+            suggestion_body = await self._format_suggestion_with_preview(suggestion)
+            suggestion_comment_id = await self._post_reply_comment(repository, pr_number, main_comment_id, suggestion_body)
+            
+            # 3. Reply with action buttons
+            if suggestion_comment_id:
+                action_body = self._format_action_buttons(suggestion)
+                await self._post_reply_comment(repository, pr_number, suggestion_comment_id, action_body)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error posting threaded recommendation: {str(e)}")
+            return False
+    
+    def _format_main_recommendation_comment(self, suggestion: Dict[str, Any]) -> str:
+        """Format the main recommendation comment (parent comment)"""
+        finding_type = suggestion.get('finding_type', 'Unknown')
+        priority = suggestion.get('priority', 'Medium')
+        
+        # Create icon based on priority
+        if priority.upper() == 'HIGH':
+            icon = "🔴"
+        elif priority.upper() == 'MEDIUM': 
+            icon = "🟡"
+        else:
+            icon = "🟢"
+        
+        return f"""## {icon} Documentation Update Needed
+
+**Target**: `{suggestion.get('target_document', 'Unknown')}`  
+**Section**: {suggestion.get('section', 'Unknown')}  
+**Priority**: {priority}  
+**Finding**: {finding_type}
+
+### 📋 Summary
+{suggestion.get('what_to_update', 'No description provided')}
+
+**Affected by**: {suggestion.get('source_change_set', 'Unknown change set')}
+
+---
+*🤖 Docureco Agent detected this documentation impact from your code changes*"""
+
+    async def _format_suggestion_with_preview(self, suggestion: Dict[str, Any]) -> str:
+        """Format detailed suggestion with code preview and GitHub suggestion syntax"""
+        
+        # Generate the suggested documentation content
+        suggested_content = await self._generate_suggested_documentation_content(suggestion)
+        
+        return f"""### 📝 Detailed Recommendation
+
+**Why this update is needed:**
+{suggestion.get('why_update_needed', 'No reason provided')}
+
+**Where to update:**
+{suggestion.get('where_to_update', 'No location specified')}
+
+**How to update:**
+{suggestion.get('how_to_update', 'No instructions provided')}
+
+---
+
+### 🔍 Preview of Suggested Changes
+
+```suggestion
+{suggested_content}
+```
+
+<details>
+<summary>📖 View current documentation context</summary>
+
+**Current content in this section:**
+```markdown
+{await self._get_current_documentation_section(suggestion)}
+```
+
+</details>"""
+
+    async def _generate_suggested_documentation_content(self, suggestion: Dict[str, Any]) -> str:
+        """Generate the actual suggested documentation content using LLM"""
+        try:
+            # Get the specific documentation content that needs updating
+            target_doc = suggestion.get('target_document', '')
+            section = suggestion.get('section', '')
+            
+            # Create prompt for generating the specific documentation content
+            system_message = """You are a technical writer. Generate the exact documentation content that should replace or be added to the specified section. Return only the markdown content, no explanations."""
+            
+            human_prompt = f"""
+Based on this recommendation:
+- Target Document: {target_doc}
+- Section: {section}
+- What to update: {suggestion.get('what_to_update', '')}
+- How to update: {suggestion.get('how_to_update', '')}
+- Why needed: {suggestion.get('why_update_needed', '')}
+
+Generate the exact markdown content for this section. Include:
+- Proper headings and structure
+- Clear, concise descriptions
+- Any necessary subsections
+- Code examples if applicable
+
+Return only the markdown content that should go in this section."""
+
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                    system_message=system_message,
+                    task_type="documentation_content_generation",
+                    output_format="text",
+                    temperature=0.3
+                )
+                
+            return response.content.strip()
+            
+        except Exception as e:
+            logger.error(f"Error generating suggested content: {str(e)}")
+            return suggestion.get('suggested_content', 'Unable to generate content preview')
+
+    async def _get_current_documentation_section(self, suggestion: Dict[str, Any]) -> str:
+        """Extract the current content of the specific documentation section"""
+        try:
+            target_document = suggestion.get('target_document', '')
+            section = suggestion.get('section', '')
+            
+            # Access the current documentation from state (this would need to be passed down)
+            # For now, we'll use a simpler approach and return a relevant message
+            if not target_document or not section:
+                return "No specific section identified"
+            
+            # This could be enhanced to actually parse the markdown and extract the specific section
+            return f"""Currently this section may be missing or needs updates.
+
+**Target Location**: {target_document}
+**Section**: {section}
+
+*The agent will help you add or update this content based on the code changes detected.*"""
+            
+        except Exception as e:
+            logger.error(f"Error getting current documentation section: {str(e)}")
+            return "Unable to retrieve current content"
+
+    def _format_action_buttons(self, suggestion: Dict[str, Any]) -> str:
+        """Format action buttons for resolve/commit"""
+        return f"""### 🔧 Actions
+
+**Choose an action:**
+
+- 📝 **Apply Suggestion**: Use the GitHub suggestion above to apply this change
+- ✅ **Mark as Resolved**: If you've manually updated the documentation  
+- 🔄 **Request Different Approach**: Comment below if you need an alternative solution
+- ❌ **Dismiss**: If this recommendation isn't applicable
+
+---
+<sub>💡 **Tip**: Click the "Commit suggestion" button above to apply the documentation change directly, or manually edit and push your own version.</sub>"""
+
+    async def _post_pr_comment_with_id(self, repository: str, pr_number: int, comment_body: str) -> Optional[int]:
+        """Post a comment and return the comment ID for threading"""
+        try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                logger.error("GITHUB_TOKEN not found, cannot post comment")
+                return None
+            
+            owner, repo_name = repository.split("/")
+            
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json"
+            }
+            
+            comment_data = {"body": comment_body}
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
+                    headers=headers,
+                    json=comment_data
+                )
+                
+                if response.status_code == 201:
+                    comment_data = response.json()
+                    logger.info(f"Successfully posted comment to PR #{pr_number}")
+                    return comment_data.get("id")
+                else:
+                    logger.error(f"Failed to post comment: {response.status_code} - {response.text}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"Error posting PR comment: {str(e)}")
+            return None
+
+    async def _post_reply_comment(self, repository: str, pr_number: int, parent_comment_id: int, reply_body: str) -> Optional[int]:
+        """Post a reply to a specific comment (GitHub doesn't support nested comments, so this posts a new comment with reference)"""
+        try:
+            # GitHub doesn't support true nested comments in issues/PRs
+            # Instead, we reference the parent comment and post a new comment
+            referenced_reply = f"""**↳ Reply to [comment #{parent_comment_id}]**
+
+{reply_body}"""
+            
+            return await self._post_pr_comment_with_id(repository, pr_number, referenced_reply)
+            
+        except Exception as e:
+            logger.error(f"Error posting reply comment: {str(e)}")
+            return None
+
+    async def _create_pr_review_with_suggestions(self, repository: str, pr_number: int, suggestions: List[Dict[str, Any]]) -> bool:
+        """
+        Create a comprehensive PR review with threaded suggestions using GitHub Review API.
+        This creates the Copilot-style interaction with resolve buttons.
+        """
+        try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                logger.error("GITHUB_TOKEN not found, cannot create review")
+                return False
+            
+            owner, repo_name = repository.split("/")
+            
+            # Create review comments for each suggestion
+            review_comments = []
+            for suggestion in suggestions:
+                comment = await self._create_review_comment(suggestion)
+                if comment:
+                    review_comments.append(comment)
+            
+            # Create the main review
+            review_body = self._create_review_summary(suggestions)
+            
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json"
+            }
+            
+            review_data = {
+                "body": review_body,
+                "event": "COMMENT",  # or "REQUEST_CHANGES" for critical issues
+                "comments": review_comments
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
+                    headers=headers,
+                    json=review_data
+                )
+                
+                if response.status_code == 200:
+                    review_data = response.json()
+                    review_id = review_data.get("id")
+                    logger.info(f"Successfully created PR review #{review_id}")
+                    
+                    # Post follow-up comments with suggestions and resolve buttons
+                    await self._post_review_follow_ups(repository, pr_number, review_id, suggestions)
+                    
+                    return True
+                else:
+                    logger.error(f"Failed to create review: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error creating PR review: {str(e)}")
+            return False
+
+    async def _create_review_comment(self, suggestion: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Create a review comment for a specific documentation file"""
+        try:
+            target_document = suggestion.get('target_document', '')
+            
+            # For documentation files, we can create file-level comments
+            if target_document:
+                return {
+                    "path": target_document,
+                    "body": f"""## 📝 Documentation Update Required
+
+**Section**: {suggestion.get('section', 'Unknown')}  
+**Priority**: {suggestion.get('priority', 'Medium')}
+
+{suggestion.get('what_to_update', 'No description provided')}
+
+**Reason**: {suggestion.get('why_update_needed', 'No reason provided')}""",
+                    "line": 1  # Start of file
+                }
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error creating review comment: {str(e)}")
+            return None
+
+    def _create_review_summary(self, suggestions: List[Dict[str, Any]]) -> str:
+        """Create the main review summary"""
+        total_suggestions = len(suggestions)
+        high_priority = sum(1 for s in suggestions if s.get('priority', '').upper() == 'HIGH')
+        
+        return f"""## 🤖 Docureco Agent - Documentation Review
+
+Found **{total_suggestions}** documentation updates needed ({high_priority} high priority).
+
+### 📋 Summary of Changes Needed:
+
+{chr(10).join([f"- **{s.get('target_document', 'Unknown')}**: {s.get('section', 'Unknown section')}" for s in suggestions[:5]])}
+{'- ...' if total_suggestions > 5 else ''}
+
+### 🎯 Next Steps:
+1. Review each suggestion below
+2. Use the "Apply suggestion" buttons to implement changes  
+3. Mark items as resolved when complete
+4. Re-run the agent if needed after major changes
+
+---
+*This review was generated automatically based on code changes in this PR*"""
+
+    async def _post_review_follow_ups(self, repository: str, pr_number: int, review_id: int, suggestions: List[Dict[str, Any]]) -> None:
+        """Post follow-up comments with detailed suggestions and resolve buttons"""
+        try:
+            for i, suggestion in enumerate(suggestions):
+                # Post detailed suggestion with GitHub suggestion syntax
+                suggestion_body = await self._create_detailed_suggestion_comment(suggestion, i + 1)
+                comment_id = await self._post_pr_comment_with_id(repository, pr_number, suggestion_body)
+                
+                if comment_id:
+                    # Post resolve/action comment
+                    action_body = self._create_resolve_action_comment(suggestion, comment_id)
+                    await self._post_pr_comment_with_id(repository, pr_number, action_body)
+                    
+        except Exception as e:
+            logger.error(f"Error posting review follow-ups: {str(e)}")
+
+    async def _create_detailed_suggestion_comment(self, suggestion: Dict[str, Any], index: int) -> str:
+        """Create detailed suggestion comment with GitHub suggestion syntax"""
+        
+        # Generate actual documentation content
+        suggested_content = await self._generate_suggested_documentation_content(suggestion)
+        
+        return f"""### 📝 Suggestion #{index}: {suggestion.get('target_document', 'Unknown')}
+
+**Section**: {suggestion.get('section', 'Unknown')}  
+**Priority**: {suggestion.get('priority', 'Medium')}
+
+#### Why this update is needed:
+{suggestion.get('why_update_needed', 'No reason provided')}
+
+#### Where to update:
+{suggestion.get('where_to_update', 'No location specified')}
+
+#### Suggested content:
+
+```suggestion
+{suggested_content}
+```
+
+<details>
+<summary>🔧 Implementation Details</summary>
+
+**How to apply this change:**
+{suggestion.get('how_to_update', 'No instructions provided')}
+
+**Affected by code changes in**: {suggestion.get('source_change_set', 'Unknown change set')}
+
+</details>"""
+
+    def _create_resolve_action_comment(self, suggestion: Dict[str, Any], suggestion_comment_id: int) -> str:
+        """Create action/resolve comment with buttons"""
+        return f"""**🔧 Actions for suggestion #{suggestion_comment_id}**
+
+React to this comment to take action:
+- 👍 Apply suggestion as-is
+- 👀 Under review  
+- ✅ Resolved manually
+- ❌ Not applicable
+- 🔄 Need different approach
+
+Or reply with:
+- `/apply` - Apply the suggested content automatically
+- `/resolve` - Mark as resolved  
+- `/dismiss` - Dismiss this recommendation
+
+---
+<sub>💡 **Tip**: Use the GitHub suggestion feature above to apply documentation changes with one click</sub>"""
+
+def create_document_update_recommender(
+    llm_client: Optional[DocurecoLLMClient] = None,
+    use_review_mode: bool = True,
+    review_threshold: int = 2
+) -> DocumentUpdateRecommenderWorkflow:
     """
     Factory function to create Document Update Recommender workflow
     
     Args:
         llm_client: Optional LLM client
+        use_review_mode: Whether to use GitHub Review API for comprehensive reviews  
+        review_threshold: Minimum number of suggestions to trigger review mode
         
     Returns:
         DocumentUpdateRecommenderWorkflow: Configured workflow
     """
-    return DocumentUpdateRecommenderWorkflow(llm_client)
+    return DocumentUpdateRecommenderWorkflow(
+        llm_client=llm_client,
+        use_review_mode=use_review_mode, 
+        review_threshold=review_threshold
+    )
 
 # Export main classes
 __all__ = ["DocumentUpdateRecommenderWorkflow", "DocumentUpdateRecommenderState", "create_document_update_recommender"] 

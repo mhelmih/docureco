@@ -151,11 +151,46 @@ Return the complete findings array with all original fields plus the new assessm
         """System prompt for generating specific documentation update recommendations"""
         return """You are an expert technical writer generating specific documentation update recommendations based on code changes and impact analysis.
 
+**CRITICAL: Understanding Finding Types and Required Actions**
+
+Each finding requires different types of actions based on its type:
+
+**1. Standard_Impact**: Code changes that directly impact documented elements
+- **Action**: UPDATE documentation to reflect code changes
+- **Focus**: Modify existing documentation content to match new implementation
+- **Example**: "Update the API documentation to reflect the new favorite endpoint"
+
+**2. Documentation_Gap**: Code elements exist but are not documented  
+- **Action**: CREATE new documentation sections
+- **Focus**: Add missing documentation for new features/components
+- **Example**: "Create documentation for the new favorite functionality in the user guide"
+
+**3. Outdated_Documentation**: Documentation refers to deleted/obsolete code
+- **Action**: REVIEW and potentially DELETE outdated sections
+- **Focus**: Remove or update documentation that no longer applies
+- **Example**: "Remove documentation for the deprecated bookmark feature"
+
+**4. Traceability_Anomaly**: Issues with the baseline map/traceability relationships
+- **Action**: INVESTIGATE and UPDATE the traceability map, NOT the documentation
+- **Focus**: Fix mapping issues, review baseline map accuracy
+- **Anomaly Types**:
+  - "addition mapped": New code exists but is already in baseline map (shouldn't happen)
+  - "deletion unmapped": Deleted code wasn't in baseline map  
+  - "modification unmapped": Modified code isn't tracked in baseline map
+  - "rename unmapped": Renamed files not properly tracked
+- **Example**: "Update baseline map to include the new favorite module and establish proper traceability links"
+
+**IMPORTANT FOR TRACEABILITY ANOMALIES:**
+- DO NOT recommend updating documentation content
+- DO recommend updating the baseline map/traceability matrix
+- Focus on fixing the mapping relationships, not the docs themselves
+- Suggest reviewing the baseline map for accuracy
+
 Your task is to generate detailed, actionable documentation update recommendations that are:
 - **Specific**: Clear about what needs to be updated
 - **Actionable**: Provide concrete steps or content suggestions
 - **Contextual**: Based on the actual code changes and their impact
-- **Practical**: Can be implemented by development teams
+- **Appropriate**: Match the action to the finding type (especially for anomalies)
 
 For each high-priority finding, generate:
 - **Target Document**: Which document needs updating (SRS, SDD, etc.)
@@ -176,6 +211,12 @@ The response will be automatically structured with detailed recommendations."""
         
         findings_summary = []
         for i, finding in enumerate(findings_with_actions):
+            # Add extra context for anomalies
+            anomaly_details = ""
+            if finding.get('finding_type') == 'Traceability_Anomaly':
+                anomaly_type = finding.get('anomaly_type', 'unknown')
+                anomaly_details = f"\n  ⚠️ ANOMALY TYPE: {anomaly_type} - This requires baseline map updates, NOT documentation updates!"
+            
             findings_summary.append(f"""
 Finding {i+1}:
 - Type: {finding.get('finding_type', 'unknown')}
@@ -184,7 +225,7 @@ Finding {i+1}:
 - Likelihood: {finding.get('likelihood', 'unknown')}
 - Severity: {finding.get('severity', 'unknown')}
 - Source Change Set: {finding.get('source_change_set', 'unknown')}
-- Recommended Action: {finding.get('recommended_action', 'unknown')}
+- Recommended Action: {finding.get('recommended_action', 'unknown')}{anomaly_details}
 """)
         
         change_sets_summary = []
@@ -198,15 +239,21 @@ Change Set {i+1}: {change_set.get('name', 'Unknown')}
 - Files: {', '.join(files_list)}
 """)
         
-        docs = []
-        for file_path, value in current_docs.items():
-            docs.append(f"""
-Document: {file_path}
-- Document Type: {value.get('document_type', 'N/A')}
-- Content: {value.get('content', 'N/A')}
+        docs_summary = []
+        for doc_path, doc_info in current_docs.items():
+            docs_summary.append(f"""
+Document: {doc_path}
+- Document Type: {doc_info.get('document_type', 'N/A')}
+- Content: {doc_info.get('content', 'N/A')}
 """)
         
         return f"""Generate specific documentation update recommendations for the following high-priority findings:
+
+**IMPORTANT INSTRUCTIONS:**
+- For Traceability_Anomaly findings: Focus on baseline map updates, NOT documentation content
+- For Standard_Impact: Recommend documentation content updates  
+- For Documentation_Gap: Recommend creating new documentation sections
+- For Outdated_Documentation: Recommend reviewing/deleting obsolete content
 
 **High-Priority Findings:**
 {chr(10).join(findings_summary)}
@@ -215,9 +262,11 @@ Document: {file_path}
 {chr(10).join(change_sets_summary)}
 
 **Current Documentation Context:**
-{chr(10).join(docs)}
+{chr(10).join(docs_summary)}
 
-Generate detailed, actionable recommendations and return them as a structured JSON array."""
+Generate detailed, actionable recommendations and return them as a structured JSON array. 
+
+REMEMBER: Match your recommendations to the finding type - anomalies need baseline map fixes, not doc updates!"""
 
     # Step 2: Single Commit Classification Prompts (for enhanced per-commit analysis)
     @staticmethod
