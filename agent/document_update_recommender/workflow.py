@@ -846,7 +846,7 @@ class DocumentUpdateRecommenderWorkflow:
                 current_docs,
                 state.logical_change_sets
             )
-            state.generated_suggestions = generated_suggestions
+            state.generated_suggestions = generated_suggestions["document_groups"]
             
             # 4.5 Filter Against Existing & Post Details
             logger.info("Step 4.5: Filtering and posting suggestions")
@@ -1598,39 +1598,41 @@ class DocumentUpdateRecommenderWorkflow:
         Implements duplication filtering and CI/CD status management per BAB III.md.
         """
         try:
-            # Extract flat list of recommendations from document groups
-            all_recommendations = []
-            for group in generated_suggestions:
-                all_recommendations.extend(group.get('recommendations', []))
+            # # Extract flat list of recommendations from document groups
+            # all_recommendations = []
+            # for group in generated_suggestions:
+            #     all_recommendations.extend(group.get('recommendations', []))
             
-            # Filter out duplicate suggestions by comparing with existing ones
-            new_suggestions = []
-            existing_bodies = [comment.get("body", "") for comment in existing_suggestions]
+            # # Filter out duplicate suggestions by comparing with existing ones
+            # new_suggestions = []
+            # existing_bodies = [comment.get("body", "") for comment in existing_suggestions]
             
-            for suggestion in all_recommendations:                
-                # Simple duplicate check - in production, could use semantic similarity
-                is_duplicate = False
-                for existing_body in existing_bodies:
-                    if (suggestion.get('section', '') in existing_body and
-                        suggestion.get('what_to_update', '') in existing_body):
-                        is_duplicate = True
-                        break
+            # for suggestion in all_recommendations:                
+            #     # Simple duplicate check - in production, could use semantic similarity
+            #     is_duplicate = False
+            #     for existing_body in existing_bodies:
+            #         if (suggestion.get('section', '') in existing_body and
+            #             suggestion.get('what_to_update', '') in existing_body):
+            #             is_duplicate = True
+            #             break
                 
-                if not is_duplicate:
-                    new_suggestions.append(suggestion)
+            #     if not is_duplicate:
+            #         new_suggestions.append(suggestion)
             
-            logger.info(f"Filtered {len(all_recommendations)} suggestions to {len(new_suggestions)} new suggestions")
+            # logger.info(f"Filtered {len(all_recommendations)} suggestions to {len(new_suggestions)} new suggestions")
+            
+            logger.info(f"Existing suggestions: {existing_suggestions}")
             
             # Post new suggestions
             posted_recommendations = []
             critical_recommendations = 0
             
             # Use GitHub Review API for suggestions (Copilot-style)
-            logger.info(f"Creating comprehensive PR review for {len(new_suggestions)} suggestions")
-            review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, new_suggestions, baseline_map)
+            logger.info(f"Creating comprehensive PR review for {len(generated_suggestions)} suggestions")
+            review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, generated_suggestions, baseline_map)
             
             if review_posted:
-                for suggestion in new_suggestions:
+                for suggestion in generated_suggestions:
                     recommendation = self._create_recommendation_model(suggestion)
                     posted_recommendations.append(recommendation)
                     
