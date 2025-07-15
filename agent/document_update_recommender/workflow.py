@@ -1642,31 +1642,17 @@ class DocumentUpdateRecommenderWorkflow:
             review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, generated_suggestions, baseline_map)
             
             if review_posted:
-                for suggestion in generated_suggestions:
-                    recommendation = self._create_recommendation_model(suggestion)
-                    posted_recommendations.append(recommendation)
+                # Extract individual recommendations from document groups
+                for document_group in generated_suggestions:
+                    target_document = document_group.get('summary', {}).get('target_document', 'Unknown')
+                    recommendations = document_group.get('recommendations', [])
                     
-                    if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
-                        critical_recommendations += 1
-            # else:
-            #     # Use threaded comments for single suggestions
-            #     for suggestion in new_suggestions:
-            #         try:
-            #             # Post threaded recommendation with preview and actions
-            #             comment_posted = await self._post_threaded_recommendation(repository, pr_number, suggestion, baseline_map)
+                    for suggestion in recommendations:
+                        recommendation = self._create_recommendation_model(suggestion, target_document)
+                        posted_recommendations.append(recommendation)
                         
-            #             if comment_posted:
-            #                 # Convert to DocumentationRecommendationModel
-            #                 recommendation = self._create_recommendation_model(suggestion)
-            #                 posted_recommendations.append(recommendation)
-                            
-            #                 # Count critical recommendations for CI/CD status
-            #                 if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
-            #                     critical_recommendations += 1
-                        
-            #         except Exception as e:
-            #             logger.error(f"Error posting suggestion: {str(e)}")
-            #             continue
+                        if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
+                            critical_recommendations += 1
             
             # Update CI/CD check status based on recommendations
             await self._update_ci_cd_status(repository, pr_number, critical_recommendations, len(posted_recommendations))
@@ -1678,7 +1664,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error in filter and post suggestions: {str(e)}")
             return []
     
-    def _create_recommendation_model(self, suggestion: Dict[str, Any]) -> DocumentationRecommendationModel:
+    def _create_recommendation_model(self, suggestion: Dict[str, Any], target_document: str = "Unknown") -> DocumentationRecommendationModel:
         """Convert suggestion dict to DocumentationRecommendationModel."""
         try:
             # Map recommendation type
@@ -1702,12 +1688,20 @@ class DocumentUpdateRecommenderWorkflow:
             else:
                 priority = 'MEDIUM'
             
+            # Generate where_to_update and how_to_update based on the suggestion
+            section = suggestion.get('section', 'Unknown')
+            where_to_update = f"{target_document} - {section}" if target_document != "Unknown" else section
+            how_to_update = suggestion.get('suggested_content', suggestion.get('what_to_update', 'Manual review needed'))
+            
             return DocumentationRecommendationModel(
-                section=suggestion.get('section', 'Unknown'),
+                target_document=target_document,
+                section=section,
                 recommendation_type=rec_type,
                 priority=priority,
                 what_to_update=suggestion.get('what_to_update', ''),
+                where_to_update=where_to_update,
                 why_update_needed=suggestion.get('why_update_needed', ''),
+                how_to_update=how_to_update,
                 affected_element_id=suggestion.get('finding_id', ''),
                 affected_element_type=suggestion.get('finding_type', ''),
                 confidence_score=suggestion.get('confidence_score', 0.5),
