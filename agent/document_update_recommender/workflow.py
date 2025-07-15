@@ -92,6 +92,8 @@ class DocumentSummary(BaseModel):
     low_priority_count: int = Field(description="Number of low priority recommendations")
     overview: str = Field(description="Brief overview of what needs updating in this document")
     sections_affected: List[str] = Field(description="List of sections that need updates")
+    affected_files: List[str] = Field(default_factory=list, description="List of files affected by traceability anomalies")
+    how_to_update: str = Field(default="", description="Instructions for how to update (used for traceability anomaly cases)")
 
 class DocumentRecommendationGroup(BaseModel):
     """Group of recommendations for a specific document"""
@@ -856,7 +858,8 @@ class DocumentUpdateRecommenderWorkflow:
                 generated_suggestions,
                 existing_suggestions,
                 state.repository,
-                state.pr_number
+                state.pr_number,
+                state.baseline_map
             )
             
             state.recommendations = final_recommendations
@@ -1598,7 +1601,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error in LLM suggestion generation: {str(e)}")
             return []
     
-    async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int) -> List[DocumentationRecommendationModel]:
+    async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int, baseline_map: Optional[BaselineMapModel]) -> List[DocumentationRecommendationModel]:
         """
         Filter generated suggestions against existing ones and post new recommendations to PR.
         Implements duplication filtering and CI/CD status management per BAB III.md.
@@ -1641,7 +1644,7 @@ class DocumentUpdateRecommenderWorkflow:
             if self.use_review_mode and len(new_suggestions) >= self.review_threshold:
                 # Use GitHub Review API for multiple suggestions (Copilot-style)
                 logger.info(f"Creating comprehensive PR review for {len(new_suggestions)} suggestions")
-                review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, new_suggestions)
+                review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, new_suggestions, baseline_map)
                 
                 if review_posted:
                     for suggestion in new_suggestions:
@@ -1655,7 +1658,7 @@ class DocumentUpdateRecommenderWorkflow:
                 for suggestion in new_suggestions:
                     try:
                         # Post threaded recommendation with preview and actions
-                        comment_posted = await self._post_threaded_recommendation(repository, pr_number, suggestion)
+                        comment_posted = await self._post_threaded_recommendation(repository, pr_number, suggestion, baseline_map)
                         
                         if comment_posted:
                             # Convert to DocumentationRecommendationModel
@@ -1844,7 +1847,7 @@ class DocumentUpdateRecommenderWorkflow:
         except Exception as e:
             logger.error(f"Error updating CI/CD status: {str(e)}")
 
-    async def _post_threaded_recommendation(self, repository: str, pr_number: int, suggestion: Dict[str, Any]) -> bool:
+    async def _post_threaded_recommendation(self, repository: str, pr_number: int, suggestion: Dict[str, Any], baseline_map: Optional[BaselineMapModel]) -> bool:
         """
         Post a threaded recommendation with:
         1. Main recommendation comment
@@ -1853,7 +1856,7 @@ class DocumentUpdateRecommenderWorkflow:
         """
         try:
             # 1. Post main recommendation comment
-            main_comment_body = self._format_main_recommendation_comment(suggestion)
+            main_comment_body = self._format_main_recommendation_comment(suggestion, baseline_map)
             main_comment_id = await self._post_pr_comment_with_id(repository, pr_number, main_comment_body)
             
             if not main_comment_id:
@@ -1874,7 +1877,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error posting threaded recommendation: {str(e)}")
             return False
     
-    def _format_main_recommendation_comment(self, suggestion: Dict[str, Any]) -> str:
+    def _format_main_recommendation_comment(self, suggestion: Dict[str, Any], baseline_map: Optional[BaselineMapModel]) -> str:
         """Format the main recommendation comment (parent comment)"""
         finding_type = suggestion.get('finding_type', 'Unknown')
         priority = suggestion.get('priority', 'Medium')
@@ -1887,7 +1890,7 @@ class DocumentUpdateRecommenderWorkflow:
         else:
             icon = "🟢"
         
-        return f"""## {icon} Documentation Update Needed
+        base_comment = f"""## {icon} Documentation Update Needed
 
 **Target**: `{suggestion.get('target_document', 'Unknown')}`  
 **Section**: {suggestion.get('section', 'Unknown')}  
@@ -1901,6 +1904,13 @@ class DocumentUpdateRecommenderWorkflow:
 
 ---
 *🤖 Docureco Agent detected this documentation impact from your code changes*"""
+        
+        # Add traceability map for traceability anomalies
+        if finding_type == 'Traceability_Anomaly':
+            traceability_map_section = self._format_baseline_map_for_comment(baseline_map)
+            base_comment += f"\n\n{traceability_map_section}"
+        
+        return base_comment
 
     async def _format_suggestion_with_preview(self, suggestion: Dict[str, Any]) -> str:
         """Format detailed suggestion with code preview and GitHub suggestion syntax"""
@@ -2028,7 +2038,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error posting reply comment: {str(e)}")
             return None
 
-    async def _create_pr_review_with_suggestions(self, repository: str, pr_number: int, suggestions: List[Dict[str, Any]]) -> bool:
+    async def _create_pr_review_with_suggestions(self, repository: str, pr_number: int, suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> bool:
         """
         Create a comprehensive PR review with threaded suggestions using GitHub Review API.
         This creates the Copilot-style interaction with resolve buttons.
@@ -2043,7 +2053,7 @@ class DocumentUpdateRecommenderWorkflow:
             
             # Create the main review without file-specific comments
             # Documentation files might not be in the PR diff, so we can't create review comments on them
-            review_body = await self._create_review_summary(suggestions)
+            review_body = await self._create_review_summary(suggestions, baseline_map)
             
             headers = {
                 "Authorization": f"token {github_token}",
@@ -2069,7 +2079,7 @@ class DocumentUpdateRecommenderWorkflow:
                     logger.info(f"Successfully created PR review #{review_id}")
                     
                     # Post follow-up comments with suggestions and resolve buttons
-                    await self._post_review_follow_ups(repository, pr_number, review_id, suggestions)
+                    await self._post_review_follow_ups(repository, pr_number, review_id, suggestions, baseline_map)
                     
                     return True
                 else:
@@ -2080,7 +2090,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error creating PR review: {str(e)}")
             return False
 
-    async def _create_review_summary(self, suggestions: List[Dict[str, Any]]) -> str:
+    async def _create_review_summary(self, suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> str:
         """Create the main review summary with detailed suggestions and copy-paste ready content"""
         total_suggestions = len(suggestions)
         high_priority = sum(1 for s in suggestions if s.get('priority', '').upper() == 'HIGH')
@@ -2142,6 +2152,9 @@ class DocumentUpdateRecommenderWorkflow:
         
         suggestions_text = "".join(suggestions_detail)
         
+        # Add traceability map for context
+        traceability_map_section = self._format_baseline_map_for_comment(baseline_map)
+        
         return f"""## 🤖 Docureco Agent - Documentation Review
 
 Found **{total_suggestions}** documentation updates needed ({high_priority} high priority).
@@ -2166,10 +2179,12 @@ Found **{total_suggestions}** documentation updates needed ({high_priority} high
 - **High Priority**: {high_priority}
 - **Medium/Low Priority**: {total_suggestions - high_priority}
 
+{traceability_map_section}
+
 ---
 *This review was generated automatically by Docureco Agent based on code changes in this PR*"""
 
-    async def _post_review_follow_ups(self, repository: str, pr_number: int, review_id: int, suggestions: List[Dict[str, Any]]) -> None:
+    async def _post_review_follow_ups(self, repository: str, pr_number: int, review_id: int, suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> None:
         """Post follow-up comments with detailed suggestions and resolve buttons"""
         try:
             for i, suggestion in enumerate(suggestions):
@@ -2238,6 +2253,57 @@ Or reply with:
 
 ---
 <sub>💡 **Tip**: Use the GitHub suggestion feature above to apply documentation changes with one click</sub>"""
+
+    def _format_baseline_map_for_comment(self, baseline_map: Optional[BaselineMapModel]) -> str:
+        """Format baseline map into a collapsible markdown block for GitHub comments"""
+        if not baseline_map:
+            return """
+<details>
+<summary>📋 Current Traceability Map</summary>
+
+No baseline map found. Please run the Docureco Agent: Baseline Map GitHub Action to create one.
+
+</details>
+"""
+        
+        # Format requirements
+        requirements_section = ""
+        if baseline_map.requirements:
+            requirements_section = "### Requirements\n"
+            for req in baseline_map.requirements:
+                requirements_section += f"- **{req.id}**: {req.title}\n"
+        
+        # Format design elements
+        design_elements_section = ""
+        if baseline_map.design_elements:
+            design_elements_section = "\n### Design Elements\n"
+            for de in baseline_map.design_elements:
+                design_elements_section += f"- **{de.id}**: {de.name} ({de.type})\n"
+        
+        # Format code components
+        code_components_section = ""
+        if baseline_map.code_components:
+            code_components_section = "\n### Code Components\n"
+            for cc in baseline_map.code_components:
+                code_components_section += f"- **{cc.id}**: {cc.path}\n"
+        
+        # Format traceability links
+        traceability_links_section = ""
+        if baseline_map.traceability_links:
+            traceability_links_section = "\n### Traceability Links\n"
+            for link in baseline_map.traceability_links:
+                traceability_links_section += f"- {link.source_id} → {link.target_id}\n"
+        
+        return f"""
+<details>
+<summary>📋 Current Traceability Map</summary>
+
+{requirements_section}{design_elements_section}{code_components_section}{traceability_links_section}
+
+**Total Elements**: {len(baseline_map.requirements or [])} requirements, {len(baseline_map.design_elements or [])} design elements, {len(baseline_map.code_components or [])} code components, {len(baseline_map.traceability_links or [])} traceability links
+
+</details>
+"""
 
 def create_document_update_recommender(
     llm_client: Optional[DocurecoLLMClient] = None,

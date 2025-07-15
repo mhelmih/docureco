@@ -451,6 +451,67 @@ Document: {doc_path}
     }}
     ```
 
+**SPECIAL CASE: TRACEABILITY ANOMALIES**
+- If all findings are traceability anomalies, merge them into a single summary recommendation.
+- The summary must include:
+  - affected_files: List of all files with anomalies
+  - why: "The following files are not mapped in the baseline map due to a traceability anomaly. The cause is unknown and may require a full baseline map recreation."
+  - how_to_update: "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
+- The recommendations array must be empty.
+
+**SPECIAL CASE: MIXED FINDINGS**
+- If there are both traceability anomalies and other findings (documentation gaps, standard impacts, etc):
+  - The summary must still include the rerun workflow recommendation as above.
+  - The recommendations array should contain only the document-focused recommendations for the non-anomaly findings.
+
+**EXAMPLE OUTPUT (ALL ANOMALIES):**
+```json
+{{
+  "document_groups": [
+    {{
+      "summary": {{
+        "target_document": null,
+        "total_recommendations": 0,
+        "high_priority_count": 0,
+        "medium_priority_count": 0,
+        "low_priority_count": 0,
+        "overview": "The following files are not mapped in the baseline map due to a traceability anomaly. The cause is unknown and may require a full baseline map recreation.",
+        "sections_affected": [],
+        "affected_files": [
+          "sample-project/src/book/book.py",
+          "sample-project/src/book/book_collection.py"
+        ],
+        "how_to_update": "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
+      }},
+      "recommendations": []
+    }}
+  ]
+}}
+```
+
+**EXAMPLE OUTPUT (MIXED):**
+```json
+{{
+  "document_groups": [
+    {{
+      "summary": {{
+        "target_document": "...",
+        ...other fields...
+        "overview": "...",
+        "sections_affected": ["...", "..."],
+        "affected_files": ["...", "..."],
+        "how_to_update": "...",
+        "affected_files": ["..."]
+      }},
+      "recommendations": [
+        {{ /* doc-focused recommendation 1 */ }},
+        {{ /* doc-focused recommendation 2 */ }}
+      ]
+    }}
+  ]
+}}
+```
+
 Generate recommendations grouped by target document with summaries and detailed recommendations. 
 
 REMEMBER: Match your recommendations to the finding type - anomalies need baseline map fixes, not doc updates!"""
