@@ -354,6 +354,17 @@ class DocumentUpdateRecommenderWorkflow:
                 logger.warning("No baseline map found - terminating workflow")
                 return state    # Terminate workflow if no baseline map is found
                 
+            # Debug logging for baseline map
+            req_count = len(baseline_map_data.requirements or [])
+            de_count = len(baseline_map_data.design_elements or [])
+            cc_count = len(baseline_map_data.code_components or [])
+            tl_count = len(baseline_map_data.traceability_links or [])
+            
+            logger.info(f"Baseline map loaded: {req_count} requirements, {de_count} design elements, {cc_count} code components, {tl_count} traceability links")
+            
+            if req_count == 0 and de_count == 0 and cc_count == 0 and tl_count == 0:
+                logger.warning("⚠️ Baseline map is completely empty - this indicates the map was not properly generated")
+                
             state.baseline_map = baseline_map_data
             
             # Process all file changes in one pass to determine traceability status and detect documentation changes
@@ -1947,19 +1958,6 @@ Found **{total_suggestions}** documentation updates needed ({high_priority} high
 
 {suggestions_text}
 
-### 🎯 Next Steps:
-1. **Review each suggestion above** - Each includes a targeted change snippet
-2. **Apply the suggested changes** to the specified files (add `+` lines, remove `-` lines)
-3. **Commit your changes** to this PR
-4. **Re-run automatically** - The agent will re-analyze when you push updates
-
-### 💡 Tips:
-- 🔴 Focus on **HIGH priority** items first
-- 📋 Each suggestion shows **only the lines that need to change** (like GitHub Copilot)
-- 📁 File paths are clearly marked with backticks
-- 🔍 Expand "implementation tips" for step-by-step guidance
-- 🔄 The agent detected these needs based on your code changes
-
 ### 📊 Summary:
 - **Total Suggestions**: {total_suggestions}
 - **High Priority**: {high_priority}
@@ -2054,6 +2052,31 @@ No baseline map found. Please run the Docureco Agent: Baseline Map GitHub Action
 </details>
 """
         
+        # Check if baseline map is completely empty
+        req_count = len(baseline_map.requirements or [])
+        de_count = len(baseline_map.design_elements or [])
+        cc_count = len(baseline_map.code_components or [])
+        tl_count = len(baseline_map.traceability_links or [])
+        
+        if req_count == 0 and de_count == 0 and cc_count == 0 and tl_count == 0:
+            return """
+<details>
+<summary>📋 Current Traceability Map</summary>
+
+**⚠️ Empty Baseline Map Found**
+
+The baseline map exists but contains no elements. This usually indicates:
+1. The baseline map was not properly generated
+2. The repository has no documentation files (SRS/SDD) to map
+3. The baseline map creation process failed
+
+**Recommended Action**: Re-run the Docureco Agent: Baseline Map GitHub Action to properly generate the traceability map.
+
+**Total Elements**: 0 requirements, 0 design elements, 0 code components, 0 traceability links
+
+</details>
+"""
+        
         # Format requirements
         requirements_section = ""
         if baseline_map.requirements:
@@ -2088,7 +2111,7 @@ No baseline map found. Please run the Docureco Agent: Baseline Map GitHub Action
 
 {requirements_section}{design_elements_section}{code_components_section}{traceability_links_section}
 
-**Total Elements**: {len(baseline_map.requirements or [])} requirements, {len(baseline_map.design_elements or [])} design elements, {len(baseline_map.code_components or [])} code components, {len(baseline_map.traceability_links or [])} traceability links
+**Total Elements**: {req_count} requirements, {de_count} design elements, {cc_count} code components, {tl_count} traceability links
 
 </details>
 """
