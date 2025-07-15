@@ -73,14 +73,11 @@ class ChangeGroupingOutput(BaseModel):
 
 class DocumentationRecommendation(BaseModel):
     """Structured output for documentation recommendations"""
-    target_document: str = Field(description="Document that needs updating")
     section: str = Field(description="Specific section or location")
     recommendation_type: str = Field(description="Type of update (UPDATE, CREATE, DELETE, REVIEW)")
     priority: str = Field(description="Priority level (HIGH, MEDIUM, LOW)")
     what_to_update: str = Field(description="What needs to be changed")
-    where_to_update: str = Field(description="Exact location or section reference")
     why_update_needed: str = Field(description="Rationale based on code changes")
-    how_to_update: str = Field(description="Step-by-step guidance")
     suggested_content: str = Field(default="", description="Specific content suggestions")
 
 class DocumentSummary(BaseModel):
@@ -92,8 +89,8 @@ class DocumentSummary(BaseModel):
     low_priority_count: int = Field(description="Number of low priority recommendations")
     overview: str = Field(description="Brief overview of what needs updating in this document")
     sections_affected: List[str] = Field(description="List of sections that need updates")
-    affected_files: List[str] = Field(default_factory=list, description="List of files affected by traceability anomalies")
-    how_to_update: str = Field(default="", description="Instructions for how to update (used for traceability anomaly cases)")
+    traceability_anomaly_affected_files: List[str] = Field(default_factory=list, description="List of files affected by traceability anomalies")
+    how_to_fix_traceability_anomaly: str = Field(default="", description="Instructions for how to fix traceability anomalies")
 
 class DocumentRecommendationGroup(BaseModel):
     """Group of recommendations for a specific document"""
@@ -849,7 +846,6 @@ class DocumentUpdateRecommenderWorkflow:
                 current_docs,
                 state.logical_change_sets
             )
-            
             state.generated_suggestions = generated_suggestions
             
             # 4.5 Filter Against Existing & Post Details
@@ -1589,11 +1585,6 @@ class DocumentUpdateRecommenderWorkflow:
             recommendation_result = response.content
             document_groups = recommendation_result["document_groups"]
             
-            # Optionally flatten all suggestions if needed elsewhere
-            # all_suggestions = []
-            # for group in document_groups:
-            #     all_suggestions.extend(group["recommendations"])
-            
             logger.info(f"Generated recommendations for {len(document_groups)} document groups from {len(filtered_findings)} findings")
             return document_groups
             
@@ -1607,27 +1598,20 @@ class DocumentUpdateRecommenderWorkflow:
         Implements duplication filtering and CI/CD status management per BAB III.md.
         """
         try:
+            # Extract flat list of recommendations from document groups
+            all_recommendations = []
+            for group in generated_suggestions:
+                all_recommendations.extend(group.get('recommendations', []))
+            
             # Filter out duplicate suggestions by comparing with existing ones
             new_suggestions = []
             existing_bodies = [comment.get("body", "") for comment in existing_suggestions]
             
-            for suggestion in generated_suggestions:
-                # Create suggestion content for comparison
-                suggestion_content = f"""
-                **Target Document**: {suggestion.get('target_document', 'Unknown')}
-                **Section**: {suggestion.get('section', 'Unknown')}
-                **Action**: {suggestion.get('recommendation_type', 'Unknown')}
-                **What**: {suggestion.get('what_to_update', '')}
-                **Where**: {suggestion.get('where_to_update', '')}
-                **Why**: {suggestion.get('why_update_needed', '')}
-                **How**: {suggestion.get('how_to_update', '')}
-                """
-                
+            for suggestion in all_recommendations:                
                 # Simple duplicate check - in production, could use semantic similarity
                 is_duplicate = False
                 for existing_body in existing_bodies:
-                    if (suggestion.get('target_document', '') in existing_body and 
-                        suggestion.get('section', '') in existing_body and
+                    if (suggestion.get('section', '') in existing_body and
                         suggestion.get('what_to_update', '') in existing_body):
                         is_duplicate = True
                         break
@@ -1635,43 +1619,42 @@ class DocumentUpdateRecommenderWorkflow:
                 if not is_duplicate:
                     new_suggestions.append(suggestion)
             
-            logger.info(f"Filtered {len(generated_suggestions)} suggestions to {len(new_suggestions)} new suggestions")
+            logger.info(f"Filtered {len(all_recommendations)} suggestions to {len(new_suggestions)} new suggestions")
             
-            # Post new suggestions - use comprehensive review mode for multiple suggestions
+            # Post new suggestions
             posted_recommendations = []
             critical_recommendations = 0
             
-            if self.use_review_mode and len(new_suggestions) >= self.review_threshold:
-                # Use GitHub Review API for multiple suggestions (Copilot-style)
-                logger.info(f"Creating comprehensive PR review for {len(new_suggestions)} suggestions")
-                review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, new_suggestions, baseline_map)
-                
-                if review_posted:
-                    for suggestion in new_suggestions:
-                        recommendation = self._create_recommendation_model(suggestion)
-                        posted_recommendations.append(recommendation)
-                        
-                        if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
-                            critical_recommendations += 1
-            else:
-                # Use threaded comments for single suggestions
+            # Use GitHub Review API for suggestions (Copilot-style)
+            logger.info(f"Creating comprehensive PR review for {len(new_suggestions)} suggestions")
+            review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, new_suggestions, baseline_map)
+            
+            if review_posted:
                 for suggestion in new_suggestions:
-                    try:
-                        # Post threaded recommendation with preview and actions
-                        comment_posted = await self._post_threaded_recommendation(repository, pr_number, suggestion, baseline_map)
+                    recommendation = self._create_recommendation_model(suggestion)
+                    posted_recommendations.append(recommendation)
+                    
+                    if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
+                        critical_recommendations += 1
+            # else:
+            #     # Use threaded comments for single suggestions
+            #     for suggestion in new_suggestions:
+            #         try:
+            #             # Post threaded recommendation with preview and actions
+            #             comment_posted = await self._post_threaded_recommendation(repository, pr_number, suggestion, baseline_map)
                         
-                        if comment_posted:
-                            # Convert to DocumentationRecommendationModel
-                            recommendation = self._create_recommendation_model(suggestion)
-                            posted_recommendations.append(recommendation)
+            #             if comment_posted:
+            #                 # Convert to DocumentationRecommendationModel
+            #                 recommendation = self._create_recommendation_model(suggestion)
+            #                 posted_recommendations.append(recommendation)
                             
-                            # Count critical recommendations for CI/CD status
-                            if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
-                                critical_recommendations += 1
+            #                 # Count critical recommendations for CI/CD status
+            #                 if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
+            #                     critical_recommendations += 1
                         
-                    except Exception as e:
-                        logger.error(f"Error posting suggestion: {str(e)}")
-                        continue
+            #         except Exception as e:
+            #             logger.error(f"Error posting suggestion: {str(e)}")
+            #             continue
             
             # Update CI/CD check status based on recommendations
             await self._update_ci_cd_status(repository, pr_number, critical_recommendations, len(posted_recommendations))
@@ -1682,86 +1665,6 @@ class DocumentUpdateRecommenderWorkflow:
         except Exception as e:
             logger.error(f"Error in filter and post suggestions: {str(e)}")
             return []
-    
-    def _format_recommendation_comment(self, suggestion: Dict[str, Any]) -> str:
-        """Format a recommendation as a GitHub comment with proper markdown formatting."""
-        finding_type = suggestion.get('finding_type', 'Unknown')
-        priority = suggestion.get('priority', 'Medium')
-        
-        # Create icon based on priority
-        if priority.upper() == 'HIGH':
-            icon = "🔴"
-        elif priority.upper() == 'MEDIUM': 
-            icon = "🟡"
-        else:
-            icon = "🟢"
-        
-        comment_body = f"""## {icon} Docureco Agent - Documentation Update Recommendation
-
-**Finding Type**: {finding_type}  
-**Priority**: {priority}  
-**Target Document**: `{suggestion.get('target_document', 'Unknown')}`  
-**Section**: {suggestion.get('section', 'Unknown')}  
-
-### 📝 What needs to be updated
-{suggestion.get('what_to_update', 'No description provided')}
-
-### 📍 Where to update
-{suggestion.get('where_to_update', 'No location specified')}
-
-### 🔍 Why this update is needed
-{suggestion.get('why_update_needed', 'No reason provided')}
-
-### 🛠️ How to update
-{suggestion.get('how_to_update', 'No instructions provided')}
-
----
-**Source**: {suggestion.get('source_change_set', 'Unknown change set')}  
-**Affected Element**: {suggestion.get('finding_id', 'Unknown')}
-
-*This recommendation was generated automatically by Docureco Agent based on code changes in this PR.*
-"""
-        return comment_body
-    
-    async def _post_pr_comment(self, repository: str, pr_number: int, comment_body: str) -> bool:
-        """Post a comment to the GitHub PR and return success status."""
-        try:
-            github_token = os.getenv("GITHUB_TOKEN")
-            if not github_token:
-                logger.error("GITHUB_TOKEN not found, cannot post comment")
-                return False
-            
-            # Parse repository owner and name
-            owner, repo_name = repository.split("/")
-            
-            headers = {
-                "Authorization": f"token {github_token}",
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json"
-            }
-            
-            # Prepare comment data
-            comment_data = {
-                "body": comment_body
-            }
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"https://api.github.com/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
-                    headers=headers,
-                    json=comment_data
-                )
-                
-                if response.status_code == 201:
-                    logger.info(f"Successfully posted comment to PR #{pr_number}")
-                    return True
-                else:
-                    logger.error(f"Failed to post comment: {response.status_code} - {response.text}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Error posting PR comment: {str(e)}")
-            return False
     
     def _create_recommendation_model(self, suggestion: Dict[str, Any]) -> DocumentationRecommendationModel:
         """Convert suggestion dict to DocumentationRecommendationModel."""
@@ -1788,14 +1691,11 @@ class DocumentUpdateRecommenderWorkflow:
                 priority = 'MEDIUM'
             
             return DocumentationRecommendationModel(
-                target_document=suggestion.get('target_document', 'Unknown'),
                 section=suggestion.get('section', 'Unknown'),
                 recommendation_type=rec_type,
                 priority=priority,
                 what_to_update=suggestion.get('what_to_update', ''),
-                where_to_update=suggestion.get('where_to_update', ''),
                 why_update_needed=suggestion.get('why_update_needed', ''),
-                how_to_update=suggestion.get('how_to_update', ''),
                 affected_element_id=suggestion.get('finding_id', ''),
                 affected_element_type=suggestion.get('finding_type', ''),
                 confidence_score=suggestion.get('confidence_score', 0.5),
@@ -1847,145 +1747,6 @@ class DocumentUpdateRecommenderWorkflow:
         except Exception as e:
             logger.error(f"Error updating CI/CD status: {str(e)}")
 
-    async def _post_threaded_recommendation(self, repository: str, pr_number: int, suggestion: Dict[str, Any], baseline_map: Optional[BaselineMapModel]) -> bool:
-        """
-        Post a threaded recommendation with:
-        1. Main recommendation comment
-        2. Reply with detailed suggestion and code preview
-        3. Reply with resolve/commit buttons
-        """
-        try:
-            # 1. Post main recommendation comment
-            main_comment_body = self._format_main_recommendation_comment(suggestion, baseline_map)
-            main_comment_id = await self._post_pr_comment_with_id(repository, pr_number, main_comment_body)
-            
-            if not main_comment_id:
-                return False
-            
-            # 2. Reply with detailed suggestion and preview
-            suggestion_body = await self._format_suggestion_with_preview(suggestion)
-            suggestion_comment_id = await self._post_reply_comment(repository, pr_number, main_comment_id, suggestion_body)
-            
-            # 3. Reply with action buttons
-            if suggestion_comment_id:
-                action_body = self._format_action_buttons(suggestion)
-                await self._post_reply_comment(repository, pr_number, suggestion_comment_id, action_body)
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error posting threaded recommendation: {str(e)}")
-            return False
-    
-    def _format_main_recommendation_comment(self, suggestion: Dict[str, Any], baseline_map: Optional[BaselineMapModel]) -> str:
-        """Format the main recommendation comment (parent comment)"""
-        finding_type = suggestion.get('finding_type', 'Unknown')
-        priority = suggestion.get('priority', 'Medium')
-        
-        # Create icon based on priority
-        if priority.upper() == 'HIGH':
-            icon = "🔴"
-        elif priority.upper() == 'MEDIUM': 
-            icon = "🟡"
-        else:
-            icon = "🟢"
-        
-        base_comment = f"""## {icon} Documentation Update Needed
-
-**Target**: `{suggestion.get('target_document', 'Unknown')}`  
-**Section**: {suggestion.get('section', 'Unknown')}  
-**Priority**: {priority}  
-**Finding**: {finding_type}
-
-### 📋 Summary
-{suggestion.get('what_to_update', 'No description provided')}
-
-**Affected by**: {suggestion.get('source_change_set', 'Unknown change set')}
-
----
-*🤖 Docureco Agent detected this documentation impact from your code changes*"""
-        
-        # Add traceability map for traceability anomalies
-        if finding_type == 'Traceability_Anomaly':
-            traceability_map_section = self._format_baseline_map_for_comment(baseline_map)
-            base_comment += f"\n\n{traceability_map_section}"
-        
-        return base_comment
-
-    async def _format_suggestion_with_preview(self, suggestion: Dict[str, Any]) -> str:
-        """Format detailed suggestion with code preview and GitHub suggestion syntax"""
-        
-        # Use the documentation content generated by the main LLM call
-        suggested_content = suggestion.get('suggested_content', 'No content provided')
-        
-        return f"""### 📝 Detailed Recommendation
-
-**Why this update is needed:**
-{suggestion.get('why_update_needed', 'No reason provided')}
-
-**Where to update:**
-{suggestion.get('where_to_update', 'No location specified')}
-
-**How to update:**
-{suggestion.get('how_to_update', 'No instructions provided')}
-
----
-
-### 🔍 Suggested Change
-
-```suggestion
-{suggested_content}
-```
-
-> 💡 **Tip**: This shows only the lines that need to change. Add `+` lines, remove `-` lines, use context to find the location.
-
-<details>
-<summary>📖 View current documentation context</summary>
-
-**Current content in this section:**
-```markdown
-{await self._get_current_documentation_section(suggestion)}
-```
-
-</details>"""
-
-    async def _get_current_documentation_section(self, suggestion: Dict[str, Any]) -> str:
-        """Extract the current content of the specific documentation section"""
-        try:
-            target_document = suggestion.get('target_document', '')
-            section = suggestion.get('section', '')
-            
-            # Access the current documentation from state (this would need to be passed down)
-            # For now, we'll use a simpler approach and return a relevant message
-            if not target_document or not section:
-                return "No specific section identified"
-            
-            # This could be enhanced to actually parse the markdown and extract the specific section
-            return f"""Currently this section may be missing or needs updates.
-
-**Target Location**: {target_document}
-**Section**: {section}
-
-*The agent will help you add or update this content based on the code changes detected.*"""
-            
-        except Exception as e:
-            logger.error(f"Error getting current documentation section: {str(e)}")
-            return "Unable to retrieve current content"
-
-    def _format_action_buttons(self, suggestion: Dict[str, Any]) -> str:
-        """Format action buttons for resolve/commit"""
-        return f"""### 🔧 Actions
-
-**Choose an action:**
-
-- 📝 **Apply Suggestion**: Use the GitHub suggestion above to apply this change
-- ✅ **Mark as Resolved**: If you've manually updated the documentation  
-- 🔄 **Request Different Approach**: Comment below if you need an alternative solution
-- ❌ **Dismiss**: If this recommendation isn't applicable
-
----
-<sub>💡 **Tip**: Click the "Commit suggestion" button above to apply the documentation change directly, or manually edit and push your own version.</sub>"""
-
     async def _post_pr_comment_with_id(self, repository: str, pr_number: int, comment_body: str) -> Optional[int]:
         """Post a comment and return the comment ID for threading"""
         try:
@@ -2023,22 +1784,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error posting PR comment: {str(e)}")
             return None
 
-    async def _post_reply_comment(self, repository: str, pr_number: int, parent_comment_id: int, reply_body: str) -> Optional[int]:
-        """Post a reply to a specific comment (GitHub doesn't support nested comments, so this posts a new comment with reference)"""
-        try:
-            # GitHub doesn't support true nested comments in issues/PRs
-            # Instead, we reference the parent comment and post a new comment
-            referenced_reply = f"""**↳ Reply to [comment #{parent_comment_id}]**
-
-{reply_body}"""
-            
-            return await self._post_pr_comment_with_id(repository, pr_number, referenced_reply)
-            
-        except Exception as e:
-            logger.error(f"Error posting reply comment: {str(e)}")
-            return None
-
-    async def _create_pr_review_with_suggestions(self, repository: str, pr_number: int, suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> bool:
+    async def _create_pr_review_with_suggestions(self, repository: str, pr_number: int, document_groups: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> bool:
         """
         Create a comprehensive PR review with threaded suggestions using GitHub Review API.
         This creates the Copilot-style interaction with resolve buttons.
@@ -2051,9 +1797,9 @@ class DocumentUpdateRecommenderWorkflow:
             
             owner, repo_name = repository.split("/")
             
-            # Create the main review without file-specific comments
+            # Create the main review
             # Documentation files might not be in the PR diff, so we can't create review comments on them
-            review_body = await self._create_review_summary(suggestions, baseline_map)
+            review_body = await self._create_review_summary(document_groups, baseline_map)
             
             headers = {
                 "Authorization": f"token {github_token}",
@@ -2079,7 +1825,7 @@ class DocumentUpdateRecommenderWorkflow:
                     logger.info(f"Successfully created PR review #{review_id}")
                     
                     # Post follow-up comments with suggestions and resolve buttons
-                    await self._post_review_follow_ups(repository, pr_number, review_id, suggestions, baseline_map)
+                    await self._post_review_follow_ups(repository, pr_number, review_id, document_groups, baseline_map)
                     
                     return True
                 else:
@@ -2090,40 +1836,74 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error creating PR review: {str(e)}")
             return False
 
-    async def _create_review_summary(self, suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> str:
+    async def _create_review_summary(self, document_groups: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> str:
         """Create the main review summary with detailed suggestions and copy-paste ready content"""
-        total_suggestions = len(suggestions)
-        high_priority = sum(1 for s in suggestions if s.get('priority', '').upper() == 'HIGH')
+        # Extract all recommendations from document groups
+        all_suggestions = []
+        for group in document_groups:
+            all_suggestions.extend(group.get('recommendations', []))
         
-        # Create detailed breakdown of each suggestion
-        suggestions_detail = []
-        for i, suggestion in enumerate(suggestions, 1):
-            priority_icon = "🔴" if suggestion.get('priority', '').upper() == 'HIGH' else "🟡" if suggestion.get('priority', '').upper() == 'MEDIUM' else "🟢"
+        total_suggestions = len(all_suggestions)
+        high_priority = sum(1 for s in all_suggestions if s.get('priority', '').upper() == 'HIGH')
+        
+        # Create detailed breakdown by document group
+        group_details = []
+        suggestion_counter = 1
+        
+        for group in document_groups:
+            summary = group.get('summary', {})
+            recommendations = group.get('recommendations', [])
             
-            # Use the documentation content generated by the main LLM call
-            suggested_content = suggestion.get('suggested_content', 'No content provided')
-            
-            # Format file path clearly
-            file_path = suggestion.get('target_document', 'Unknown')
-            section = suggestion.get('section', 'Unknown')
-            action = suggestion.get('recommendation_type', 'Unknown').upper()
-            
-            # Create the suggestion with copy-paste ready content
-            suggestion_text = f"""
-### {priority_icon} Suggestion #{i}: {action} documentation
+            if not recommendations:
+                # Handle traceability anomaly case
+                affected_files = summary.get('traceability_anomaly_affected_files', [])
+                how_to_fix = summary.get('how_to_fix_traceability_anomaly', '')
+                
+                if affected_files:
+                    group_text = f"""
+### 🔴 Traceability Anomaly Detected
 
-**📁 File**: `{file_path}`  
-**📍 Section**: {section}  
-**⚡ Priority**: {suggestion.get('priority', 'Medium')}  
+**📁 Affected Files**: {', '.join([f'`{file}`' for file in affected_files])}
+
+**💭 Issue**: {summary.get('overview', 'Traceability anomaly detected')}
+
+**🛠️ How to Fix**: {how_to_fix}
+
+---"""
+                    group_details.append(group_text)
+                continue
+            
+            # Regular document recommendations
+            target_document = summary.get('target_document', 'Unknown')
+            group_text = f"""
+## 📄 Document: `{target_document}`
+
+**📋 Summary**: {summary.get('overview', 'No overview provided')}  
+**📊 Recommendations**: {summary.get('total_recommendations', len(recommendations))} total ({summary.get('high_priority_count', 0)} high priority)  
+**📍 Sections Affected**: {', '.join(summary.get('sections_affected', []))}
+
+"""
+            
+            # Add individual recommendations
+            for recommendation in recommendations:
+                priority_icon = "🔴" if recommendation.get('priority', '').upper() == 'HIGH' else "🟡" if recommendation.get('priority', '').upper() == 'MEDIUM' else "🟢"
+                
+                # Use the documentation content generated by the main LLM call
+                suggested_content = recommendation.get('suggested_content', 'No content provided')
+                
+                section = recommendation.get('section', 'Unknown')
+                action = recommendation.get('recommendation_type', 'Unknown').upper()
+                
+                # Create the suggestion with copy-paste ready content
+                suggestion_text = f"""
+### {priority_icon} Suggestion #{suggestion_counter}: {action} in {section}
+
+**⚡ Priority**: {recommendation.get('priority', 'Medium')}  
 **🔧 Action**: {action}
 
-**💭 What needs updating**: {suggestion.get('what_to_update', 'No description provided')}
+**💭 What needs updating**: {recommendation.get('what_to_update', 'No description provided')}
 
-**🔍 Why**: {suggestion.get('why_update_needed', 'No reason provided')}
-
-**📍 Where**: {suggestion.get('where_to_update', 'No location specified')}
-
-**🛠️ How**: {suggestion.get('how_to_update', 'No instructions provided')}
+**🔍 Why**: {recommendation.get('why_update_needed', 'No reason provided')}
 
 **📝 Suggested Change**:
 ```diff
@@ -2136,7 +1916,7 @@ class DocumentUpdateRecommenderWorkflow:
 <summary>💡 Click to see implementation tips</summary>
 
 **To apply this suggestion:**
-1. Open the file: `{file_path}`
+1. Open the file: `{target_document}`
 2. Navigate to section: **{section}**
 3. Find the lines shown in the diff context
 4. Apply the targeted changes:
@@ -2147,10 +1927,13 @@ class DocumentUpdateRecommenderWorkflow:
 </details>
 
 ---"""
+                
+                group_text += suggestion_text
+                suggestion_counter += 1
             
-            suggestions_detail.append(suggestion_text)
+            group_details.append(group_text)
         
-        suggestions_text = "".join(suggestions_detail)
+        suggestions_text = "".join(group_details)
         
         # Add traceability map for context
         traceability_map_section = self._format_baseline_map_for_comment(baseline_map)
@@ -2184,38 +1967,42 @@ Found **{total_suggestions}** documentation updates needed ({high_priority} high
 ---
 *This review was generated automatically by Docureco Agent based on code changes in this PR*"""
 
-    async def _post_review_follow_ups(self, repository: str, pr_number: int, review_id: int, suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> None:
+    async def _post_review_follow_ups(self, repository: str, pr_number: int, review_id: int, document_groups: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> None:
         """Post follow-up comments with detailed suggestions and resolve buttons"""
         try:
-            for i, suggestion in enumerate(suggestions):
-                # Post detailed suggestion with GitHub suggestion syntax
-                suggestion_body = await self._create_detailed_suggestion_comment(suggestion, i + 1)
-                comment_id = await self._post_pr_comment_with_id(repository, pr_number, suggestion_body)
+            suggestion_counter = 1
+            for group in document_groups:
+                recommendations = group.get('recommendations', [])
+                target_document = group.get('summary', {}).get('target_document', 'Unknown')
                 
-                if comment_id:
-                    # Post resolve/action comment
-                    action_body = self._create_resolve_action_comment(suggestion, comment_id)
-                    await self._post_pr_comment_with_id(repository, pr_number, action_body)
+                for recommendation in recommendations:
+                    # Post detailed suggestion with GitHub suggestion syntax
+                    suggestion_body = await self._create_detailed_suggestion_comment(recommendation, suggestion_counter, target_document)
+                    comment_id = await self._post_pr_comment_with_id(repository, pr_number, suggestion_body)
+                    
+                    if comment_id:
+                        # Post resolve/action comment
+                        action_body = self._create_resolve_action_comment(recommendation, comment_id)
+                        await self._post_pr_comment_with_id(repository, pr_number, action_body)
+                    
+                    suggestion_counter += 1
                     
         except Exception as e:
             logger.error(f"Error posting review follow-ups: {str(e)}")
 
-    async def _create_detailed_suggestion_comment(self, suggestion: Dict[str, Any], index: int) -> str:
+    async def _create_detailed_suggestion_comment(self, recommendation: Dict[str, Any], index: int, target_document: str) -> str:
         """Create detailed suggestion comment with GitHub suggestion syntax"""
         
         # Use the documentation content generated by the main LLM call
-        suggested_content = suggestion.get('suggested_content', 'No content provided')
+        suggested_content = recommendation.get('suggested_content', 'No content provided')
         
-        return f"""### 📝 Suggestion #{index}: {suggestion.get('target_document', 'Unknown')}
+        return f"""### 📝 Suggestion #{index}: {target_document}
 
-**Section**: {suggestion.get('section', 'Unknown')}  
-**Priority**: {suggestion.get('priority', 'Medium')}
+**Section**: {recommendation.get('section', 'Unknown')}  
+**Priority**: {recommendation.get('priority', 'Medium')}
 
 #### Why this update is needed:
-{suggestion.get('why_update_needed', 'No reason provided')}
-
-#### Where to update:
-{suggestion.get('where_to_update', 'No location specified')}
+{recommendation.get('why_update_needed', 'No reason provided')}
 
 #### Suggested change:
 
@@ -2228,10 +2015,8 @@ Found **{total_suggestions}** documentation updates needed ({high_priority} high
 <details>
 <summary>🔧 Implementation Details</summary>
 
-**How to apply this change:**
-{suggestion.get('how_to_update', 'No instructions provided')}
-
-**Affected by code changes in**: {suggestion.get('source_change_set', 'Unknown change set')}
+**Action**: {recommendation.get('recommendation_type', 'Unknown')}  
+**What to update**: {recommendation.get('what_to_update', 'No description provided')}
 
 </details>"""
 

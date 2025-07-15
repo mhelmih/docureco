@@ -300,11 +300,11 @@ Each finding requires different types of actions based on its type:
 - **Action**: INVESTIGATE and UPDATE the traceability map, NOT the documentation
 - **Focus**: Fix mapping issues, review baseline map accuracy
 - **Anomaly Types**:
-  - "addition mapped": New code exists but is already in baseline map (shouldn't happen)
+  - "addition mapped": New code exists but is already in baseline map. Treat this as a standard impact.
   - "deletion unmapped": Deleted code wasn't in baseline map  
   - "modification unmapped": Modified code isn't tracked in baseline map
   - "rename unmapped": Renamed files not properly tracked
-- **Example**: "Update baseline map to include the new favorite module and establish proper traceability links"
+- **Example**: "Update baseline map to establish proper traceability links"
 
 **IMPORTANT FOR TRACEABILITY ANOMALIES:**
 - DO NOT recommend updating documentation content
@@ -316,7 +316,7 @@ Each finding requires different types of actions based on its type:
 
 For each finding, you must provide:
 1. **Recommendation metadata** (what, where, why, how, etc.)
-2. **Actual documentation content snippet** - the specific markdown/text content to add/update
+2. **Actual documentation content snippets** - the specific markdown/text content to add/update
 
 The documentation content should be:
 - **Targeted snippets**: Show only the specific lines that need to change, NOT entire document rewrites
@@ -331,16 +331,15 @@ Your task is to generate detailed, actionable documentation update recommendatio
 - **Contextual**: Based on the actual code changes and their impact
 - **Appropriate**: Match the action to the finding type (especially for anomalies)
 
-For each high-priority finding, generate:
-- **Target Document**: Which document needs updating (SRS, SDD, etc.)
+For each finding, generate:
 - **Section**: Specific section or location in the document
 - **Recommendation Type**: UPDATE, CREATE, DELETE, or REVIEW
 - **Priority**: HIGH, MEDIUM, or LOW
 - **What to Update**: Specific description of what needs to be changed
-- **Where to Update**: Exact location or section reference
 - **Why Update Needed**: Rationale based on code changes
-- **How to Update**: Step-by-step guidance
 - **Suggested Content**: TARGETED diff snippet showing only the specific lines to change (like GitHub Copilot's "Suggested change")
+
+NOTE: The target document path is specified at the document group level in the summary, not in individual recommendations.
 
 The response will be automatically structured with detailed recommendations and complete documentation snippets."""
     
@@ -358,7 +357,7 @@ The response will be automatically structured with detailed recommendations and 
             
             findings_summary.append(f"""
 Finding {i+1}:
-- Type: {finding.get('finding_type', 'unknown')}
+- Finding Type: {finding.get('finding_type', 'unknown')}
 - Affected Element: {finding.get('affected_element_id', 'unknown')}
 - Element Type: {finding.get('affected_element_type', 'unknown')}
 - Likelihood: {finding.get('likelihood', 'unknown')}
@@ -392,11 +391,11 @@ Document: {doc_path}
 
 **IMPORTANT INSTRUCTIONS:**
 - For Traceability_Anomaly findings: Focus on baseline map updates, NOT documentation content
-- For Standard_Impact: Provide complete documentation content updates  
+- For Standard_Impact or Traceability_Anomaly (Addition Mapped): Provide complete documentation content updates  
 - For Documentation_Gap: Provide complete new documentation sections
 - For Outdated_Documentation: Provide guidance and replacement content
 
-**High-Priority Findings:**
+**Findings:**
 {chr(10).join(findings_summary)}
 
 **Related Change Sets (analyze these to understand what was implemented):**
@@ -435,14 +434,11 @@ Document: {doc_path}
           }},
           "recommendations": [
             {{
-              "target_document": "sample-project/doc/srs.md",
               "section": "3.1 User Requirements",
               "recommendation_type": "UPDATE",
               "priority": "HIGH",
               "what_to_update": "Add favorite functionality requirement",
-              "where_to_update": "User management section",
               "why_update_needed": "New favorite feature was implemented",
-              "how_to_update": "Add requirement for favorite books",
               "suggested_content": "### User Requirements\n- UR-001: User can add books\n+ UR-001: User can add books\n+ UR-002: User can mark books as favorites\n+ UR-003: User can view favorite books list"
             }}
           ]
@@ -454,9 +450,9 @@ Document: {doc_path}
 **SPECIAL CASE: TRACEABILITY ANOMALIES**
 - If all findings are traceability anomalies, merge them into a single summary recommendation.
 - The summary must include:
-  - affected_files: List of all files with anomalies
-  - why: "The following files are not mapped in the baseline map due to a traceability anomaly. The cause is unknown and may require a full baseline map recreation."
-  - how_to_update: "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
+  - traceability_anomaly_affected_files: List of all files with anomalies
+  - overview: "The following files are not mapped in the baseline map due to a traceability anomaly. The cause is unknown and may require a full baseline map recreation."
+  - how_to_fix_traceability_anomaly: "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
 - The recommendations array must be empty.
 
 **SPECIAL CASE: MIXED FINDINGS**
@@ -477,11 +473,11 @@ Document: {doc_path}
         "low_priority_count": 0,
         "overview": "The following files are not mapped in the baseline map due to a traceability anomaly. The cause is unknown and may require a full baseline map recreation.",
         "sections_affected": [],
-        "affected_files": [
+        "traceability_anomaly_affected_files": [
           "sample-project/src/book/book.py",
           "sample-project/src/book/book_collection.py"
         ],
-        "how_to_update": "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
+        "how_to_fix_traceability_anomaly": "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
       }},
       "recommendations": []
     }}
@@ -499,9 +495,8 @@ Document: {doc_path}
         ...other fields...
         "overview": "...",
         "sections_affected": ["...", "..."],
-        "affected_files": ["...", "..."],
-        "how_to_update": "...",
-        "affected_files": ["..."]
+        "traceability_anomaly_affected_files": ["...", "..."],
+        "how_to_fix_traceability_anomaly": "..."
       }},
       "recommendations": [
         {{ /* doc-focused recommendation 1 */ }},
@@ -515,62 +510,3 @@ Document: {doc_path}
 Generate recommendations grouped by target document with summaries and detailed recommendations. 
 
 REMEMBER: Match your recommendations to the finding type - anomalies need baseline map fixes, not doc updates!"""
-
-    # Step 2: Single Commit Classification Prompts (for enhanced per-commit analysis)
-    @staticmethod
-    def single_commit_classification_system_prompt() -> str:
-        """System prompt for single commit classification using the 4W framework"""
-        return """You are a software engineering expert analyzing code changes from a SINGLE commit. Your task is to classify ALL changed files in this specific commit using the 4W framework for documentation impact analysis.
-
-Since this is a single commit, you have focused context about the specific purpose and changes made in this commit.
-
-For EACH file, analyze:
-1. **Type** (What changed in this commit):
-   - Addition, Deletion, Modification, Rename
-2. **Scope** (Where the change occurred in this commit):
-   - Function/Method, Class/Interface/Struct/Type, Module/Package/Namespace, File, API Contract, Configuration, Dependencies, Build Scripts, Infrastructure Code, Test Code, Documentation, Cross-cutting
-3. **Nature** (Why this commit was made - analyze the specific commit message):
-   - New Feature, Feature Enhancement, Bug Fix, Security Fix, Refactoring, Performance Optimization, Code Style/Formatting, Technical Debt Reduction, Readability Improvement, Error Handling Improvement, Dependency Management, Build Process Improvement, Tooling Configuration, API Changes, External System Integration Changes, Documentation Updates, UI/UX Adjustments, Static Content Updates, Code/Deprecation Removal, Revert, Merge Conflict Resolution, License Updates, Experimental, Chore, Other
-4. **Volume** (How much changed in this commit):
-   - Trivial (1-5 lines, typo fixes)
-   - Small (localized changes, single function)
-   - Medium (affects important parts of class/module)
-   - Large (substantial changes across multiple modules)
-   - Very Large (extensive architectural changes)
-5. **Reasoning**: 
-   - Brief explanation of the classification based on this commit's changes and message
-
-The response will be automatically structured. Focus on this single commit's purpose and impact."""
-
-    @staticmethod
-    def single_commit_classification_human_prompt(commit_files: List[Dict[str, Any]], commit_context: Dict[str, Any]) -> str:
-        """Human prompt for single commit classification"""
-        
-        files_section = ""
-        for i, file_data in enumerate(commit_files):
-            files_section += f"""
-File {i+1}:
-- Filename: {file_data['filename']}
-- Status: {file_data['status']}
-- Additions: {file_data['additions']}
-- Deletions: {file_data['deletions']}
-- Total Changes: {file_data['changes']}
-- Code Diff: {file_data['patch'][:]}
-
-"""
-        
-        return f"""Analyze and classify ALL the files changed in this SINGLE commit using the 4W framework:
-
-**Commit Context:**
-- SHA: {commit_context.get("sha", "N/A")}
-- Message: {commit_context.get("message", "N/A")}
-- Author: {commit_context.get("author", "N/A")}
-- Date: {commit_context.get("date", "N/A")}
-- Files Changed: {commit_context.get("files_count", 0)}
-
-**Files Changed in This Commit:**
-{files_section}
-
-Since this is a single commit, you have focused context about the specific purpose. Use the commit message to understand the "Why" (Nature) of the changes.
-
-Classify each file and return the results as a structured JSON array.""" 
