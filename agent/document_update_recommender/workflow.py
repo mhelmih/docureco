@@ -349,9 +349,20 @@ class DocumentUpdateRecommenderWorkflow:
         try:
             # 3.1 Determine Traceability Status and Detect Documentation Changes
             logger.info("Step 3.1: Determining traceability status and detecting documentation changes")
-            baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, state.branch)
+            # Always use main branch for baseline map retrieval (baseline maps are typically stored on main)
+            baseline_map_branch = "main"  # TODO: Make this configurable if needed
+            logger.info(f"Looking for baseline map: {state.repository}:{baseline_map_branch} (PR targets: {state.branch})")
+            baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, baseline_map_branch)
+            
+            # Fallback: if no baseline map on main branch, try the PR target branch
+            if not baseline_map_data and state.branch != baseline_map_branch:
+                logger.info(f"No baseline map found on {baseline_map_branch}, trying PR target branch: {state.branch}")
+                baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, state.branch)
+                if baseline_map_data:
+                    logger.info(f"Found baseline map on PR target branch: {state.branch}")
+            
             if not baseline_map_data:
-                logger.warning("No baseline map found - terminating workflow")
+                logger.warning(f"No baseline map found on {baseline_map_branch} or {state.branch} - terminating workflow")
                 return state    # Terminate workflow if no baseline map is found
                 
             # Debug logging for baseline map
