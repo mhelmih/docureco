@@ -846,7 +846,7 @@ class DocumentUpdateRecommenderWorkflow:
                 current_docs,
                 state.logical_change_sets
             )
-            state.generated_suggestions = generated_suggestions["document_groups"]
+            state.generated_suggestions = generated_suggestions
             
             # 4.5 Filter Against Existing & Post Details
             logger.info("Step 4.5: Filtering and posting suggestions")
@@ -1621,6 +1621,7 @@ class DocumentUpdateRecommenderWorkflow:
             
             # logger.info(f"Filtered {len(all_recommendations)} suggestions to {len(new_suggestions)} new suggestions")
             
+            logger.info(f"Generated suggestions: {generated_suggestions}")
             logger.info(f"Existing suggestions: {existing_suggestions}")
             
             # Post new suggestions
