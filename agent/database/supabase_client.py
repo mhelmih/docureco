@@ -68,13 +68,13 @@ class SupabaseClient:
         """
         try:
             # Get baseline map record
-            response = self.client.table("baseline_maps").select("""
-                id, repository, branch, created_at, updated_at,
-                requirements (id, title, description, type, priority, section),
-                design_elements (id, name, description, type, section),
-                code_components (id, path, type, name),
-                traceability_links (id, source_type, source_id, target_type, target_id, relationship_type)
-            """).eq("repository", repository).eq("branch", branch).order("updated_at", desc=True).limit(1).execute()
+            response = self.client.table("baseline_maps").select(
+                "id, repository, branch, created_at, updated_at, "
+                "requirements (id, title, description, type, priority, section), "
+                "design_elements (id, name, description, type, section), "
+                "code_components (id, path, type, name), "
+                "traceability_links (id, source_type, source_id, target_type, target_id, relationship_type)"
+            ).eq("repository", repository).eq("branch", branch).order("updated_at", desc=True).limit(1).execute()
             
             if not response.data:
                 logger.info(f"No baseline map found for {repository}:{branch}")
