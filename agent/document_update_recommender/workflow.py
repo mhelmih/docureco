@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 class CodeChangeClassification(BaseModel):
     """Structured output for individual code change classification"""
     file: str = Field(description="Path to the changed file")
-    type: str = Field(description="Type of change (Addition, Deletion, Modification, Rename)")
+    type: str = Field(description="Type of change (Addition, Deletion, Modification, Renaming)")
     scope: str = Field(description="Scope of change (Function/Method, Class, Module, etc.)")
     nature: str = Field(description="Nature of change (New Feature, Bug Fix, Refactoring, etc.)")
     volume: str = Field(description="Volume of change (Trivial, Small, Medium, Large, Very Large)")
@@ -514,13 +514,13 @@ class DocumentUpdateRecommenderWorkflow:
         """
         is_in_baseline = file_path in code_component_lookup
         
-        if change_type == "addition":
+        if change_type.lower() == "addition":
             return "anomaly (addition mapped)" if is_in_baseline else "gap"
-        elif change_type == "deletion":
+        elif change_type.lower() == "deletion":
             return "outdated" if is_in_baseline else "anomaly (deletion unmapped)"
-        elif change_type == "modification":
+        elif change_type.lower() == "modification":
             return "modification" if is_in_baseline else "anomaly (modification unmapped)"
-        elif change_type == "rename":
+        elif change_type.lower() == "renaming":
             # For rename, we should check if the old file name was in baseline
             # For simplicity, using current file path - in practice would need old path
             return "rename" if is_in_baseline else "anomaly (rename unmapped)"

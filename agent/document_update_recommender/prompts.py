@@ -135,7 +135,7 @@ For each commit, include:
 
 For each file classification, determine:
 - file: The file path
-- type: Type of change (Added, Modified, Deleted, Renamed)  
+- type: Type of change (Addition, Modification, Deletion, Renaming)  
 - scope: Scope of change (Function/Method, Class, Module, Configuration, Documentation, Test, etc.)
 - nature: Nature of change (New Feature, Bug Fix, Refactoring, Documentation Updates, Performance Improvement, etc.)
 - volume: Volume of change (Trivial, Small, Medium, Large, Very Large) based on total lines changed
