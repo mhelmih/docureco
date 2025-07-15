@@ -166,7 +166,8 @@ class DocumentUpdateRecommenderWorkflow:
                  llm_client: Optional[DocurecoLLMClient] = None,
                  baseline_map_repo = None,
                  use_review_mode: bool = True,
-                 review_threshold: int = 2):
+                 review_threshold: int = 2,
+                 primary_baseline_branch: str = "main"):
         """
         Initialize Document Update Recommender workflow
         
@@ -175,11 +176,13 @@ class DocumentUpdateRecommenderWorkflow:
             baseline_map_repo: Optional repository for baseline map operations
             use_review_mode: Whether to use GitHub Review API for comprehensive reviews
             review_threshold: Minimum number of suggestions to trigger review mode (default: 2)
+            primary_baseline_branch: Primary branch to look for baseline maps (default: "main")
         """
         self.llm_client = llm_client or DocurecoLLMClient()
         self.baseline_map_repo = baseline_map_repo or create_baseline_map_repository()
         self.use_review_mode = use_review_mode
         self.review_threshold = review_threshold
+        self.primary_baseline_branch = primary_baseline_branch
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
@@ -187,6 +190,7 @@ class DocumentUpdateRecommenderWorkflow:
         logger.info("Initialized Document Update Recommender Workflow")
         logger.info(f"Review mode: {'enabled' if use_review_mode else 'disabled'}")
         logger.info(f"Review threshold: {review_threshold} suggestions")
+        logger.info(f"Primary baseline branch: {primary_baseline_branch}")
     
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow with conditional logic"""
@@ -349,32 +353,15 @@ class DocumentUpdateRecommenderWorkflow:
         try:
             # 3.1 Determine Traceability Status and Detect Documentation Changes
             logger.info("Step 3.1: Determining traceability status and detecting documentation changes")
-            # Always use main branch for baseline map retrieval (baseline maps are typically stored on main)
-            baseline_map_branch = "main"  # TODO: Make this configurable if needed
-            logger.info(f"Looking for baseline map: {state.repository}:{baseline_map_branch} (PR targets: {state.branch})")
-            baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, baseline_map_branch)
             
-            # Fallback: if no baseline map on main branch, try the PR target branch
-            if not baseline_map_data and state.branch != baseline_map_branch:
-                logger.info(f"No baseline map found on {baseline_map_branch}, trying PR target branch: {state.branch}")
+            baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, self.primary_baseline_branch)
+            
+            if not baseline_map_data and state.branch != self.primary_baseline_branch:
                 baseline_map_data = await self.baseline_map_repo.get_baseline_map(state.repository, state.branch)
-                if baseline_map_data:
-                    logger.info(f"Found baseline map on PR target branch: {state.branch}")
             
             if not baseline_map_data:
-                logger.warning(f"No baseline map found on {baseline_map_branch} or {state.branch} - terminating workflow")
+                logger.warning(f"No baseline map found on {self.primary_baseline_branch} or {state.branch} - terminating workflow")
                 return state    # Terminate workflow if no baseline map is found
-                
-            # Debug logging for baseline map
-            req_count = len(baseline_map_data.requirements or [])
-            de_count = len(baseline_map_data.design_elements or [])
-            cc_count = len(baseline_map_data.code_components or [])
-            tl_count = len(baseline_map_data.traceability_links or [])
-            
-            logger.info(f"Baseline map loaded: {req_count} requirements, {de_count} design elements, {cc_count} code components, {tl_count} traceability links")
-            
-            if req_count == 0 and de_count == 0 and cc_count == 0 and tl_count == 0:
-                logger.warning("⚠️ Baseline map is completely empty - this indicates the map was not properly generated")
                 
             state.baseline_map = baseline_map_data
             
@@ -2130,7 +2117,8 @@ The baseline map exists but contains no elements. This usually indicates:
 def create_document_update_recommender(
     llm_client: Optional[DocurecoLLMClient] = None,
     use_review_mode: bool = True,
-    review_threshold: int = 2
+    review_threshold: int = 2,
+    primary_baseline_branch: str = "main"
 ) -> DocumentUpdateRecommenderWorkflow:
     """
     Factory function to create Document Update Recommender workflow
@@ -2139,6 +2127,7 @@ def create_document_update_recommender(
         llm_client: Optional LLM client
         use_review_mode: Whether to use GitHub Review API for comprehensive reviews  
         review_threshold: Minimum number of suggestions to trigger review mode
+        primary_baseline_branch: Primary branch to look for baseline maps (default: "main")
         
     Returns:
         DocumentUpdateRecommenderWorkflow: Configured workflow
@@ -2146,7 +2135,8 @@ def create_document_update_recommender(
     return DocumentUpdateRecommenderWorkflow(
         llm_client=llm_client,
         use_review_mode=use_review_mode, 
-        review_threshold=review_threshold
+        review_threshold=review_threshold,
+        primary_baseline_branch=primary_baseline_branch
     )
 
 # Export main classes
