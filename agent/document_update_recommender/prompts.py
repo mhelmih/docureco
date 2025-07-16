@@ -320,7 +320,7 @@ For each finding, you must provide:
 
 The documentation content should be:
 - **Targeted snippets**: Show only the specific lines that need to change, NOT entire document rewrites
-- **Diff format**: Use GitHub-style diff with `+` for additions, `-` for deletions, and minimal context lines
+- **Diff format**: Use GitHub-style diff with `+` for additions, `-` for deletions, and no prefix (just use space) for context lines. Keep the context lines minimal. Don't add any comments.
 - **Specific**: Tailored to the exact code changes detected
 - **Professional**: Well-written, clear, and follows documentation best practices
 - **Minimal**: Focus on just the affected section, like Copilot's "Suggested change" feature
@@ -339,7 +339,7 @@ For each finding, generate:
 - **Why Update Needed**: Rationale based on code changes
 - **Suggested Content**: TARGETED diff snippet showing only the specific lines to change (like GitHub Copilot's "Suggested change")
 
-NOTE: The target document path is specified at the document group level in the summary, not in individual recommendations.
+NOTE: The target document path is specified at the document group level in the summary, not in individual recommendations. Also please do not mention any ID related to design elements or requirements because they are auto-generated and do not have any meaning. Just mention the section name, design element IDs, or requirement IDs inside the document.
 
 The response will be automatically structured with detailed recommendations and complete documentation snippets."""
     
@@ -416,7 +416,8 @@ Document: {doc_path}
 4. **GitHub-Style Diff Format**: The 'suggested_content' should use minimal diff format:
    - Lines starting with `+` for content to be added
    - Lines starting with `-` for content to be removed/replaced  
-   - 1-2 context lines (no prefix) above and below the change
+   - No prefix (just use space) for context lines. Keep the context lines minimal. 
+   - Don't add any comments.
    - Show ONLY the affected section, not entire documents
 5. **Example Output Structure**:
     ```json

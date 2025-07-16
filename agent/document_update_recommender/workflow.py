@@ -877,7 +877,7 @@ class DocumentUpdateRecommenderWorkflow:
                 "final_recommendations": len(final_recommendations)
             })
             
-            logger.info(f"Generated {len(final_recommendations)} final recommendations")
+            logger.info(f"Step 4: Successfully generated {len(final_recommendations)} final recommendations")
             
         except Exception as e:
             error_msg = f"Step 4: Error generating recommendations: {str(e)}"
@@ -1628,11 +1628,6 @@ class DocumentUpdateRecommenderWorkflow:
             #     if not is_duplicate:
             #         new_suggestions.append(suggestion)
             
-            # logger.info(f"Filtered {len(all_recommendations)} suggestions to {len(new_suggestions)} new suggestions")
-            
-            logger.info(f"Generated suggestions: {generated_suggestions}")
-            logger.info(f"Existing suggestions: {existing_suggestions}")
-            
             # Post new suggestions
             posted_recommendations = []
             critical_recommendations = 0
@@ -1792,8 +1787,7 @@ class DocumentUpdateRecommenderWorkflow:
 
     async def _create_pr_review_with_suggestions(self, repository: str, pr_number: int, document_groups: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> bool:
         """
-        Create a comprehensive PR review with threaded suggestions using GitHub Review API.
-        This creates the Copilot-style interaction with resolve buttons.
+        Post a separate PR review for each document group. Use 'REQUEST_CHANGES' if any recommendation in the group is high/critical priority, otherwise 'COMMENT'.
         """
         try:
             github_token = os.getenv("GITHUB_TOKEN")
@@ -1803,43 +1797,43 @@ class DocumentUpdateRecommenderWorkflow:
             
             owner, repo_name = repository.split("/")
             
-            # Create the main review
-            # Documentation files might not be in the PR diff, so we can't create review comments on them
-            review_body = await self._create_review_summary(document_groups, baseline_map)
-            
             headers = {
                 "Authorization": f"token {github_token}",
                 "Accept": "application/vnd.github.v3+json",
                 "Content-Type": "application/json"
             }
             
-            review_data = {
-                "body": review_body,
-                "event": "COMMENT"  # or "REQUEST_CHANGES" for critical issues
-            }
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
-                    headers=headers,
-                    json=review_data
-                )
+            all_success = True
+            for group in document_groups:
+                summary = group.get('summary', {})
+                recommendations = group.get('recommendations', [])
+
+                has_critical = any(r.get('priority', '').upper() in ['HIGH', 'CRITICAL'] for r in recommendations)
+                event_type = 'REQUEST_CHANGES' if has_critical else 'COMMENT'
                 
-                if response.status_code == 200:
-                    review_data = response.json()
-                    review_id = review_data.get("id")
-                    logger.info(f"Successfully created PR review #{review_id}")
-                    
-                    # Post follow-up comments with suggestions and resolve buttons
-                    await self._post_review_follow_ups(repository, pr_number, review_id, document_groups, baseline_map)
-                    
-                    return True
-                else:
-                    logger.error(f"Failed to create review: {response.status_code} - {response.text}")
-                    return False
-                    
+                review_body = await self._create_review_summary([group], baseline_map)
+                review_data = {
+                    "body": review_body,
+                    "event": event_type
+                }
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
+                        headers=headers,
+                        json=review_data
+                    )
+                    if response.status_code == 200:
+                        review_data = response.json()
+                        review_id = review_data.get("id")
+                        logger.info(f"Successfully created PR review #{review_id} for document group {summary.get('target_document', 'Unknown')}")
+                    else:
+                        logger.error(f"Failed to create review for document group {summary.get('target_document', 'Unknown')}: {response.status_code} - {response.text}")
+                        all_success = False
+                        
+            return all_success
+        
         except Exception as e:
-            logger.error(f"Error creating PR review: {str(e)}")
+            logger.error(f"Error creating PR reviews: {str(e)}")
             return False
 
     async def _create_review_summary(self, document_groups: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> str:
@@ -1867,7 +1861,7 @@ class DocumentUpdateRecommenderWorkflow:
                 
                 if affected_files:
                     group_text = f"""
-### 🔴 Traceability Anomaly Detected
+# 🤖 Docureco Agent - 🔴 Traceability Anomaly Detected
 
 **📁 Affected Files**: {', '.join([f'`{file}`' for file in affected_files])}
 
@@ -1882,12 +1876,11 @@ class DocumentUpdateRecommenderWorkflow:
             # Regular document recommendations
             target_document = summary.get('target_document', 'Unknown')
             group_text = f"""
-## 📄 Document: `{target_document}`
+# 🤖 Docureco Agent - 📄 `{target_document}` Recommendations ({len(recommendations)} total)
 
-**📋 Summary**: {summary.get('overview', 'No overview provided')}  
-**📊 Recommendations**: {summary.get('total_recommendations', len(recommendations))} total ({summary.get('high_priority_count', 0)} high priority)  
-**📍 Sections Affected**: {', '.join(summary.get('sections_affected', []))}
+{summary.get('overview', 'No overview provided')} Affected sections: `{', '.join(summary.get('sections_affected', []))}`.
 
+---
 """
             
             # Add individual recommendations
@@ -1904,12 +1897,7 @@ class DocumentUpdateRecommenderWorkflow:
                 suggestion_text = f"""
 ### {priority_icon} Suggestion #{suggestion_counter}: {action} in {section}
 
-**⚡ Priority**: {recommendation.get('priority', 'Medium')}  
-**🔧 Action**: {action}
-
-**💭 What needs updating**: {recommendation.get('what_to_update', 'No description provided')}
-
-**🔍 Why**: {recommendation.get('why_update_needed', 'No reason provided')}
+[{recommendation.get('priority', 'Medium')}] {recommendation.get('what_to_update', 'No description provided')}. {recommendation.get('why_update_needed', 'No reason provided')}.
 
 **📝 Suggested Change**:
 ```diff
@@ -1917,21 +1905,6 @@ class DocumentUpdateRecommenderWorkflow:
 ```
 
 > 💡 **How to apply**: Add lines with `+`, remove lines with `-`, keep context lines unchanged
-
-<details>
-<summary>💡 Click to see implementation tips</summary>
-
-**To apply this suggestion:**
-1. Open the file: `{target_document}`
-2. Navigate to section: **{section}**
-3. Find the lines shown in the diff context
-4. Apply the targeted changes:
-   - Add lines that start with `+`
-   - Remove lines that start with `-`
-   - Use context lines to locate the exact spot
-
-</details>
-
 ---"""
                 
                 group_text += suggestion_text
@@ -1944,10 +1917,7 @@ class DocumentUpdateRecommenderWorkflow:
         # Add traceability map for context
         traceability_map_section = self._format_baseline_map_for_comment(baseline_map)
         
-        return f"""## 🤖 Docureco Agent - Documentation Review
-
-Found **{total_suggestions}** documentation updates needed ({high_priority} high priority).
-
+        return f"""
 {suggestions_text}
 
 ### 📊 Summary:
@@ -1959,78 +1929,6 @@ Found **{total_suggestions}** documentation updates needed ({high_priority} high
 
 ---
 *This review was generated automatically by Docureco Agent based on code changes in this PR*"""
-
-    async def _post_review_follow_ups(self, repository: str, pr_number: int, review_id: int, document_groups: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> None:
-        """Post follow-up comments with detailed suggestions and resolve buttons"""
-        try:
-            suggestion_counter = 1
-            for group in document_groups:
-                recommendations = group.get('recommendations', [])
-                target_document = group.get('summary', {}).get('target_document', 'Unknown')
-                
-                for recommendation in recommendations:
-                    # Post detailed suggestion with GitHub suggestion syntax
-                    suggestion_body = await self._create_detailed_suggestion_comment(recommendation, suggestion_counter, target_document)
-                    comment_id = await self._post_pr_comment_with_id(repository, pr_number, suggestion_body)
-                    
-                    if comment_id:
-                        # Post resolve/action comment
-                        action_body = self._create_resolve_action_comment(recommendation, comment_id)
-                        await self._post_pr_comment_with_id(repository, pr_number, action_body)
-                    
-                    suggestion_counter += 1
-                    
-        except Exception as e:
-            logger.error(f"Error posting review follow-ups: {str(e)}")
-
-    async def _create_detailed_suggestion_comment(self, recommendation: Dict[str, Any], index: int, target_document: str) -> str:
-        """Create detailed suggestion comment with GitHub suggestion syntax"""
-        
-        # Use the documentation content generated by the main LLM call
-        suggested_content = recommendation.get('suggested_content', 'No content provided')
-        
-        return f"""### 📝 Suggestion #{index}: {target_document}
-
-**Section**: {recommendation.get('section', 'Unknown')}  
-**Priority**: {recommendation.get('priority', 'Medium')}
-
-#### Why this update is needed:
-{recommendation.get('why_update_needed', 'No reason provided')}
-
-#### Suggested change:
-
-```suggestion
-{suggested_content}
-```
-
-> 💡 **Tip**: This shows only the affected lines. Add `+` lines, remove `-` lines, use context to locate the spot.
-
-<details>
-<summary>🔧 Implementation Details</summary>
-
-**Action**: {recommendation.get('recommendation_type', 'Unknown')}  
-**What to update**: {recommendation.get('what_to_update', 'No description provided')}
-
-</details>"""
-
-    def _create_resolve_action_comment(self, suggestion: Dict[str, Any], suggestion_comment_id: int) -> str:
-        """Create action/resolve comment with buttons"""
-        return f"""**🔧 Actions for suggestion #{suggestion_comment_id}**
-
-React to this comment to take action:
-- 👍 Apply suggestion as-is
-- 👀 Under review  
-- ✅ Resolved manually
-- ❌ Not applicable
-- 🔄 Need different approach
-
-Or reply with:
-- `/apply` - Apply the suggested content automatically
-- `/resolve` - Mark as resolved  
-- `/dismiss` - Dismiss this recommendation
-
----
-<sub>💡 **Tip**: Use the GitHub suggestion feature above to apply documentation changes with one click</sub>"""
 
     def _format_baseline_map_for_comment(self, baseline_map: Optional[BaselineMapModel]) -> str:
         """Format baseline map into a collapsible markdown block for GitHub comments"""
