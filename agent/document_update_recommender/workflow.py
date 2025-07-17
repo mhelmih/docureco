@@ -167,8 +167,6 @@ class DocumentUpdateRecommenderWorkflow:
     def __init__(self, 
                  llm_client: Optional[DocurecoLLMClient] = None,
                  baseline_map_repo = None,
-                 use_review_mode: bool = True,
-                 review_threshold: int = 2,
                  primary_baseline_branch: str = "main"):
         """
         Initialize Document Update Recommender workflow
@@ -176,22 +174,16 @@ class DocumentUpdateRecommenderWorkflow:
         Args:
             llm_client: Optional LLM client for analysis and recommendations
             baseline_map_repo: Optional repository for baseline map operations
-            use_review_mode: Whether to use GitHub Review API for comprehensive reviews
-            review_threshold: Minimum number of suggestions to trigger review mode (default: 2)
             primary_baseline_branch: Primary branch to look for baseline maps (default: "main")
         """
         self.llm_client = llm_client or DocurecoLLMClient()
         self.baseline_map_repo = baseline_map_repo or create_baseline_map_repository()
-        self.use_review_mode = use_review_mode
-        self.review_threshold = review_threshold
         self.primary_baseline_branch = primary_baseline_branch
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
         
         logger.info("Initialized Document Update Recommender Workflow")
-        logger.info(f"Review mode: {'enabled' if use_review_mode else 'disabled'}")
-        logger.info(f"Review threshold: {review_threshold} suggestions")
         logger.info(f"Primary baseline branch: {primary_baseline_branch}")
     
     def _build_workflow(self) -> StateGraph:
@@ -2022,8 +2014,6 @@ The baseline map exists but contains no elements. This usually indicates:
 
 def create_document_update_recommender(
     llm_client: Optional[DocurecoLLMClient] = None,
-    use_review_mode: bool = True,
-    review_threshold: int = 2,
     primary_baseline_branch: str = "main"
 ) -> DocumentUpdateRecommenderWorkflow:
     """
@@ -2031,8 +2021,6 @@ def create_document_update_recommender(
     
     Args:
         llm_client: Optional LLM client
-        use_review_mode: Whether to use GitHub Review API for comprehensive reviews  
-        review_threshold: Minimum number of suggestions to trigger review mode
         primary_baseline_branch: Primary branch to look for baseline maps (default: "main")
         
     Returns:
@@ -2040,8 +2028,6 @@ def create_document_update_recommender(
     """
     return DocumentUpdateRecommenderWorkflow(
         llm_client=llm_client,
-        use_review_mode=use_review_mode, 
-        review_threshold=review_threshold,
         primary_baseline_branch=primary_baseline_branch
     )
 

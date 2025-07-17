@@ -322,10 +322,10 @@ The suggested documentation content should be:
 
 **EXAMPLE OUTPUT (ALL ANOMALIES):**
 ```json
-{{
+{
   "document_groups": [
-    {{
-      "summary": {{
+    {
+      "summary": {
         "target_document": null,
         "total_recommendations": 0,
         "high_priority_count": 0,
@@ -338,33 +338,33 @@ The suggested documentation content should be:
           "sample-project/src/book/book_collection.py"
         ],
         "how_to_fix_traceability_anomaly": "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
-      }},
+      },
       "recommendations": []
-    }}
+    }
   ]
-}}
+}
 ```
 
 **EXAMPLE OUTPUT (MIXED):**
 ```json
-{{
+{
   "document_groups": [
-    {{
-      "summary": {{
+    {
+      "summary": {
         "target_document": "...",
         ...other fields...
         "overview": "...",
         "sections_affected": ["...", "..."],
         "traceability_anomaly_affected_files": ["...", "..."],
         "how_to_fix_traceability_anomaly": "..."
-      }},
+      },
       "recommendations": [
-        {{ /* doc-focused recommendation 1 */ }},
-        {{ /* doc-focused recommendation 2 */ }}
+        { /* doc-focused recommendation 1 */ },
+        { /* doc-focused recommendation 2 */ }
       ]
-    }}
+    }
   ]
-}}
+}
 ```
 
 You will also be provided with the Logical Change Sets and the current documentation content for more context.
