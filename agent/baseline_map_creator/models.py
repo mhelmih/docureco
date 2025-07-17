@@ -1,9 +1,9 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 class DesignElementOutput(BaseModel):
     """Structured output for design elements"""
-    reference_id: str = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)")
+    reference_id: Optional[str] = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)")
     name: str = Field(description="Clear, descriptive name of the design element")
     description: str = Field(description="Brief description of purpose/functionality")
     type: str = Field(description="Category (Service, Class, Interface, Component, Database, UI, etc.)")
@@ -23,7 +23,7 @@ class DesignElementsWithMatrixOutput(BaseModel):
 
 class RequirementOutput(BaseModel):
     """Structured output for requirements"""
-    reference_id: str = Field(description="Requirement identifier reference from the document (e.g., 'REQ-001', 'UC01', 'M01', etc.)")
+    reference_id: Optional[str] = Field(description="Requirement identifier reference from the document (e.g., 'REQ-001', 'UC01', 'M01', etc.)")
     title: str = Field(description="Clear, concise title of the requirement")
     description: str = Field(description="Detailed description of what is required")
     type: str = Field(description="Category (Functional, Non-Functional, Business, User, System, etc.)")
