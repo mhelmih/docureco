@@ -34,53 +34,12 @@ from agent.models.docureco_models import (
 )
 from .prompts import BaselineMapCreatorPrompts as prompts
 from .models import (
-    DesignElementOutput,
-    TraceabilityMatrixEntry,
     DesignElementsWithMatrixOutput,
-    RequirementOutput,
-    RequirementsWithDesignElementsOutput
+    RequirementsWithDesignElementsOutput,
+    RelationshipOutput
 )
 
 logger = logging.getLogger(__name__)
-
-# Structured output models
-class DesignElementOutput(BaseModel):
-    """Structured output for design elements"""
-    name: str = Field(description="Clear, descriptive name of the design element")
-    description: str = Field(description="Brief description of purpose/functionality")
-    type: str = Field(description="Category (Service, Class, Interface, Component, Database, UI, etc.)")
-    section: str = Field(description="Section reference from the document")
-
-class TraceabilityMatrixEntry(BaseModel):
-    """Structured output for traceability matrix entries"""
-    source_id: str = Field(description="ID of the source artifact (e.g., 'REQ-001', 'DE-001', etc.)")
-    target_id: str = Field(description="ID of the target artifact (e.g., 'DE-002', 'UC01', etc.)")
-    relationship_type: str = Field(default="unclassified", description="Relationship type (will be classified later)")
-    source_file: str = Field(description="File path where this relationship was found")
-
-class DesignElementsWithMatrixOutput(BaseModel):
-    """Structured output for design elements and traceability matrix extraction"""
-    design_elements: List[DesignElementOutput] = Field(description="List of design elements found")
-    traceability_matrix: List[TraceabilityMatrixEntry] = Field(description="List of traceability relationships found")
-
-class RequirementOutput(BaseModel):
-    """Structured output for requirements"""
-    title: str = Field(description="Clear, concise title of the requirement")
-    description: str = Field(description="Detailed description of what is required")
-    type: str = Field(description="Category (Functional, Non-Functional, Business, User, System, etc.)")
-    priority: str = Field(description="Importance level (High, Medium, Low)")
-    section: str = Field(description="Section reference from the document")
-
-class RequirementsWithDesignElementsOutput(BaseModel):
-    """Structured output for requirements and design elements extraction"""
-    requirements: List[RequirementOutput] = Field(description="List of requirements found")
-    design_elements: List[DesignElementOutput] = Field(description="List of design elements found")
-
-class RelationshipOutput(BaseModel):
-    """Structured output for relationships"""
-    source_id: str = Field(description="ID of the source element")
-    target_id: str = Field(description="ID of the target element")
-    relationship_type: str = Field(description="Type of relationship")
 
 BaselineMapCreatorState = Dict[str, Any]
 
@@ -542,15 +501,18 @@ class BaselineMapCreatorWorkflow:
         if "files" not in repo_data:
             return code_files
         
+        code_files_counter = 1
         for file_info in repo_data["files"]:
             file_path = file_info.get("path", "")
             file_content = file_info.get("content", "")
             
             if self._matches_patterns(file_path, patterns):
                 code_files.append({
+                    "id": f"CC-{code_files_counter:03d}",
                     "path": file_path,
                     "content": file_content
                 })
+                code_files_counter += 1
                 print(f"Found code file: {file_path}")
         
         return code_files
@@ -592,6 +554,7 @@ class BaselineMapCreatorWorkflow:
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
+                    reference_id=elem_data['reference_id'],
                     name=elem_data['name'],
                     description=elem_data['description'],
                     type=elem_data['type'],
@@ -656,10 +619,9 @@ class BaselineMapCreatorWorkflow:
         state["current_step"] = "design_to_code_mapping"
         
         # Create code components from file paths (simplified approach)
-        code_components = []
-        comp_counter = 1
-        
+        code_components = []        
         for file_info in state["code_files"]:
+            file_id = file_info.get("id", "")
             file_path = file_info.get("path", "")
             
             if not file_path:
@@ -667,10 +629,10 @@ class BaselineMapCreatorWorkflow:
             
             # Create a code component for each file path
             code_component = CodeComponentModel(
-                id=f"CC-{comp_counter:03d}",
+                id=file_id,
                 path=file_path,
                 type="File",
-                name=Path(file_path).name  # Use full filename instead of stem
+                name=Path(file_path).name
             )
             code_components.append(code_component)
             comp_counter += 1
@@ -686,7 +648,7 @@ class BaselineMapCreatorWorkflow:
             state["design_elements"], 
             code_components, 
             state["code_files"],
-            state["sdd_traceability_matrix"]
+            state["design_to_design_links"]
         )
         
         for link_data in links_data:
@@ -733,6 +695,7 @@ class BaselineMapCreatorWorkflow:
             for req_data in extraction_result['requirements']:
                 requirement = RequirementModel(
                     id=f"REQ-{req_counter:03d}",
+                    reference_id=req_data['reference_id'],
                     title=req_data['title'],
                     description=req_data['description'],
                     type=req_data['type'],
@@ -857,24 +820,16 @@ class BaselineMapCreatorWorkflow:
         # Create output parser for JSON format
         output_parser = JsonOutputParser(pydantic_object=DesignElementsWithMatrixOutput)
 
-        # Generate JSON response (avoid generate_structured_response as it forces function calling)
+        # Generate JSON response
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
             system_message=system_message + "\n" + output_parser.get_format_instructions(),
-            task_type="code_analysis",
-            output_format="text",  # Use text so we can parse into Pydantic model
+            output_format="json",
             temperature=0.1  # Low temperature for consistent extraction
         )
 
-        # Parse the JSON response into Pydantic model
-        extraction_result = output_parser.parse(response.content)
-
-        # Add source_file to each traceability matrix entry
-        for matrix_entry in extraction_result['traceability_matrix']:
-            matrix_entry['source_file'] = file_path
-
-        print(f"Extracted {len(extraction_result['design_elements'])} design elements and {len(extraction_result['traceability_matrix'])} traceability matrix entries from {file_path}")
-        return extraction_result
+        print(f"Extracted {len(response.content['design_elements'])} design elements and {len(response.content['traceability_matrix'])} traceability matrix entries from {file_path}")
+        return response.content
     
     async def _llm_extract_requirements_with_design_elements(self, content: str, file_path: str, sdd_traceability_matrix: List[Dict[str, Any]]) -> RequirementsWithDesignElementsOutput:
         """
@@ -892,16 +847,12 @@ class BaselineMapCreatorWorkflow:
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
             system_message=system_message + "\n" + output_parser.get_format_instructions(),
-            task_type="code_analysis",
-            output_format="text",  # Use text so we can parse into Pydantic model
+            output_format="json",
             temperature=0.1  # Low temperature for consistent extraction
         )
 
-        # Parse the JSON response into Pydantic model
-        extraction_result = output_parser.parse(response.content)
-
-        print(f"Extracted {len(extraction_result['requirements'])} requirements and {len(extraction_result['design_elements'])} design elements from {file_path} with traceability matrix context")
-        return extraction_result
+        print(f"Extracted {len(response.content['requirements'])} requirements and {len(response.content['design_elements'])} design elements from {file_path} with traceability matrix context")
+        return response.content
     
     async def _create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""
@@ -914,11 +865,14 @@ class BaselineMapCreatorWorkflow:
         for element in design_elements:
             elements_data.append({
                 "id": element.id,
+                "reference_id": element.reference_id,
                 "name": element.name,
                 "description": element.description,
                 "type": element.type,
                 "section": element.section
             })
+            
+        output_parser = JsonOutputParser(pydantic_object=RelationshipOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.design_element_relationships_system_prompt()
@@ -927,8 +881,7 @@ class BaselineMapCreatorWorkflow:
         # Generate JSON response (use auto-parsing since we don't need full Pydantic validation)
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
-            system_message=system_message,
-            task_type="traceability_mapping",
+            system_message=system_message + "\n" + output_parser.get_format_instructions(),
             output_format="json",  # Auto-parses JSON
             temperature=0.15  # Low-medium temperature for consistent but thoughtful analysis
         )
@@ -979,6 +932,7 @@ class BaselineMapCreatorWorkflow:
         for req in requirements:
             requirements_data.append({
                 "id": req.id,
+                "reference_id": req.reference_id,
                 "title": req.title,
                 "description": req.description,
                 "type": req.type,
@@ -990,6 +944,7 @@ class BaselineMapCreatorWorkflow:
         for elem in design_elements:
             design_elements_data.append({
                 "id": elem.id,
+                "reference_id": elem.reference_id,
                 "name": elem.name,
                 "description": elem.description,
                 "type": elem.type,
@@ -1004,7 +959,6 @@ class BaselineMapCreatorWorkflow:
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
             system_message=system_message,
-            task_type="traceability_mapping",
             output_format="json",
             temperature=0.1  # Low temperature for consistent analysis
         )
@@ -1060,6 +1014,7 @@ class BaselineMapCreatorWorkflow:
         for element in design_elements:
             elements_data.append({
                 "id": element.id,
+                "reference_id": element.reference_id,
                 "name": element.name,
                 "description": element.description,
                 "type": element.type,
@@ -1068,18 +1023,17 @@ class BaselineMapCreatorWorkflow:
         
         components_data = []
         code_content_map = {file_info["path"]: file_info.get("content", "") for file_info in code_files}
-        
         for component in code_components:
-            # Get actual code content for this component
             code_content = code_content_map.get(component.path, "")
-            
             components_data.append({
                 "id": component.id,
                 "name": component.name,
                 "path": component.path,
                 "type": component.type,
-                "content_preview": code_content[:500]  # First 500 chars as preview
+                "content": code_content
             })
+            
+        output_parser = JsonOutputParser(pydantic_object=RelationshipOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.design_code_links_system_prompt()
@@ -1088,8 +1042,7 @@ class BaselineMapCreatorWorkflow:
         # Generate LLM response
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
-            system_message=system_message,
-            task_type="traceability_mapping",
+            system_message=system_message + "\n" + output_parser.get_format_instructions(),
             output_format="json",
             temperature=0.15  # Low-medium temperature for consistent analysis
         )

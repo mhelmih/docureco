@@ -53,13 +53,13 @@ Docureco is an intelligent documentation maintenance system that automatically t
 A Baseline Map is a comprehensive traceability matrix that captures:
 1. **Requirements** (from SRS documents):
    - Business requirements, functional requirements, non-functional requirements
-   - Each has: ID (referenced from the document), title, description, type, priority, section reference
+   - Each has: id (auto-generated, unique, primary key), reference_id (referenced from the document), title, description, type, priority, section reference
 2. **Design Elements** (from SDD documents):
    - Architecture components, classes, interfaces, services, databases, UI elements
-   - Each has: ID (referenced from the document), name, description, type, section reference
+   - Each has: id (auto-generated, unique, primary key), reference_id (referenced from the document), name, description, type, section reference
 3. **Code Components** (from source code):
    - Files, classes, functions, modules, APIs
-   - Each has: ID (auto-generated), path, name, type, description
+   - Each has: id (auto-generated, unique, primary key), path, name, type, description
 4. **Traceability Links** (relationships between elements):
    - Requirements → Design Elements (what implements each requirement)
    - Design Elements → Code Components (what code implements each design)
@@ -308,7 +308,7 @@ The suggested documentation content should be:
 - If you find that two or more findings are related to the same section (or tables, diagrams, etc.) in one document, GROUP THEM INTO A SINGLE RECOMMENDATION. Make sure you produce MINIMUM THE EQUAL NUMBER OF RECOMMENDATIONS AS THE NUMBER OF SECTIONS AFFECTED.
 - The number of recommendations does not need to be the same as the number of findings. If there are many small recommendations in one section (or tabes, diagrams, etc.) per document, please think again, it may be a sign that the recommendations need to be grouped into a single recommendation.
 - DO NOT recommend updating the same section (or tables, diagrams, etc.) multiple times in one document.
-- NEVER USE the auto-generated IDs (the affected element IDs) of the design elements and requirements that are not mentioned inside the document both across all fields (overview, what to update, suggested content, etc.). Use the IDs from the document.
+- NEVER USE the auto-generated IDs (the affected element IDs) of the design elements and requirements that are not mentioned inside the document both across all fields (overview, what to update, suggested content, etc.). Use the IDs from the document (or reference_id in the findings) if available.
 - The target document path is specified at the document group level in the summary, not in individual recommendations.
 - For every modifications type of finding, analyze first before modifying the current document content. Be careful of what is being modified since it could leads to unecessary updates to design elements or requirements.
    - New feature doesn't necessarily mean that design elements or requirements need to be updated. It could be creating a new section, new design elements, new requirements, etc.
@@ -404,7 +404,8 @@ The response will be automatically structured with detailed recommendations and 
             findings_summary.append(f"""
 Finding {i+1}:
 - Finding Type: {finding.get('finding_type', 'unknown')}
-- Affected Element: {finding.get('affected_element_id', 'unknown')}
+- Affected Element ID: {finding.get('affected_element_id', 'unknown')}
+- Affected Element Reference ID: {finding.get('affected_element_reference_id', 'unknown')}
 - Affected Element Name: {finding.get('affected_element_name', 'unknown')}
 - Affected Element Description: {finding.get('affected_element_description', 'unknown')}
 - Element Type: {finding.get('affected_element_type', 'unknown')}

@@ -572,6 +572,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Standard_Impact",
                     "affected_element_id": design_element_id,
+                    "affected_element_reference_id": design_elements_by_id[design_element_id].reference_id,
                     "affected_element_name": design_elements_by_id[design_element_id].name,
                     "affected_element_description": design_elements_by_id[design_element_id].description,
                     "affected_element_type": "DesignElement - " + design_elements_by_id[design_element_id].type,
@@ -584,6 +585,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Standard_Impact",
                     "affected_element_id": requirement_id, 
+                    "affected_element_reference_id": requirements_by_id[requirement_id].reference_id,
                     "affected_element_name": requirements_by_id[requirement_id].title,
                     "affected_element_description": requirements_by_id[requirement_id].description,
                     "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
@@ -597,6 +599,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Outdated_Documentation",
                     "affected_element_id": design_element_id,
+                    "affected_element_reference_id": design_elements_by_id[design_element_id].reference_id,
                     "affected_element_name": design_elements_by_id[design_element_id].name,
                     "affected_element_description": design_elements_by_id[design_element_id].description,
                     "affected_element_type": "DesignElement - " + design_elements_by_id[design_element_id].type,
@@ -609,6 +612,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Outdated_Documentation", 
                     "affected_element_id": requirement_id,
+                    "affected_element_reference_id": requirements_by_id[requirement_id].reference_id,
                     "affected_element_name": requirements_by_id[requirement_id].title,
                     "affected_element_description": requirements_by_id[requirement_id].description,
                     "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
@@ -662,6 +666,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding_dict = {
                     "finding_type": assessed_finding["finding_type"],
                     "affected_element_id": assessed_finding["affected_element_id"],
+                    "affected_element_reference_id": assessed_finding["affected_element_reference_id"],
                     "affected_element_name": assessed_finding["affected_element_name"],
                     "affected_element_description": assessed_finding["affected_element_description"],
                     "affected_element_type": assessed_finding["affected_element_type"],

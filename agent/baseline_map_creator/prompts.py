@@ -15,34 +15,45 @@ class BaselineMapCreatorPrompts:
         return """You are an expert software architect analyzing Software Design Documents (SDD). Your task is to:
 
 1. Extract all design elements (components, classes, use cases, modules, tables, user interfaces, queries, diagrams, etc.) from the SDD.
-2. Identify and extract the traceability matrix from the SDD, which maps requirements to design elements.
+2. Identify and extract the traceability matrix from the SDD, which maps requirements to design elements. If no traceability matrix is found, return an empty array for traceability_matrix.
 
 For each design element found, provide:
-- id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.). May be empty if not available.
+- reference_id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)
 - name: Clear, descriptive name of the design element with its type (e.g., AddBook Class)
 - description: Brief description of purpose/functionality
-- type: Category (Service, Class, Interface, Component, Database, UI, etc.)
+- type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
 - section: Section reference from the document (if available). If available, please choose more specific section name.
 
 For the traceability matrix, provide relationships between ANY artifacts (requirements, design elements, etc.) found:
-- source_id: ID of the source artifact (e.g., 'REQ-001', 'DE-001', etc.)
-- target_id: ID of the target artifact (e.g., 'DE-002', 'UC01', etc.)
+- source_id: ID of the source artifact (e.g., 'REQ-001', 'DE001', etc.). If the source artifact is a design element, use the reference_id of the design element. If the source artifact is a requirement, use the reference_id of the requirement.
+- target_id: ID of the target artifact (e.g., 'DE-002', 'UC01', etc.). If the target artifact is a design element, use the reference_id of the design element. If the target artifact is a requirement, use the reference_id of the requirement.
 - relationship_type: Leave this field as "unclassified" (will be classified later)
 - source_file: File path where this relationship was found
 
-The response will be automatically structured. If no traceability matrix is found, return an empty array for traceability_matrix."""
+NOTES:
+- The SDD will be provided in the markdown format.
+- Images in markdown format would look like this:
+```
+![Diagram Name](image_path.png)
+```
+- Please be aware of the diagram images in the SDD because all images in the SDD are already described textually in the SDD.
+- All design elements need to be extracted from the SDD because the design elements will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
+- This traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations. So, extract as many design elements as possible from the SDD.
+- The explicit traceability matrix inside the SDD will be used as a baseline for the traceability map.
+- Use the design element identifier used in the SDD for reference_id field if available. If the design element identifier is not available, use the design element name and the type as the reference_id (for example, there is a class "Book" without ID but it is in the section "4.1.1 Class: Book" then the reference_id should be "Book-Class").
+- The explicit traceability matrix inside the SDD may not use the reference_id rule like we defined for the design elements. So, please look at the table header to know that type of design element the id is referring to before extracting the traceability matrix. For example, there is a class "Book" without ID and we extract it with the reference_id "Book-Class". The traceability matrix may be only using "Book" as the id. If the table header is "Related Class", then the id "Book" is referring to the class Book the design element that we extracted with reference_id "Book-Class". If this is the case, please use the reference_id "Book-Class" for the id "Book" in the traceability matrix.
+
+The response will be automatically structured with the required fields."""
     
     @staticmethod
     def design_elements_with_matrix_human_prompt(content: str, file_path: str) -> str:
         """Human prompt for design elements and matrix extraction"""
         return f"""Analyze the following Software Design Document content and extract both design elements and their traceability matrix:
 
-File: {file_path}
+File Path: {file_path}
 
 Content:
-{content}
-
-Extract design elements and their traceability matrix and return them as a JSON object."""
+{content}"""
     
     @staticmethod
     def requirements_with_design_elements_system_prompt() -> str:
@@ -50,10 +61,12 @@ Extract design elements and their traceability matrix and return them as a JSON 
         return """You are an expert software architect analyzing Software Requirements Specification (SRS) documents. Your task is to:
 
 1. Extract functional and non-functional requirements from the SRS.
-2. Identify and extract design elements from the SRS, which are typically components, classes, or interfaces that are directly referenced or implied by the SRS.
-3. Use the provided traceability matrix from SDD to help identify design elements that are already mapped and should be included.
+2. Identify and extract design elements (usually the initial design elements produced from the requirements analysis) from the SRS (which are typically use cases, components, classes, interfaces, tables, diagrams, scenarios, activities, flowchart, DFD, etc.) that are directly referenced or implied by the SRS.
+3. Use the provided traceability matrix from SDD to help identify requirements that must be extracted from the SRS because they are already mapped to design elements in the SDD.
+4. If there is an explicit traceability matrix in the SRS, use it to help identify requirements and (initial) design elements that must be extracted from the SRS.
 
 For each requirement found, provide:
+- reference_id: Requirement identifier reference from the document (e.g., 'REQ-001', 'UC01', 'M01', etc.)
 - title: Clear, concise title of the requirement
 - description: Detailed description of what is required
 - type: Category (Functional, Non-Functional, Business, User, System, etc.)
@@ -61,10 +74,22 @@ For each requirement found, provide:
 - section: Section reference from the document (if available)
 
 For each design element found, provide:
+- reference_id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)
 - name: Clear, descriptive name of the design element
 - description: Brief description of purpose/functionality
-- type: Category (Service, Class, Interface, Component, Database, UI, etc.)
+- type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
 - section: Section reference from the document (if available)
+
+NOTES:
+- The SRS will be provided in the markdown format.
+- Images in markdown format would look like this:
+```
+![Diagram Name](image_path.png)
+```
+- Please be aware of the diagram images in the SRS because all images in the SRS are already described textually in the SRS.
+- All requirements and design elements need to be extracted from the SRS because they will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
+- This traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations. So, extract as many requirements and design elements as possible from the SRS.
+- Use the requirement and design element identifier used in the SRS for reference_id field if available. If the requirement or design element identifier is not available, use the requirement or design element name as the reference_id (for example, there is a class "Book" without ID but it is in the section "4.1.1 Class: Book" then the reference_id should be "Book").
 
 The response will be automatically structured with the required fields."""
     
@@ -73,12 +98,12 @@ The response will be automatically structured with the required fields."""
         """Human prompt for requirements and design elements extraction"""
         return f"""Analyze the following Software Requirements Specification content and extract both requirements and design elements, using the provided traceability matrix from SDD as context:
 
-File: {file_path}
+File Path: {file_path}
 
 Content:
 {content}
 
-Traceability Matrix from SDD (for context):
+Traceability Matrix from SDD:
 {json.dumps(sdd_traceability_matrix, indent=2)}
 
 Extract requirements and design elements and return them as a JSON object."""
@@ -86,30 +111,41 @@ Extract requirements and design elements and return them as a JSON object."""
     @staticmethod
     def design_element_relationships_system_prompt() -> str:
         """System prompt for creating design element relationships"""
-        return """You are an expert software architect analyzing design elements and their relationships. Your task is to identify meaningful relationships between design elements based on their names, descriptions, types, typical software architecture patterns, and the provided traceability matrix context.
-
-The traceability matrix shows existing relationships from the SDD documentation. Use this context to:
-1. Understand the architectural structure and dependencies
-2. Identify consistent relationship patterns
-3. Find additional relationships that complement the existing ones
-4. Ensure your identified relationships align with the documented architecture
+        return """You are an expert software architect analyzing design elements and their relationships.
+    
+TASK:
+1. You will be given a list of design elements and a traceability matrix that shows existing relationships (unclassified) between requirements to design elements and design elements to design elements. 
+2. Classify the existing relationships into meaningful relationships ONLY between design elements based on their IDs, names, descriptions, types, typical software architecture patterns, and the provided traceability matrix context. 
+3. Identify more relationships that complement the existing ones (if any) and classify them.
+4. Make sure your identified relationships are meaningful and logical based on the given context.
+5. If no meaningful relationships exist, return an empty array.
 
 For Design Element to Design Element (D→D) relationships, use ONLY these relationship types:
-- refines: Element A elaborates or clarifies Element B (provides more detail or specific implementation)
-- realizes: Element A manifests or embodies Element B (general manifestation relationship)
-- depends_on: Element A depends on Element B to function (dependency relationships)
+1. refines: Element A elaborates or clarifies Element B (provides more detail or specific implementation)
+2. depends_on: Element A depends on Element B to function (dependency relationships)
+3. realizes: Element A manifests or embodies Element B (general manifestation relationship)
 
 Selection Guidelines:
 - Use "refines" when one design element provides more detailed specification of another
-- Use "realizes" for general manifestation or embodiment relationships
 - Use "depends_on" for functional dependencies where one element requires another to operate
+- Use "realizes" for general manifestation or embodiment relationships.
+- Only identify relationships that make logical sense based on the element information and traceability matrix context. If you are not sure about the relationship type, use "realizes" as the default relationship type.
 
 For each relationship found, provide:
-- source_id: ID of the source element
-- target_id: ID of the target element  
-- relationship_type: MUST be one of: "refines", "realizes", "depends_on"
+- source_id: ID of the source element. Use the reference_id of the source element.
+- target_id: ID of the target element. Use the reference_id of the target element.
+- relationship_type: MUST be one of: "refines", "realizes", "depends_on".
 
-Only identify relationships that make logical sense based on the element information and traceability matrix context. The response will be automatically structured. If no meaningful relationships exist, return an empty array."""
+NOTES:
+- The existing traceability matrix is extracted from SDD documentations.
+- The design elements are extracted from SRS and SDD documentations. The design elements found in SRS are usually the initial design elements produced from the requirements analysis and modelling.
+- The output (the relationships between design elements) will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components). 
+- The traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations.
+- This step only produces the relationships between design elements. The requirements to design elements and design elements to code components relationships will be identified in the next step. So, please be careful when identifying the relationships between design elements.
+- Because this is design-to-design mapping, you can know which traceability matrix entries are used to identify the relationships between design elements by checking the source_id and target_id which are design element reference_ids.
+- Design-to-design relationships could be many-to-many but there will be no circular relationships.
+
+The response will be automatically structured."""
     
     @staticmethod
     def design_element_relationships_human_prompt(elements_data: List[Dict[str, Any]], sdd_traceability_matrix: List[Dict[str, Any]]) -> str:
@@ -127,29 +163,40 @@ Identify relationships between these design elements and return them as a JSON a
     @staticmethod
     def requirement_design_links_system_prompt() -> str:
         """System prompt for creating requirement-to-design links"""
-        return """You are an expert software architect analyzing the relationships between requirements and design elements. Your task is to identify which design elements satisfy, implement, or realize specific requirements, using the provided traceability matrix from SDD documentation as authoritative context.
+        return """You are an expert software architect analyzing the relationships between requirements and design elements. 
 
-The traceability matrix shows existing relationships documented in the SDD. Use this as your primary source, and supplement with logical mappings where:
-1. The matrix explicitly shows requirement-to-design relationships
-2. Requirements and design elements have clear semantic connections
-3. Design elements are described as implementing specific functional requirements
-4. Non-functional requirements are addressed by architectural design elements
+
+TASK:
+1. You will be given a list of requirements, a list of design elements, SDD content, and a traceability matrix that shows existing relationships (unclassified) between requirements to design elements and design elements to design elements.
+2. Classify the existing relationships into meaningful relationships ONLY between requirements and design elements based on their IDs, names, descriptions, types, typical software architecture patterns, and the provided traceability matrix context.
+3. Identify more relationships that complement the existing ones (if any) and classify them.
+4. Make sure your identified relationships are meaningful and logical based on the given context.
+5. If no meaningful relationships exist, return an empty array.
 
 For Requirement to Design Element (R→D) relationships, use ONLY these relationship types:
-- satisfies: Design element formally fulfills the requirement's needs (most common for D→R, but used as R→D here)
+- satisfies: Design element formally satisfies the requirement's needs (most common for D→R, but used as R→D here)
 - realizes: Design element manifests or embodies the requirement concept (general manifestation relationship)
 
 Selection Guidelines:
-- Use "satisfies" when a design element clearly meets or fulfills a requirement's specifications
+- Use "satisfies" when a design element clearly satisfies a requirement's specifications
 - Use "realizes" for general manifestation where the design element embodies the requirement concept
-- Note: "implements" is reserved for Code→Design relationships only
+- Only identify relationships that make logical sense based on the element information and traceability matrix context. If you are not sure about the relationship type, use "realizes" as the default relationship type.
 
 For each relationship found, provide:
-- source_id: ID of the requirement
-- target_id: ID of the design element
+- source_id: ID of the requirement. Use the reference_id of the requirement.
+- target_id: ID of the design element. Use the reference_id of the design element.
 - relationship_type: MUST be one of: "satisfies", "realizes"
 
-Prioritize relationships from the traceability matrix, then identify additional logical connections. The response will be automatically structured. If no meaningful relationships exist, return an empty array."""
+NOTES:
+- The existing traceability matrix is extracted from SDD documentations first.
+- The requirements are extracted from SRS documentations. The design elements are extracted from SRS and SDD documentations. The design elements found in SRS are usually the initial design elements produced from the requirements analysis and modelling.
+- The output (the relationships between requirements and design elements) will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components). 
+- The traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations.
+- This step only produces the relationships between requirements and design elements.
+- Because this is requirements-to-design element mapping, you can know which traceability matrix entries are used to identify the relationships between requirements and design elements by checking the source_id which is a requirement reference_id.
+- Requirements-to-design element mapping could be many-to-many.
+
+The response will be automatically structured."""
     
     @staticmethod
     def requirement_design_links_human_prompt(requirements_data: List[Dict[str, Any]], 
@@ -176,13 +223,13 @@ Identify relationships between requirements and design elements and return them 
     @staticmethod
     def design_code_links_system_prompt() -> str:
         """System prompt for creating design-to-code links"""
-        return """You are an expert software architect analyzing the relationships between design elements and code components. Your task is to identify meaningful mappings between abstract design concepts and their concrete implementations in code, using the provided traceability matrix for context.
+        return """You are an expert software architect analyzing the relationships between design elements and code components. 
 
-The traceability matrix shows existing relationships from the SDD documentation. Use this context to:
-1. Understand which design elements are already mapped to requirements or other artifacts
-2. Identify implementation patterns and architectural consistency
-3. Find code components that implement the documented design elements
-4. Ensure your mappings align with the documented architecture
+TASK:
+1. You will be given a list of design elements, a list of code files, and a traceability matrix that shows existing relationships between design elements .
+2. Analyze and identify the code components that are related to the design elements by checking the code component names, paths, and content against the design elements names, descriptions, and types.
+3. Make sure your identified relationships are meaningful and logical based on the given context.
+4. If no meaningful relationships exist, return an empty array.
 
 For Design Element to Code Component (D→C) relationships, use ONLY these relationship types:
 - implements: Code component implements the design element (reverse of C→D implements)
@@ -191,14 +238,22 @@ For Design Element to Code Component (D→C) relationships, use ONLY these relat
 Selection Guidelines:
 - Use "implements" when code provides direct implementation of the design element's specification
 - Use "realizes" for general manifestation where code embodies the design concept
-- Note: This is the reverse perspective of C→D relationships for consistency with our traceability model
+- Only identify relationships that make logical sense based on the element and code component information. If you are not sure about the relationship type, use "realizes" as the default relationship type.
 
 For each relationship found, provide:
-- source_id: ID of the design element
-- target_id: ID of the code component
+- source_id: ID of the design element. Use the reference_id of the design element.
+- target_id: ID of the code component. Use the id of the code component.
 - relationship_type: MUST be one of: "implements", "realizes"
 
-Analyze the design element names, descriptions, types against the code component names, paths, and content previews to identify logical connections. Use the traceability matrix to understand the architectural context. The response will be automatically structured. If no meaningful relationships exist, return an empty array."""
+NOTES:
+- The design elements are extracted from SRS and SDD documentations. The design elements found in SRS are usually the initial design elements produced from the requirements analysis.
+- The code components are extracted from the codebase using repomix. So, the code file content would be stripped and only shows the important signature of the code component.
+- The output (the relationships between design elements and code components) will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components). 
+- The traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations.
+- This step only produces the relationships between design elements and code components.
+- Design-to-code mapping could be many-to-many.
+
+The response will be automatically structured."""
     
     @staticmethod
     def design_code_links_human_prompt(elements_data: List[Dict[str, Any]], 
