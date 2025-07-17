@@ -1601,7 +1601,7 @@ class DocumentUpdateRecommenderWorkflow:
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 output_format="json",
-                temperature=0.2  # Slightly higher for more creative recommendations
+                temperature=0.3  # Slightly higher for more creative recommendations
             )
             
             # Parse the structured response
@@ -1909,9 +1909,9 @@ class DocumentUpdateRecommenderWorkflow:
                 
                 # Create the suggestion with copy-paste ready content
                 suggestion_text = f"""
-### {priority_icon} Suggestion #{suggestion_counter}: {action} in {section}
+### {priority_icon} Suggestion {suggestion_counter}: {action} in {section}
 
-[{recommendation.get('priority', 'Medium')}] {recommendation.get('what_to_update', 'No description provided')}. {recommendation.get('why_update_needed', 'No reason provided')}.
+[{recommendation.get('priority', 'Medium')}] {recommendation.get('what_to_update', 'No description provided')} {recommendation.get('why_update_needed', 'No reason provided')}
 
 **📝 Suggested Change**:
 ```diff

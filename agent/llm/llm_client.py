@@ -113,6 +113,7 @@ class DocurecoLLMClient:
         system_message: Optional[str] = None,
         task_type: Optional[str] = None,
         output_format: str = "text",
+        thinking: bool = True,
         **kwargs
     ) -> LLMResponse:
         """
@@ -123,6 +124,7 @@ class DocurecoLLMClient:
             system_message: System message for context
             task_type: Type of task (code_analysis, traceability_mapping, etc.)
             output_format: Response format ("text" or "json")
+            thinking: Whether to enable thinking mode
             **kwargs: Additional parameters for LLM
             
         Returns:
@@ -130,7 +132,7 @@ class DocurecoLLMClient:
         """
         try:
             # Apply task-specific configuration if provided
-            llm = self._configure_for_task(task_type, **kwargs)
+            llm = self._configure_for_task(task_type, thinking **kwargs)
             
             # Prepare messages
             messages = []
@@ -206,7 +208,7 @@ class DocurecoLLMClient:
             logger.error(f"Error generating structured LLM response: {str(e)}")
             raise
     
-    def _configure_for_task(self, task_type: Optional[str], **kwargs) -> BaseLanguageModel:
+    def _configure_for_task(self, task_type: Optional[str], thinking: bool = True, **kwargs) -> BaseLanguageModel:
         """
         Configure LLM for specific task
         
@@ -233,7 +235,8 @@ class DocurecoLLMClient:
                 temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
                 max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
                 max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout
+                request_timeout=self.config.request_timeout,
+                thinking=thinking
                 # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
             )
         else:
@@ -244,7 +247,8 @@ class DocurecoLLMClient:
                 temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
                 max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
                 max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout
+                request_timeout=self.config.request_timeout,
+                thinking=thinking
             )
     
     def create_prompt_template(self, template_name: str) -> ChatPromptTemplate:
