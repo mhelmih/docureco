@@ -67,10 +67,8 @@ class DocurecoLLMClient:
         # Ensure base_url is always set for Grok
         base_url = self.config.base_url or "https://api.x.ai/v1"
         
-        model_kwargs = {
-            "extra_body": {
-                "reasoning_effort": self.config.reasoning_effort
-            },
+        extra_body = {
+            "reasoning_effort": self.config.reasoning_effort
         }
         
         return ChatOpenAI(
@@ -81,7 +79,7 @@ class DocurecoLLMClient:
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
             request_timeout=self.config.request_timeout,
-            model_kwargs=model_kwargs
+            extra_body=extra_body
             # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
