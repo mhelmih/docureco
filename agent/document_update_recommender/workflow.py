@@ -597,6 +597,10 @@ class DocumentUpdateRecommenderWorkflow:
                         design_to_requirement_map[link.target_id] = []
                     if link.source_id not in design_to_requirement_map[link.target_id]:
                         design_to_requirement_map[link.target_id].append(link.source_id)
+                        
+        # Build lookup dictionaries for design elements and requirements
+        design_elements_by_id = {de.id: de for de in getattr(baseline_map_data, "design_elements", [])}
+        requirements_by_id = {req.id: req for req in getattr(baseline_map_data, "requirements", [])}
         
         # Process each logical change set separately
         for change_set in changes_with_status:
@@ -639,10 +643,10 @@ class DocumentUpdateRecommenderWorkflow:
                     
                     finding = {
                         "finding_type": finding_type,
-                        "affected_element_type": "CodeComponent",
                         "affected_element_id": file_path,
                         "affected_element_name": file_path,
                         "affected_element_description": file_path,
+                        "affected_element_type": "CodeComponent",
                         "trace_path_type": None,
                         "source_change_set": change_set_name,
                         "anomaly_type": status if finding_type == "Traceability_Anomaly" else None
@@ -682,9 +686,9 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Standard_Impact",
                     "affected_element_id": design_element_id,
-                    "affected_element_name": baseline_map_data.design_elements[design_element_id].name,
-                    "affected_element_description": baseline_map_data.design_elements[design_element_id].description,
-                    "affected_element_type": "DesignElement - " + baseline_map_data.design_elements[design_element_id].type,
+                    "affected_element_name": design_elements_by_id[design_element_id].name,
+                    "affected_element_description": design_elements_by_id[design_element_id].description,
+                    "affected_element_type": "DesignElement - " + design_elements_by_id[design_element_id].type,
                     "trace_path_type": "Direct" if design_element_id in dide else "Indirect",
                     "source_change_set": change_set_name
                 }
@@ -694,9 +698,9 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Standard_Impact",
                     "affected_element_id": requirement_id, 
-                    "affected_element_name": baseline_map_data.requirements[requirement_id].name,
-                    "affected_element_description": baseline_map_data.requirements[requirement_id].description,
-                    "affected_element_type": "Requirement - " + baseline_map_data.requirements[requirement_id].type,
+                    "affected_element_name": requirements_by_id[requirement_id].name,
+                    "affected_element_description": requirements_by_id[requirement_id].description,
+                    "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
                     "trace_path_type": "Direct",
                     "source_change_set": change_set_name
                 }
@@ -707,9 +711,9 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Outdated_Documentation",
                     "affected_element_id": design_element_id,
-                    "affected_element_name": baseline_map_data.design_elements[design_element_id].name,
-                    "affected_element_description": baseline_map_data.design_elements[design_element_id].description,
-                    "affected_element_type": "DesignElement - " + baseline_map_data.design_elements[design_element_id].type,
+                    "affected_element_name": design_elements_by_id[design_element_id].name,
+                    "affected_element_description": design_elements_by_id[design_element_id].description,
+                    "affected_element_type": "DesignElement - " + design_elements_by_id[design_element_id].type,
                     "trace_path_type": None,
                     "source_change_set": change_set_name
                 }
@@ -719,9 +723,9 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Outdated_Documentation", 
                     "affected_element_id": requirement_id,
-                    "affected_element_name": baseline_map_data.requirements[requirement_id].name,
-                    "affected_element_description": baseline_map_data.requirements[requirement_id].description,
-                    "affected_element_type": "Requirement - " + baseline_map_data.requirements[requirement_id].type,
+                    "affected_element_name": requirements_by_id[requirement_id].name,
+                    "affected_element_description": requirements_by_id[requirement_id].description,
+                    "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
                     "trace_path_type": None,
                     "source_change_set": change_set_name
                 }
@@ -771,8 +775,10 @@ class DocumentUpdateRecommenderWorkflow:
                 # Convert to dict format
                 finding_dict = {
                     "finding_type": assessed_finding["finding_type"],
-                    "affected_element_type": assessed_finding["affected_element_type"],
                     "affected_element_id": assessed_finding["affected_element_id"],
+                    "affected_element_name": assessed_finding["affected_element_name"],
+                    "affected_element_description": assessed_finding["affected_element_description"],
+                    "affected_element_type": assessed_finding["affected_element_type"],
                     "source_change_set": assessed_finding["source_change_set"],
                     "trace_path_type": assessed_finding.get("trace_path_type"),
                     "anomaly_type": assessed_finding.get("anomaly_type"),
