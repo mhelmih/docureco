@@ -5,7 +5,7 @@ Supports Grok 3 Mini Reasoning (High) as specified in Q10 analysis
 
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 

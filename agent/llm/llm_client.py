@@ -3,18 +3,16 @@ LLM Client for Docureco Agent
 Provides unified interface for Grok 3 and OpenAI models using LangChain
 """
 
-import os
 import logging
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 from langchain_core.language_models import BaseLanguageModel
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 
-from ..config.llm_config import LLMConfig, LLMProvider, get_llm_config, get_task_config
+from ..config.llm_config import LLMConfig, LLMProvider, get_llm_config
 
 logger = logging.getLogger(__name__)
 
@@ -112,10 +110,7 @@ class DocurecoLLMClient:
         self,
         prompt: str,
         system_message: Optional[str] = None,
-        task_type: Optional[str] = None,
-        output_format: str = "text",
-        thinking: bool = True,
-        **kwargs
+        output_format: str = "text"
     ) -> LLMResponse:
         """
         Generate response using LLM
@@ -123,10 +118,7 @@ class DocurecoLLMClient:
         Args:
             prompt: User prompt/query
             system_message: System message for context
-            task_type: Type of task (code_analysis, traceability_mapping, etc.)
             output_format: Response format ("text" or "json")
-            thinking: Whether to enable thinking mode
-            **kwargs: Additional parameters for LLM
             
         Returns:
             LLMResponse: Standardized response object
@@ -160,95 +152,6 @@ class DocurecoLLMClient:
             logger.error(f"Error generating LLM response: {str(e)}")
             raise
 
-    async def generate_structured_response(
-        self,
-        prompt: str,
-        system_message: Optional[str] = None,
-        task_type: Optional[str] = None,
-        pydantic_model = None,
-        **kwargs
-    ):
-        """
-        Generate structured response using Pydantic model
-        
-        Args:
-            prompt: User prompt/query
-            system_message: System message for context
-            task_type: Type of task (code_analysis, traceability_mapping, etc.)
-            pydantic_model: Pydantic model class for structured output
-            **kwargs: Additional parameters for LLM
-            
-        Returns:
-            Pydantic model instance with structured data
-        """
-        try:
-            # Apply task-specific configuration if provided
-            llm = self._configure_for_task(task_type, **kwargs)
-            
-            # Configure LLM for structured output
-            if pydantic_model:
-                structured_llm = llm.with_structured_output(pydantic_model)
-            else:
-                raise ValueError("pydantic_model is required for structured output")
-            
-            # Prepare messages
-            messages = []
-            if system_message:
-                messages.append(SystemMessage(content=system_message))
-            messages.append(HumanMessage(content=prompt))
-            
-            # Generate structured response
-            response = await structured_llm.ainvoke(messages)
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error generating structured LLM response: {str(e)}")
-            raise
-    
-    def _configure_for_task(self, task_type: Optional[str], thinking: bool = True, **kwargs) -> BaseLanguageModel:
-        """
-        Configure LLM for specific task
-        
-        Args:
-            task_type: Type of task to configure for
-            **kwargs: Override parameters
-            
-        Returns:
-            BaseLanguageModel: Configured LLM
-        """
-        if not task_type:
-            return self.llm
-        
-        task_config = getattr(self.task_config, task_type, {})
-        
-        # Override configuration for specific task
-        if self.config.provider == LLMProvider.GROK:
-            # Ensure base_url is always set for Grok
-            base_url = self.config.base_url or "https://api.x.ai/v1"
-            return ChatOpenAI(
-                model=self.config.llm_model,
-                api_key=self.config.api_key,
-                base_url=base_url,
-                temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
-                max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
-                max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout,
-                thinking=thinking
-                # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
-            )
-        else:
-            return ChatOpenAI(
-                model=self.config.llm_model,
-                api_key=self.config.api_key,
-                base_url=self.config.base_url,
-                temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
-                max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
-                max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout,
-                thinking=thinking
-            )
-
 # Factory function for easy instantiation
 def create_llm_client(config: Optional[LLMConfig] = None) -> DocurecoLLMClient:
     """
@@ -263,4 +166,4 @@ def create_llm_client(config: Optional[LLMConfig] = None) -> DocurecoLLMClient:
     return DocurecoLLMClient(config)
 
 # Export main classes and functions
-__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith"] 
+__all__ = ["LLMProvider", "LLMConfig", "get_llm_config", "setup_langsmith"] 
