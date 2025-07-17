@@ -14,14 +14,15 @@ class BaselineMapCreatorPrompts:
         """System prompt for extracting design elements and traceability matrix from SDD"""
         return """You are an expert software architect analyzing Software Design Documents (SDD). Your task is to:
 
-1. Extract all design elements (components, classes, interfaces, etc.) from the SDD.
+1. Extract all design elements (components, classes, use cases, modules, tables, user interfaces, queries, diagrams, etc.) from the SDD.
 2. Identify and extract the traceability matrix from the SDD, which maps requirements to design elements.
 
 For each design element found, provide:
-- name: Clear, descriptive name of the design element
+- id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.). May be empty if not available.
+- name: Clear, descriptive name of the design element with its type (e.g., AddBook Class)
 - description: Brief description of purpose/functionality
 - type: Category (Service, Class, Interface, Component, Database, UI, etc.)
-- section: Section reference from the document (if available)
+- section: Section reference from the document (if available). If available, please choose more specific section name.
 
 For the traceability matrix, provide relationships between ANY artifacts (requirements, design elements, etc.) found:
 - source_id: ID of the source artifact (e.g., 'REQ-001', 'DE-001', etc.)

@@ -65,7 +65,7 @@ class LogicalChangeSet(BaseModel):
     """Structured output for logical change sets"""
     name: str = Field(description="Descriptive name for the logical change set")
     description: str = Field(description="Brief description of what this change set accomplishes")
-    changes: List[Dict[str, Any]] = Field(description="Array of files with classifications that belong to this logical change set")
+    changes: List[CodeChangeClassification] = Field(description="Array of files with classifications that belong to this logical change set")
 
 class ChangeGroupingOutput(BaseModel):
     """Structured output for grouping changes into logical change sets"""
@@ -746,7 +746,6 @@ class DocumentUpdateRecommenderWorkflow:
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
-                task_type="impact_assessment",
                 output_format="json",
                 temperature=0.1  # Low temperature for consistent assessment
             )
@@ -1377,7 +1376,6 @@ class DocumentUpdateRecommenderWorkflow:
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
-                task_type="code_analysis",
                 output_format="json",  # Use text so we can parse into Pydantic model
                 temperature=0.1  # Low temperature for consistent extraction
             )
@@ -1438,7 +1436,6 @@ class DocumentUpdateRecommenderWorkflow:
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
-                task_type="code_analysis",
                 output_format="json",  # Use text so we can parse into Pydantic model
                 temperature=0.1  # Low temperature for consistent grouping
             )
@@ -1585,7 +1582,6 @@ class DocumentUpdateRecommenderWorkflow:
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
-                task_type="recommendation_generation",
                 output_format="json",
                 temperature=0.2  # Slightly higher for more creative recommendations
             )
