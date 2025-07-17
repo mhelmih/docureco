@@ -68,7 +68,9 @@ class DocurecoLLMClient:
         base_url = self.config.base_url or "https://api.x.ai/v1"
         
         model_kwargs = {
-            "reasoning_effort": self.config.reasoning_effort
+            "extra_body": {
+                "reasoning_effort": self.config.reasoning_effort
+            },
         }
         
         return ChatOpenAI(
