@@ -698,7 +698,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Standard_Impact",
                     "affected_element_id": requirement_id, 
-                    "affected_element_name": requirements_by_id[requirement_id].name,
+                    "affected_element_name": requirements_by_id[requirement_id].title,
                     "affected_element_description": requirements_by_id[requirement_id].description,
                     "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
                     "trace_path_type": "Direct",
@@ -723,7 +723,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding = {
                     "finding_type": "Outdated_Documentation", 
                     "affected_element_id": requirement_id,
-                    "affected_element_name": requirements_by_id[requirement_id].name,
+                    "affected_element_name": requirements_by_id[requirement_id].title,
                     "affected_element_description": requirements_by_id[requirement_id].description,
                     "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
                     "trace_path_type": None,
