@@ -73,7 +73,7 @@ class BaselineMapCreatorWorkflow:
         # Check if Repomix is available
         try:
             subprocess.run(["repomix", "--version"], capture_output=True, check=True)
-            print("Repomix is available for repository scanning")
+            logger.info("Repomix is available for repository scanning")
         except (subprocess.CalledProcessError, FileNotFoundError):
             raise RuntimeError("Repomix is not installed. Please install it with: npm install -g repomix")
         
@@ -142,14 +142,14 @@ class BaselineMapCreatorWorkflow:
         has_srs = len(state.get("srs_content", {})) > 0
         
         if not has_sdd and not has_srs:
-            print("❌ No SDD or SRS documentation found. Workflow will terminate.")
-            print(f"   - SDD files: {len(state.get('sdd_content', {}))}")
-            print(f"   - SRS files: {len(state.get('srs_content', {}))}")
+            logger.error("❌ No SDD or SRS documentation found. Workflow will terminate.")
+            logger.error(f"   - SDD files: {len(state.get('sdd_content', {}))}")
+            logger.error(f"   - SRS files: {len(state.get('srs_content', {}))}")
             return "end"
         
-        print(f"✅ Documentation found - proceeding to design element identification")
-        print(f"   - SDD files: {len(state.get('sdd_content', {}))}")
-        print(f"   - SRS files: {len(state.get('srs_content', {}))}")
+        logger.info(f"✅ Documentation found - proceeding to design element identification")
+        logger.info(f"   - SDD files: {len(state.get('sdd_content', {}))}")
+        logger.info(f"   - SRS files: {len(state.get('srs_content', {}))}")
         return "identify_design_elements"
     
     def _route_after_design_elements(self, state: BaselineMapCreatorState) -> str:
@@ -157,10 +157,10 @@ class BaselineMapCreatorWorkflow:
         design_elements_count = len(state.get("design_elements", []))
         
         if design_elements_count == 0:
-            print("❌ No design elements extracted. Workflow will terminate.")
+            logger.error("❌ No design elements extracted. Workflow will terminate.")
             return "end"
         
-        print(f"✅ Found {design_elements_count} design elements - proceeding to requirements identification")
+        logger.info(f"✅ Found {design_elements_count} design elements - proceeding to requirements identification")
         return "identify_requirements"
     
     def _route_after_requirements(self, state: BaselineMapCreatorState) -> str:
@@ -168,10 +168,10 @@ class BaselineMapCreatorWorkflow:
         requirements_count = len(state.get("requirements", []))
         
         if requirements_count == 0:
-            print("❌ No requirements extracted. Workflow will terminate.")
+            logger.error("❌ No requirements extracted. Workflow will terminate.")
             return "end"
         
-        print(f"✅ Found {requirements_count} requirements - proceeding with full workflow")
+        logger.info(f"✅ Found {requirements_count} requirements - proceeding with full workflow")
         return "design_to_design_mapping"
     
     async def execute(self, repository: str, branch: str = "main") -> BaselineMapCreatorState:
@@ -209,8 +209,8 @@ class BaselineMapCreatorWorkflow:
         force_recreate = os.getenv("FORCE_RECREATE", "false").lower() == "true"
         
         if existing_map and not force_recreate:
-            print(f"Baseline map already exists for {repository}:{branch}")
-            print("Use FORCE_RECREATE=true to overwrite existing map")
+            logger.info(f"Baseline map already exists for {repository}:{branch}")
+            logger.info("Use FORCE_RECREATE=true to overwrite existing map")
             return initial_state
         
         # Compile and run workflow
@@ -222,10 +222,10 @@ class BaselineMapCreatorWorkflow:
         # Print completion summary
         current_step = final_state.get("current_step", "unknown")
         if current_step == "completed":
-            print(f"✅ Baseline map creation completed successfully for {repository}:{branch}")
+            logger.info(f"✅ Baseline map creation completed successfully for {repository}:{branch}")
         else:
-            print(f"⚠️  Baseline map creation terminated early at step: {current_step}")
-            print(f"   Repository: {repository}:{branch}")
+            logger.error(f"⚠️  Baseline map creation terminated early at step: {current_step}")
+            logger.error(f"   Repository: {repository}:{branch}")
             
         return final_state
     
@@ -233,7 +233,7 @@ class BaselineMapCreatorWorkflow:
         """
         Scan repository for documentation and code files using Repomix
         """
-        print(f"Scanning repository {state['repository']}:{state['branch']} with Repomix")
+        logger.info(f"Scanning repository {state['repository']}:{state['branch']} with Repomix")
         state["current_step"] = "scanning_repository"
         
         try:
@@ -256,10 +256,10 @@ class BaselineMapCreatorWorkflow:
                 "*.py", "*.java", "*.js", "*.ts", "*.cpp", "*.h"
             ])
             
-            print(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
+            logger.info(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
             
         except Exception as e:
-            print(f"Error scanning repository: {str(e)}")
+            logger.error(f"Error scanning repository: {str(e)}")
             raise e
         
         return state
@@ -295,7 +295,7 @@ class BaselineMapCreatorWorkflow:
                     "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage, agent, .github, .vscode, .env, .env.local, .env.development.local, .env.test.local, .env.production.local"
                 ]
                 
-                print(f"Running Repomix: {' '.join(cmd)}")
+                logger.info(f"Running Repomix: {' '.join(cmd)}")
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                 
                 if result.returncode != 0:
@@ -307,7 +307,7 @@ class BaselineMapCreatorWorkflow:
                 
                 repo_data = self._parse_repomix_xml(xml_content)
                 
-                print(f"Repomix scan completed successfully")
+                logger.info(f"Repomix scan completed successfully")
                 return repo_data
                 
             except subprocess.TimeoutExpired:
@@ -390,7 +390,7 @@ class BaselineMapCreatorWorkflow:
             return {"files": files}
                 
         except Exception as e:
-            print(f"Warning: Repomix XML parsing failed ({e}), attempting fallback parsing")
+            logger.warning(f"Warning: Repomix XML parsing failed ({e}), attempting fallback parsing")
             return self._parse_repomix_fallback(xml_content)
     
     def _parse_repomix_fallback(self, content: str) -> Dict[str, Any]:
@@ -477,11 +477,11 @@ class BaselineMapCreatorWorkflow:
             
             if self._matches_patterns(file_path, patterns):
                 documentation_files[file_path] = file_content
-                print(f"Found documentation file: {file_path}")
+                logger.info(f"Found documentation file: {file_path}")
         
         # Allow empty documentation files - will be handled by conditional workflow
         if len(documentation_files) == 0:
-            print(f"No documentation files found matching patterns: {patterns}")
+            logger.error(f"No documentation files found matching patterns: {patterns}")
         
         return documentation_files
     
@@ -513,7 +513,7 @@ class BaselineMapCreatorWorkflow:
                     "content": file_content
                 })
                 code_files_counter += 1
-                print(f"Found code file: {file_path}")
+                logger.info(f"Found code file: {file_path}")
         
         return code_files
     
@@ -536,7 +536,7 @@ class BaselineMapCreatorWorkflow:
         Identify design elements from SDD documentation using LLM and extract traceability matrix
         SDD is processed first as it contains the traceability matrix between design elements and requirements
         """
-        print("Identifying design elements from SDD and extracting traceability matrix")
+        logger.info("Identifying design elements from SDD and extracting traceability matrix")
         state["current_step"] = "identifying_design_elements"
         
         design_elements = []
@@ -572,7 +572,7 @@ class BaselineMapCreatorWorkflow:
         state["sdd_traceability_matrix"] = sdd_traceability_matrix
         state["processing_stats"]["design_elements_count"] = len(design_elements)
         state["processing_stats"]["sdd_traceability_matrix_count"] = len(sdd_traceability_matrix)
-        print(f"Identified {len(design_elements)} design elements and {len(sdd_traceability_matrix)} traceability matrix entries")
+        logger.info(f"Identified {len(design_elements)} design elements and {len(sdd_traceability_matrix)} traceability matrix entries")
         
         return state
     
@@ -580,7 +580,7 @@ class BaselineMapCreatorWorkflow:
         """
         Create mappings between design elements (internal relationships)
         """
-        print("Creating design-to-design mappings")
+        logger.info("Creating design-to-design mappings")
         state["current_step"] = "design_to_design_mapping"
         
         design_to_design_links = []
@@ -607,7 +607,7 @@ class BaselineMapCreatorWorkflow:
         
         state["design_to_design_links"] = design_to_design_links
         state["processing_stats"]["design_to_design_links_count"] = len(design_to_design_links)
-        print(f"Created {len(design_to_design_links)} design-to-design mappings")
+        logger.info(f"Created {len(design_to_design_links)} design-to-design mappings")
         
         return state
     
@@ -615,7 +615,7 @@ class BaselineMapCreatorWorkflow:
         """
         Create mappings between design elements and code components
         """
-        print("Creating design-to-code mappings")
+        logger.info("Creating design-to-code mappings")
         state["current_step"] = "design_to_code_mapping"
         
         # Create code components from file paths (simplified approach)
@@ -665,7 +665,7 @@ class BaselineMapCreatorWorkflow:
         
         state["design_to_code_links"] = design_to_code_links
         state["processing_stats"]["design_to_code_links_count"] = len(design_to_code_links)
-        print(f"Created {len(design_to_code_links)} design-to-code mappings")
+        logger.info(f"Created {len(design_to_code_links)} design-to-code mappings")
         
         return state
     
@@ -674,7 +674,7 @@ class BaselineMapCreatorWorkflow:
         Identify requirements and additional design elements from SRS documentation using LLM
         Uses the traceability matrix from SDD as context for more targeted extraction
         """
-        print("Identifying requirements and design elements from SRS")
+        logger.info("Identifying requirements and design elements from SRS")
         state["current_step"] = "identifying_requirements"
         
         requirements = []
@@ -725,8 +725,8 @@ class BaselineMapCreatorWorkflow:
         state["processing_stats"]["additional_design_elements_count"] = len(additional_design_elements)
         state["processing_stats"]["total_design_elements_count"] = len(state["design_elements"])
         
-        print(f"Identified {len(requirements)} requirements and {len(additional_design_elements)} additional design elements from SRS")
-        print(f"Total design elements: {len(state['design_elements'])}")
+        logger.info(f"Identified {len(requirements)} requirements and {len(additional_design_elements)} additional design elements from SRS")
+        logger.info(f"Total design elements: {len(state['design_elements'])}")
         
         return state
     
@@ -735,7 +735,7 @@ class BaselineMapCreatorWorkflow:
         Create mappings between requirements and design elements
         Uses the traceability matrix from SDD documentation
         """
-        print("Creating requirements-to-design mappings")
+        logger.info("Creating requirements-to-design mappings")
         state["current_step"] = "requirements_to_design_mapping"
         
         requirements_to_design_links = []
@@ -764,7 +764,7 @@ class BaselineMapCreatorWorkflow:
         state["requirements_to_design_links"] = requirements_to_design_links
         state["processing_stats"]["requirements_to_design_links_count"] = len(requirements_to_design_links)
         
-        print(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
+        logger.info(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
         
         return state
     
@@ -772,7 +772,7 @@ class BaselineMapCreatorWorkflow:
         """
         Save baseline map to database
         """
-        print("Saving baseline map to database")
+        logger.info("Saving baseline map to database")
         state["current_step"] = "saving_baseline_map"
         
         # Combine all traceability links before saving (handle empty lists gracefully)
@@ -783,10 +783,10 @@ class BaselineMapCreatorWorkflow:
         )
         state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
         
-        print(f"Total traceability links: {len(state['traceability_links'])}")
-        print(f"  - Design-to-design: {len(state.get('design_to_design_links', []))}")
-        print(f"  - Design-to-code: {len(state.get('design_to_code_links', []))}")
-        print(f"  - Requirements-to-design: {len(state.get('requirements_to_design_links', []))}")
+        logger.info(f"Total traceability links: {len(state['traceability_links'])}")
+        logger.info(f"  - Design-to-design: {len(state.get('design_to_design_links', []))}")
+        logger.info(f"  - Design-to-code: {len(state.get('design_to_code_links', []))}")
+        logger.info(f"  - Requirements-to-design: {len(state.get('requirements_to_design_links', []))}")
         
         # Create baseline map model (handle potentially empty state values)
         baseline_map = BaselineMapModel(
@@ -804,7 +804,7 @@ class BaselineMapCreatorWorkflow:
         if not success:
             raise Exception("Failed to save baseline map to database")
         
-        print(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
+        logger.info(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
         state["current_step"] = "completed"
         
         return state
@@ -829,7 +829,7 @@ class BaselineMapCreatorWorkflow:
             temperature=0.1  # Low temperature for consistent extraction
         )
 
-        print(f"Extracted {len(response.content['design_elements'])} design elements and {len(response.content['traceability_matrix'])} traceability matrix entries from {file_path}")
+        logger.info(f"Extracted {len(response.content['design_elements'])} design elements and {len(response.content['traceability_matrix'])} traceability matrix entries from {file_path}")
         return response.content
     
     async def _llm_extract_requirements_with_design_elements(self, content: str, file_path: str, sdd_traceability_matrix: List[Dict[str, Any]]) -> RequirementsWithDesignElementsOutput:
@@ -852,13 +852,13 @@ class BaselineMapCreatorWorkflow:
             temperature=0.1  # Low temperature for consistent extraction
         )
 
-        print(f"Extracted {len(response.content['requirements'])} requirements and {len(response.content['design_elements'])} design elements from {file_path} with traceability matrix context")
+        logger.info(f"Extracted {len(response.content['requirements'])} requirements and {len(response.content['design_elements'])} design elements from {file_path} with traceability matrix context")
         return response.content
     
     async def _create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""
         if len(design_elements) < 2:
-            print("Not enough design elements to create relationships")
+            logger.error("Not enough design elements to create relationships")
             return []
         
         # Prepare design elements data for LLM analysis
@@ -912,7 +912,7 @@ class BaselineMapCreatorWorkflow:
                 
             validated_relationships.append(relationship)
         
-        print(f"Created {len(validated_relationships)} validated design element relationships")
+        logger.info(f"Created {len(validated_relationships)} validated design element relationships")
         return validated_relationships
     
     async def _create_requirement_design_links_from_sdd(self, requirements: List[RequirementModel], 
@@ -921,7 +921,7 @@ class BaselineMapCreatorWorkflow:
                                                        sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create links between requirements and design elements using SDD traceability matrix and LLM analysis"""
         if not requirements or not design_elements:
-            print("No requirements or design elements available for linking")
+            logger.error("No requirements or design elements available for linking")
             return []
         
         # Prepare requirements and design elements data for LLM analysis
@@ -1003,7 +1003,7 @@ class BaselineMapCreatorWorkflow:
     async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create links between design elements and code components using LLM analysis. Raises exceptions on failure instead of using fallbacks."""
         if not design_elements or not code_components:
-            print("No design elements or code components available for linking")
+            logger.error("No design elements or code components available for linking")
             return []
         
         # Prepare design elements and code components data for LLM analysis
