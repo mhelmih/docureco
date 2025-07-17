@@ -117,6 +117,7 @@ For each file classification, determine:
 - nature: Nature of change (New Feature, Bug Fix, Refactoring, Documentation Updates, Performance Improvement, etc.)
 - volume: Volume of change (Trivial, Small, Medium, Large, Very Large) based on total lines changed
 - reasoning: Brief explanation of the classification
+- patch: The patch of the change (you can copy the patch from the PR data)
 
 The response will be automatically structured."""
     
@@ -410,13 +411,15 @@ Finding {i+1}:
                 nature = change.get('nature', 'Unknown')
                 volume = change.get('volume', 'Unknown')
                 reasoning = change.get('reasoning', 'No reasoning provided')
+                patch = change.get('patch', 'No patch provided')
                 
-                changes_summary.append(f"""  - **File**: {file_path}
-    - **Type**: {change_type}
-    - **Scope**: {scope}
-    - **Nature**: {nature}
-    - **Volume**: {volume}
-    - **Reasoning**: {reasoning}""")
+                changes_summary.append(f"""   - **File**: {file_path}
+      - **Type**: {change_type}
+      - **Scope**: {scope}
+      - **Nature**: {nature}
+      - **Volume**: {volume}
+      - **Reasoning**: {reasoning}
+      - **Patch**: {patch}""")
                 
             change_sets_summary.append(f"""
 Change Set {i+1}: {change_set.get('name', 'Unknown')}
