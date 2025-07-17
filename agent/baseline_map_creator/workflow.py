@@ -892,27 +892,23 @@ class BaselineMapCreatorWorkflow:
 
         # Validate relationships
         validated_relationships = []
-        valid_element_ids = {elem.id for elem in design_elements}
+        valid_element_ids = {elem.reference_id for elem in design_elements}
         
         for relationship in llm_relationships:
             # Validate that relationship has required fields
             if not isinstance(relationship, dict) or not all(key in relationship for key in ["source_id", "target_id", "relationship_type"]):
-                print(f"Warning: Invalid relationship format: {relationship}")
-                continue
+                raise ValueError(f"Invalid relationship format: {relationship}")
                 
             # Validate that source and target IDs exist
             if relationship["source_id"] not in valid_element_ids:
-                print(f"Warning: Invalid source_id '{relationship['source_id']}' in design element relationship")
-                continue
+                raise ValueError(f"Invalid source_id '{relationship['source_id']}' in design element relationship")
                 
             if relationship["target_id"] not in valid_element_ids:
-                print(f"Warning: Invalid target_id '{relationship['target_id']}' in design element relationship")
-                continue
+                raise ValueError(f"Invalid target_id '{relationship['target_id']}' in design element relationship")
                 
             # Validate relationship type
             if relationship["relationship_type"] not in ["refines", "realizes", "depends_on"]:
-                print(f"Warning: Invalid relationship_type '{relationship['relationship_type']}' for design element relationship")
-                continue
+                raise ValueError(f"Invalid relationship_type '{relationship['relationship_type']}' for design element relationship")
                 
             validated_relationships.append(relationship)
         
@@ -973,8 +969,8 @@ class BaselineMapCreatorWorkflow:
         
         # Validate each relationship has required fields
         validated_relationships = []
-        valid_requirement_ids = {req.id for req in requirements}
-        valid_design_ids = {elem.id for elem in design_elements}
+        valid_requirement_ids = {req.reference_id for req in requirements}
+        valid_design_ids = {elem.reference_id for elem in design_elements}
         
         for rel in llm_relationships:
             if not isinstance(rel, dict):
@@ -1057,8 +1053,8 @@ class BaselineMapCreatorWorkflow:
         
         # Validate each relationship has required fields
         validated_relationships = []
-        valid_design_ids = {elem.id for elem in design_elements}
-        valid_code_ids = {comp.id for comp in code_components}
+        valid_design_ids = {elem.reference_id for elem in design_elements}
+        valid_code_ids = {comp.path for comp in code_components}
         
         for rel in llm_relationships:
             if not isinstance(rel, dict):

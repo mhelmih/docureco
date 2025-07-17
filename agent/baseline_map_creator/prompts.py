@@ -25,10 +25,16 @@ For each design element found, provide:
 - section: Section reference from the document (if available). If available, please choose more specific section name.
 
 For the traceability matrix, provide relationships between ANY artifacts (requirements, design elements, etc.) found:
-- source_id: ID of the source artifact (e.g., 'REQ-001', 'DE001', etc.). If the source artifact is a design element, use the reference_id of the design element. If the source artifact is a requirement, use the reference_id of the requirement.
-- target_id: ID of the target artifact (e.g., 'DE-002', 'UC01', etc.). If the target artifact is a design element, use the reference_id of the design element. If the target artifact is a requirement, use the reference_id of the requirement.
+- source_id: ID of the source artifact. **IMPORTANT: This MUST be the reference_id of a requirement or design element that you have extracted. NEVER use class names, section titles, or labels as IDs.**
+- target_id: ID of the target artifact. **IMPORTANT: This MUST be the reference_id of a requirement or design element that you have extracted. NEVER use class names, section titles, or labels as IDs.**
 - relationship_type: Leave this field as "unclassified" (will be classified later)
 - source_file: File path where this relationship was found
+
+**CRITICAL INSTRUCTIONS:**
+- For every relationship in the traceability matrix, the source_id and target_id MUST exactly match the reference_id field from the extracted design elements or requirements. If you cannot find a valid reference_id, SKIP that relationship.
+- Do NOT use class names, section titles, or any other label as an ID. Only use the reference_id from the extracted elements.
+- If the SDD traceability matrix uses a different label (e.g., just "Book"), you MUST map it to the correct reference_id you extracted (e.g., "Book-Class").
+- If you cannot confidently map a matrix entry to a valid reference_id, SKIP that relationship.
 
 NOTES:
 - The SDD will be provided in the markdown format.
