@@ -28,7 +28,7 @@ class LLMConfig(BaseModel):
     max_tokens: int = Field(default=100000, gt=0)
     max_retries: int = Field(default=3, ge=0)
     request_timeout: int = Field(default=120, gt=0)
-    thinking: bool = Field(default=True)
+    reasoning_effort: str = Field(default="high")
     
     # Grok 3 specific settings based on benchmark analysis
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
@@ -81,7 +81,7 @@ def get_llm_config() -> LLMConfig:
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "10000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
-            thinking=True
+            reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
         )
     else:
         # OpenAI fallback configuration
@@ -97,7 +97,7 @@ def get_llm_config() -> LLMConfig:
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "4000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
-            thinking=True
+            reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
         )
     
     return config
