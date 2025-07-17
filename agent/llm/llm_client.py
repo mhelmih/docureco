@@ -67,6 +67,10 @@ class DocurecoLLMClient:
         # Ensure base_url is always set for Grok
         base_url = self.config.base_url or "https://api.x.ai/v1"
         
+        model_kwargs = {
+            "thinking": self.config.thinking 
+        }
+        
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
@@ -75,7 +79,7 @@ class DocurecoLLMClient:
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
             request_timeout=self.config.request_timeout,
-            thinking=self.config.thinking
+            model_kwargs=model_kwargs
             # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
@@ -96,8 +100,7 @@ class DocurecoLLMClient:
             temperature=temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
-            request_timeout=self.config.request_timeout,
-            thinking=self.config.thinking
+            request_timeout=self.config.request_timeout
         )
     
     async def generate_response(
