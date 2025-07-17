@@ -40,7 +40,6 @@ class DocurecoLLMClient:
         setup_langsmith()
         
         self.config = config or get_llm_config()
-        self.task_config = get_task_config()
         self.llm = self._initialize_llm()
         
         logger.info(f"Initialized LLM client with provider: {self.config.provider}, model: {self.config.llm_model}")
@@ -80,7 +79,8 @@ class DocurecoLLMClient:
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
-            request_timeout=self.config.request_timeout
+            request_timeout=self.config.request_timeout,
+            thinking=self.config.thinking
             # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
@@ -104,7 +104,8 @@ class DocurecoLLMClient:
             temperature=self.config.temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
-            request_timeout=self.config.request_timeout
+            request_timeout=self.config.request_timeout,
+            thinking=self.config.thinking
         )
     
     async def generate_response(
@@ -130,10 +131,7 @@ class DocurecoLLMClient:
         Returns:
             LLMResponse: Standardized response object
         """
-        try:
-            # Apply task-specific configuration if provided
-            llm = self._configure_for_task(task_type, thinking **kwargs)
-            
+        try:            
             # Prepare messages
             messages = []
             if system_message:
@@ -141,7 +139,7 @@ class DocurecoLLMClient:
             messages.append(HumanMessage(content=prompt))
             
             # Generate response
-            response = await llm.ainvoke(messages)
+            response = await self.llm.ainvoke(messages)
             
             # Parse response based on format
             if output_format == "json":
@@ -250,129 +248,6 @@ class DocurecoLLMClient:
                 request_timeout=self.config.request_timeout,
                 thinking=thinking
             )
-    
-    def create_prompt_template(self, template_name: str) -> ChatPromptTemplate:
-        """
-        Create prompt template for specific use case
-        
-        Args:
-            template_name: Name of the template to create
-            
-        Returns:
-            ChatPromptTemplate: Configured prompt template
-        """
-        templates = {
-            "code_change_classifier": self._get_code_classification_template(),
-            "traceability_mapper": self._get_traceability_mapping_template(),
-            "impact_assessor": self._get_impact_assessment_template(),
-            "recommendation_generator": self._get_recommendation_generation_template(),
-        }
-        
-        if template_name not in templates:
-            raise ValueError(f"Unknown template: {template_name}")
-        
-        return templates[template_name]
-    
-    def _get_code_classification_template(self) -> ChatPromptTemplate:
-        """Code change classification prompt template"""
-        system_template = """You are an expert software analyst for the Docureco system. Your task is to classify code changes according to the 4W framework:
-
-1. What (Type): Addition, Deletion, Modification, Rename
-2. Where (Scope): Function/Method, Class/Interface/Struct/Type, Module/Package/Namespace, File, API Contract, Configuration, Dependencies, Test Code, etc.
-3. Why (Nature): New Feature, Bug Fix, Refactoring, Performance Optimization, Security Fix, etc.
-4. How (Volume): Trivial, Small, Medium, Large, Very Large
-
-Always respond in JSON format with: type, scope, nature, volume, and reasoning fields."""
-
-        human_template = """Analyze this code change:
-
-File: {filename}
-Commit Message: {commit_message}
-Code Diff:
-{code_diff}
-
-Classify according to the 4W framework."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
-    
-    def _get_traceability_mapping_template(self) -> ChatPromptTemplate:
-        """Traceability mapping prompt template"""
-        system_template = """You are an expert software architect for the Docureco system. Your task is to establish traceability mappings between code components, design elements, and requirements.
-
-You will analyze software artifacts and create mappings following these relationships:
-- Requirements (SRS) ↔ Design Elements (SDD)
-- Design Elements (SDD) ↔ Design Elements (SDD)
-- Design Elements (SDD) ↔ Code Components
-- Code Components ↔ Code Components
-
-Always respond in JSON format with clear mapping relationships."""
-
-        human_template = """Create traceability mappings for:
-
-{artifact_type}: {artifact_content}
-
-Context:
-{context}
-
-Generate mappings according to the traceability framework."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
-    
-    def _get_impact_assessment_template(self) -> ChatPromptTemplate:
-        """Impact assessment prompt template"""
-        system_template = """You are an expert software analyst for the Docureco system. Your task is to assess the impact of code changes on documentation (SRS and SDD).
-
-For each finding, provide:
-- likelihood: Very Likely, Likely, Possibly, Unlikely
-- severity: None, Trivial, Minor, Moderate, Major, Fundamental
-
-Consider the nature and volume of changes when making assessments."""
-
-        human_template = """Assess the impact of these findings:
-
-Change Set: {change_set}
-Traceability Information: {traceability_info}
-Affected Elements: {affected_elements}
-
-Provide likelihood and severity assessments for each element."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
-    
-    def _get_recommendation_generation_template(self) -> ChatPromptTemplate:
-        """Recommendation generation prompt template"""
-        system_template = """You are an expert technical writer for the Docureco system. Your task is to generate specific, actionable recommendations for updating SRS and SDD documentation.
-
-Generate recommendations that are:
-- Specific and clear
-- Actionable by developers
-- Contextually relevant to the code changes
-- Properly formatted for documentation updates
-
-Provide recommendations in clear, professional language."""
-
-        human_template = """Generate documentation update recommendations for:
-
-Finding Type: {finding_type}
-Affected Element: {affected_element}
-Code Changes: {code_changes}
-Current Documentation: {current_docs}
-Impact Assessment: {impact_assessment}
-
-Provide specific, actionable recommendations."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
 
 # Factory function for easy instantiation
 def create_llm_client(config: Optional[LLMConfig] = None) -> DocurecoLLMClient:

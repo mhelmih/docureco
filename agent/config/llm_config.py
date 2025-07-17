@@ -34,37 +34,6 @@ class LLMConfig(BaseModel):
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
 
-class TaskSpecificConfig(BaseModel):
-    """Task-specific LLM configurations for different Docureco processes"""
-    
-    # For Code Change Classification (FR-B1)
-    code_analysis: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.1,  # Low temperature for consistent classification
-        "max_tokens": 100000,
-        "system_prompt_template": "code_change_classifier"
-    })
-    
-    # For Traceability Mapping (FR-C1, FR-C2)
-    traceability_mapping: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.2,
-        "max_tokens": 100000,
-        "system_prompt_template": "traceability_mapper"
-    })
-    
-    # For Impact Analysis (FR-C4)
-    impact_assessment: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.15,
-        "max_tokens": 100000,
-        "system_prompt_template": "impact_assessor"
-    })
-    
-    # For Recommendation Generation (FR-D1)
-    recommendation_generation: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.3,  # Slightly higher for creative recommendation text
-        "max_tokens": 100000,
-        "system_prompt_template": "recommendation_generator"
-    })
-
 def get_llm_config() -> LLMConfig:
     """
     Get LLM configuration from environment variables
@@ -110,7 +79,8 @@ def get_llm_config() -> LLMConfig:
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "10000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
-            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120"))
+            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
+            thinking=True
         )
         print(f"Configured Grok provider with base_url: {config.base_url}")
     else:
@@ -126,7 +96,8 @@ def get_llm_config() -> LLMConfig:
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "4000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
-            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120"))
+            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
+            thinking=True
         )
         print(f"Configured OpenAI provider with base_url: {config.base_url}")
     
@@ -183,14 +154,5 @@ def setup_logging(level: str = "INFO") -> None:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-def get_task_config() -> TaskSpecificConfig:
-    """
-    Get task-specific LLM configurations
-    
-    Returns:
-        TaskSpecificConfig: Task-specific settings
-    """
-    return TaskSpecificConfig()
-
 # Export configurations
-__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith", "setup_logging"] 
+__all__ = ["LLMProvider", "LLMConfig", "get_llm_config", "setup_langsmith", "setup_logging"] 
