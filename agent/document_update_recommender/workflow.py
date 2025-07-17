@@ -2008,8 +2008,11 @@ The baseline map exists but contains no elements. This usually indicates:
                 traceability_links_section += f"- {link.source_id} → {link.target_id}\n"
         
         return f"""
-**Traceability Anomaly Detected for the following files**: {', '.join([f'`{file}`' for file in affected_files])}
-See the current traceability map below for more details.
+**Traceability Anomaly Detected for the following files**: 
+{', '.join([f'`{file}`' for file in affected_files])}
+
+**How to Fix**
+{how_to_fix}
 
 <details>
 <summary>📋 Current Traceability Map</summary>
@@ -2019,8 +2022,6 @@ See the current traceability map below for more details.
 **Total Elements**: {req_count} requirements, {de_count} design elements, {cc_count} code components, {tl_count} traceability links
 
 </details>
-
-**How to Fix Traceability Anomaly**: {how_to_fix}
 """
 
 def create_document_update_recommender(

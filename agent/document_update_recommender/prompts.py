@@ -283,6 +283,18 @@ The suggested documentation content should be:
 - Professional: Well-written, clear, and follows documentation best practices
 - Relevant: Match IDs and names of the design elements and requirements with the ones in the document.
 
+**GITHUB STYLE DIFF FORMAT**
+- Use GitHub-style diff with `+` for additions, `-` for deletions, and no prefix (just use space) for context lines and unchanged lines.
+- Keep the context lines enough to understand the change.
+- Don't add any comments.
+- Example:
+```diff
+  | ID  | Requirement Statement                                     | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+  |-----|-----------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+- | F01 | The software must allow users to add new book.            | The software allows users to add new books by entering the book title, number of pages, and status. The system performs basic validation to ensure required fields are filled and page count is a positive integer. |
++ | F01 | The software must allow users to add new book.            | The software allows users to add new books by entering the book title, number of pages, status, and whether it is a favorite. The system performs basic validation to ensure required fields are filled and page count is a positive integer. |
+```
+
 **CRITICAL NOTES**
 - Group by Target Document: Group all recommendations by target_document 
 - Summary per Document: For each document group, provide a summary with:
