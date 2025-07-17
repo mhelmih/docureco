@@ -28,6 +28,7 @@ class LLMConfig(BaseModel):
     max_tokens: int = Field(default=100000, gt=0)
     max_retries: int = Field(default=3, ge=0)
     request_timeout: int = Field(default=120, gt=0)
+    thinking: bool = Field(default=True)
     
     # Grok 3 specific settings based on benchmark analysis
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
