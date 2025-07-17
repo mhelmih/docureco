@@ -398,11 +398,29 @@ Finding {i+1}:
         change_sets_summary = []
         for i, change_set in enumerate(logical_change_sets):
             changes = change_set.get('changes', [])
+            # Convert changes to a readable format
+            changes_summary = []
+            for change in changes:
+                file_path = change.get('file', 'Unknown')
+                change_type = change.get('type', 'Unknown')
+                scope = change.get('scope', 'Unknown')
+                nature = change.get('nature', 'Unknown')
+                volume = change.get('volume', 'Unknown')
+                reasoning = change.get('reasoning', 'No reasoning provided')
+                
+                changes_summary.append(f"""  - **File**: {file_path}
+    - **Type**: {change_type}
+    - **Scope**: {scope}
+    - **Nature**: {nature}
+    - **Volume**: {volume}
+    - **Reasoning**: {reasoning}""")
+                
             change_sets_summary.append(f"""
 Change Set {i+1}: {change_set.get('name', 'Unknown')}
 - Description: {change_set.get('description', 'N/A')}
 - Number of Changes: {len(changes)}
-- Changes: {chr(10).join(changes)}
+- Changes:
+{chr(10).join(changes_summary)}
 """)
         
         docs_summary = []

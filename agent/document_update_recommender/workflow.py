@@ -104,8 +104,10 @@ class RecommendationGenerationOutput(BaseModel):
 class AssessedFinding(BaseModel):
     """Finding with likelihood and severity assessment"""
     finding_type: str = Field(description="Type of finding")
-    affected_element_type: str = Field(description="Type of affected element") 
     affected_element_id: str = Field(description="ID of affected element")
+    affected_element_name: str = Field(description="Name of affected element")
+    affected_element_description: str = Field(description="Description of affected element")
+    affected_element_type: str = Field(description="Type of affected element (DesignElement or Requirement) along with the type of the element (Class, Function, etc.)") 
     source_change_set: str = Field(description="Source change set name")
     trace_path_type: Optional[str] = Field(description="Type of trace path", default=None)
     anomaly_type: Optional[str] = Field(description="Type of anomaly if applicable", default=None)
@@ -619,12 +621,12 @@ class DocumentUpdateRecommenderWorkflow:
                     if file_path in path_to_component_id:
                         component_id = path_to_component_id[file_path]
                         if component_id in code_to_design_map:
-                            design_elements = code_to_design_map[component_id]
+                            design_element_ids = code_to_design_map[component_id]
                             
                             if status in ["modification", "anomaly (addition mapped)", "rename"]:
-                                dide.update(design_elements)
+                                dide.update(design_element_ids)
                             elif status == "outdated":
-                                ode.update(design_elements)
+                                ode.update(design_element_ids)
                 
                 # Handle gap and anomaly findings directly for this change set
                 elif status in ["gap", "anomaly (deletion unmapped)", 
@@ -639,6 +641,8 @@ class DocumentUpdateRecommenderWorkflow:
                         "finding_type": finding_type,
                         "affected_element_type": "CodeComponent",
                         "affected_element_id": file_path,
+                        "affected_element_name": file_path,
+                        "affected_element_description": file_path,
                         "trace_path_type": None,
                         "source_change_set": change_set_name,
                         "anomaly_type": status if finding_type == "Traceability_Anomaly" else None
@@ -648,10 +652,10 @@ class DocumentUpdateRecommenderWorkflow:
             # Trace Indirect Impact on Design Elements (IIDE) for this change set
             iide = set()  # Indirectly Impacted Design Elements for this change set
             
-            for design_element in dide:
-                if design_element in design_to_design_map:
-                    related_elements = design_to_design_map[design_element]
-                    iide.update(related_elements)
+            for design_element_id in dide:
+                if design_element_id in design_to_design_map:
+                    related_element_ids = design_to_design_map[design_element_id]
+                    iide.update(related_element_ids)
             
             # Combine to form Potentially Impacted Design Elements (PIDE) for this change set
             pide = dide.union(iide)
@@ -661,55 +665,63 @@ class DocumentUpdateRecommenderWorkflow:
             or_set = set()  # Outdated Requirements for this change set
             
             # Trace PIDE to requirements
-            for design_element in pide:
-                if design_element in design_to_requirement_map:
-                    requirements = design_to_requirement_map[design_element]
-                    pir.update(requirements)
+            for design_element_id in pide:
+                if design_element_id in design_to_requirement_map:
+                    requirement_ids = design_to_requirement_map[design_element_id]
+                    pir.update(requirement_ids)
             
             # Trace ODE to requirements  
-            for design_element in ode:
-                if design_element in design_to_requirement_map:
-                    requirements = design_to_requirement_map[design_element]
-                    or_set.update(requirements)
+            for design_element_id in ode:
+                if design_element_id in design_to_requirement_map:
+                    requirement_ids = design_to_requirement_map[design_element_id]
+                    or_set.update(requirement_ids)
             
             # Form Finding Records for this change set
             # Standard Impact findings for PIDE and PIR
-            for design_element in pide:
+            for design_element_id in pide:
                 finding = {
                     "finding_type": "Standard_Impact",
-                    "affected_element_type": "DesignElement", 
-                    "affected_element_id": design_element,
-                    "trace_path_type": "Direct" if design_element in dide else "Indirect",
+                    "affected_element_id": design_element_id,
+                    "affected_element_name": baseline_map_data.design_elements[design_element_id].name,
+                    "affected_element_description": baseline_map_data.design_elements[design_element_id].description,
+                    "affected_element_type": "DesignElement - " + baseline_map_data.design_elements[design_element_id].type,
+                    "trace_path_type": "Direct" if design_element_id in dide else "Indirect",
                     "source_change_set": change_set_name
                 }
                 change_set_findings.append(finding)
             
-            for requirement in pir:
+            for requirement_id in pir:
                 finding = {
                     "finding_type": "Standard_Impact",
-                    "affected_element_type": "Requirement",
-                    "affected_element_id": requirement, 
+                    "affected_element_id": requirement_id, 
+                    "affected_element_name": baseline_map_data.requirements[requirement_id].name,
+                    "affected_element_description": baseline_map_data.requirements[requirement_id].description,
+                    "affected_element_type": "Requirement - " + baseline_map_data.requirements[requirement_id].type,
                     "trace_path_type": "Direct",
                     "source_change_set": change_set_name
                 }
                 change_set_findings.append(finding)
             
             # Outdated Documentation findings for ODE and OR
-            for design_element in ode:
+            for design_element_id in ode:
                 finding = {
                     "finding_type": "Outdated_Documentation",
-                    "affected_element_type": "DesignElement",
-                    "affected_element_id": design_element,
+                    "affected_element_id": design_element_id,
+                    "affected_element_name": baseline_map_data.design_elements[design_element_id].name,
+                    "affected_element_description": baseline_map_data.design_elements[design_element_id].description,
+                    "affected_element_type": "DesignElement - " + baseline_map_data.design_elements[design_element_id].type,
                     "trace_path_type": None,
                     "source_change_set": change_set_name
                 }
                 change_set_findings.append(finding)
             
-            for requirement in or_set:
+            for requirement_id in or_set:
                 finding = {
                     "finding_type": "Outdated_Documentation", 
-                    "affected_element_type": "Requirement",
-                    "affected_element_id": requirement,
+                    "affected_element_id": requirement_id,
+                    "affected_element_name": baseline_map_data.requirements[requirement_id].name,
+                    "affected_element_description": baseline_map_data.requirements[requirement_id].description,
+                    "affected_element_type": "Requirement - " + baseline_map_data.requirements[requirement_id].type,
                     "trace_path_type": None,
                     "source_change_set": change_set_name
                 }
