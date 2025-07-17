@@ -112,10 +112,10 @@ For each commit, include:
 
 For each file classification, determine:
 - file: The file path
-- type: Type of change (Addition, Modification, Deletion, Renaming)  
-- scope: Scope of change (Function/Method, Class, Module, Configuration, Documentation, Test, etc.)
-- nature: Nature of change (New Feature, Bug Fix, Refactoring, Documentation Updates, Performance Improvement, etc.)
-- volume: Volume of change (Trivial, Small, Medium, Large, Very Large) based on total lines changed
+- type: Type of change (`Addition`, `Modification`, `Deletion`, `Renaming`)  
+- scope: Scope of change (`Function/Method`, `Class/Interface/Struct/Type`, `Module/Package/Namespace`, `File`, `API Contract`, `Configuration`, `Dependencies`, `Build Scripts`, `Infrastructure Code`, `Test Code`, `Documentation`, `Cross-cutting Concerns`)
+- nature: Nature of change (`New Feature`, `Feature Enhancement`, `Bug Fix`, `Security Fix`, `Refactoring`, `Performance Optimization`, `Code Style/Formatting`, `Technical Debt Reduction`, `Readability Improvement`, `Error Handling Improvement`, `Dependency Management`, `Build Process Improvement`, `Tooling Configuration`, `API Change`, `External System Integration`, `Documentation Update`, `UI/UX Adjustment`, `Static Content Update`, `Code Deprecation/Removal`, `Revert`, `Merge Conflict Resolution`, `License Update`, `Experimental`, `Chore`, `Other`)
+- volume: Volume of change (`Trivial`, `Small`, `Medium`, `Large`, `Very Large`) based on total lines changed
 - reasoning: Brief explanation of the classification
 - patch: The patch of the change (you can copy the patch from the PR data)
 
@@ -292,7 +292,9 @@ The suggested documentation content should be:
   | ID  | Requirement Statement                                     | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
   |-----|-----------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 - | F01 | The software must allow users to add new book.            | The software allows users to add new books by entering the book title, number of pages, and status. The system performs basic validation to ensure required fields are filled and page count is a positive integer. |
+- | F02 | The software must allow users to view list of books.      | The user can view the list of books (with title, number of pages, status, reading start date and time, number of days since starting, number of times read, and the last page read) stored in the software. The user can also view the number of books to be read, currently being read, and already read. |
 + | F01 | The software must allow users to add new book.            | The software allows users to add new books by entering the book title, number of pages, status, and whether it is a favorite. The system performs basic validation to ensure required fields are filled and page count is a positive integer. |
++ | F02 | The software must allow users to view list of books.      | The user can view the list of books (with title, number of pages, status, reading start date and time, number of days since starting, number of times read, the last page read, and favorite status) stored in the software. The user can also view the number of books to be read, currently being read, and already read, including filtering by favorite status. |
 ```
 
 **CRITICAL NOTES**
@@ -306,14 +308,14 @@ The suggested documentation content should be:
 - If you find that two or more findings are related to the same section (or tables, diagrams, etc.) in one document, GROUP THEM INTO A SINGLE RECOMMENDATION. Make sure you produce MINIMUM THE EQUAL NUMBER OF RECOMMENDATIONS AS THE NUMBER OF SECTIONS AFFECTED.
 - The number of recommendations does not need to be the same as the number of findings. If there are many small recommendations in one section (or tabes, diagrams, etc.) per document, please think again, it may be a sign that the recommendations need to be grouped into a single recommendation.
 - DO NOT recommend updating the same section (or tables, diagrams, etc.) multiple times in one document.
-- NEVER USE the auto-generated IDs (the affected element IDs) of the design elements and requirements that are not mentioned inside the document. Use the IDs from the document.
+- NEVER USE the auto-generated IDs (the affected element IDs) of the design elements and requirements that are not mentioned inside the document both across all fields (overview, what to update, suggested content, etc.). Use the IDs from the document.
 - The target document path is specified at the document group level in the summary, not in individual recommendations.
 - For every modifications type of finding, analyze first before modifying the current document content. Be careful of what is being modified since it could leads to unecessary updates to design elements or requirements.
    - New feature doesn't necessarily mean that design elements or requirements need to be updated. It could be creating a new section, new design elements, new requirements, etc.
    - Deletion of feature doesn't necessarily mean that the design elements or requirements need to be updated. It could be deleting the whole section, design elements, requirements, etc.
    - If requirements are impacted by the code changes, update the requirements appropriately. DO NOT modify the requirements statement too far from the original statement. If there are descriptions for the requirements, you can use them to update the requirement details rather than modifying the whole requirements statement. Or maybe you can just create a new requirement instead of modifying many existing ones if it is big enough to be a new requirement.
 - If there are traceability anomalies, mention it in the overview.
-- If there are document sections that may be affected by the code changes but they are not mentioned in the findings, you can still recommend updating them with the medium or low priority.
+- If there are document sections (descriptions, tables, any diagrams images (with markdown format `![Diagram Name](diagram-name.png)` for example `![Use Case Diagram](diagram-use-case.png)`) that is described textually, traceability matrix inside the document, etc.) that may be affected by the code changes but they are not mentioned in the findings, you can still recommend updating them with the medium or low priority.
 - Please aware for the diagram images inside the document marked with markdown format `![Diagram Name](diagram-name.png)` (for example `![Use Case Diagram](diagram-use-case.png)`). Every images inside the document are already described textually, so if there are changes needed for the diagram even though it is not mentioned in the findings, please create a recommendation to update the diagram inside the "What to Update" and suggest a change to the textual description of the diagram inside the "Suggested Content".
 - Make sure to give a ready-to-use copy-paste-able content for the "Suggested Content" field so that the developer can easily copy and paste the content to the document without thinking too much and in the correct format.
 

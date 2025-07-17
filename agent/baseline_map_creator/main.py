@@ -8,7 +8,6 @@ import os
 import sys
 import argparse
 import logging
-from pathlib import Path
 
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))

@@ -14,8 +14,6 @@ import subprocess
 import tempfile
 import fnmatch
 from typing import Dict, Any, List, Optional, Tuple
-from dataclasses import dataclass, field
-from pydantic import BaseModel, Field
 from langchain_core.output_parsers import JsonOutputParser
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,128 +28,20 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # Agent imports
 from agent.llm.llm_client import DocurecoLLMClient
-from agent.models.docureco_models import (
-    BaselineMapModel,
-    DocumentationRecommendationModel,
-    RecommendationType,
-    RecommendationStatus
-)
+from agent.models.docureco_models import BaselineMapModel
 from agent.database import create_baseline_map_repository
 from agent.document_update_recommender.prompts import DocumentUpdateRecommenderPrompts as prompts
 
-logger = logging.getLogger(__name__)
-
 # Structured output models
-class CodeChangeClassification(BaseModel):
-    """Structured output for individual code change classification"""
-    file: str = Field(description="Path to the changed file")
-    type: str = Field(description="Type of change (Addition, Deletion, Modification, Renaming)")
-    scope: str = Field(description="Scope of change (Function/Method, Class, Module, etc.)")
-    nature: str = Field(description="Nature of change (New Feature, Bug Fix, Refactoring, etc.)")
-    volume: str = Field(description="Volume of change (Trivial, Small, Medium, Large, Very Large)")
-    reasoning: str = Field(description="Brief explanation of the classification")
-    patch: str = Field(description="Patch of the change")
+from .models import (
+    BatchClassificationOutput,
+    ChangeGroupingOutput,
+    RecommendationGenerationOutput,
+    LikelihoodSeverityAssessmentOutput,
+    DocumentUpdateRecommenderState
+)
 
-class CommitWithClassifications(BaseModel):
-    """Structured output for a commit with its file classifications"""
-    commit_hash: str = Field(description="SHA hash of the commit")
-    commit_message: str = Field(description="Commit message")
-    classifications: List[CodeChangeClassification] = Field(description="List of classified file changes for this commit")
-
-class BatchClassificationOutput(BaseModel):
-    """Structured output for batch classification organized by commits"""
-    commits: List[CommitWithClassifications] = Field(description="List of commits with their classified changes")
-
-class LogicalChangeSet(BaseModel):
-    """Structured output for logical change sets"""
-    name: str = Field(description="Descriptive name for the logical change set")
-    description: str = Field(description="Brief description of what this change set accomplishes")
-    changes: List[CodeChangeClassification] = Field(description="Array of files with classifications that belong to this logical change set")
-
-class ChangeGroupingOutput(BaseModel):
-    """Structured output for grouping changes into logical change sets"""
-    logical_change_sets: List[LogicalChangeSet] = Field(description="List of logical change sets")
-
-class DocumentationRecommendation(BaseModel):
-    """Structured output for documentation recommendations"""
-    section: str = Field(description="Specific section or location")
-    recommendation_type: str = Field(description="Type of update (UPDATE, CREATE, DELETE, REVIEW)")
-    priority: str = Field(description="Priority level (HIGH, MEDIUM, LOW)")
-    what_to_update: str = Field(description="What needs to be changed")
-    why_update_needed: str = Field(description="Rationale based on code changes")
-    suggested_content: str = Field(default="", description="Specific content suggestions")
-
-class DocumentSummary(BaseModel):
-    """Summary for a target document"""
-    target_document: str = Field(description="Document that needs updating")
-    total_recommendations: int = Field(description="Total number of recommendations for this document")
-    high_priority_count: int = Field(description="Number of high priority recommendations")
-    medium_priority_count: int = Field(description="Number of medium priority recommendations")
-    low_priority_count: int = Field(description="Number of low priority recommendations")
-    overview: str = Field(description="Brief overview of what needs updating in this document")
-    sections_affected: List[str] = Field(description="List of sections that need updates")
-    traceability_anomaly_affected_files: List[str] = Field(default_factory=list, description="List of files affected by traceability anomalies")
-    how_to_fix_traceability_anomaly: str = Field(default="", description="Instructions for how to fix traceability anomalies")
-
-class DocumentRecommendationGroup(BaseModel):
-    """Group of recommendations for a specific document"""
-    summary: DocumentSummary = Field(description="Summary of recommendations for this document")
-    recommendations: List[DocumentationRecommendation] = Field(description="List of detailed recommendations for this document")
-
-class RecommendationGenerationOutput(BaseModel):
-    """Structured output for recommendation generation grouped by target document"""
-    document_groups: List[DocumentRecommendationGroup] = Field(description="Recommendations grouped by target document")
-
-class AssessedFinding(BaseModel):
-    """Finding with likelihood and severity assessment"""
-    finding_type: str = Field(description="Type of finding")
-    affected_element_id: str = Field(description="ID of affected element")
-    affected_element_name: str = Field(description="Name of affected element")
-    affected_element_description: str = Field(description="Description of affected element")
-    affected_element_type: str = Field(description="Type of affected element (DesignElement or Requirement) along with the type of the element (Class, Function, etc.)") 
-    source_change_set: str = Field(description="Source change set name")
-    trace_path_type: Optional[str] = Field(description="Type of trace path", default=None)
-    anomaly_type: Optional[str] = Field(description="Type of anomaly if applicable", default=None)
-    likelihood: str = Field(description="Likelihood assessment (Very Likely, Likely, Possibly, Unlikely)")
-    severity: str = Field(description="Severity assessment (Fundamental, Major, Moderate, Minor, Trivial, None)")
-    reasoning: str = Field(description="Reasoning for the assessment")
-
-class LikelihoodSeverityAssessmentOutput(BaseModel):
-    """Structured output for likelihood and severity assessment"""
-    assessed_findings: List[AssessedFinding] = Field(description="List of findings with likelihood and severity assessments")
-
-@dataclass
-class DocumentUpdateRecommenderState:
-    """State for the Document Update Recommender workflow"""
-    repository: str
-    pr_number: int
-    branch: str
-    
-    # Step 1: Scan PR - PR Event Data and Context
-    pr_event_data: Dict[str, Any] = field(default_factory=dict)
-    document_content: Dict[str, Any] = field(default_factory=dict)
-    commit_info: Dict[str, Any] = field(default_factory=dict)
-    changed_files_list: List[str] = field(default_factory=list)
-    
-    # Step 2: Analyze Code Changes - Classification and Grouping
-    classified_changes: List[Dict[str, Any]] = field(default_factory=list)
-    logical_change_sets: List[Dict[str, Any]] = field(default_factory=list)
-    
-    # Step 3: Assess Documentation Impact - Traceability and Impact Analysis
-    baseline_map: Optional[BaselineMapModel] = None
-    traceability_map: Dict[str, Any] = field(default_factory=dict)
-    potentially_impacted_elements: List[Dict[str, Any]] = field(default_factory=list)
-    prioritized_finding_list: List[Dict[str, Any]] = field(default_factory=list)
-    
-    # Step 4: Generate and Post Recommendations - Suggestion Generation
-    filtered_high_priority_findings: List[Dict[str, Any]] = field(default_factory=list)
-    existing_suggestions: List[Dict[str, Any]] = field(default_factory=list)
-    generated_suggestions: List[Dict[str, Any]] = field(default_factory=list)
-    recommendations: List[DocumentationRecommendationModel] = field(default_factory=list)
-    
-    # Workflow metadata
-    errors: List[str] = field(default_factory=list)
-    processing_stats: Dict[str, int] = field(default_factory=dict)
+logger = logging.getLogger(__name__)
 
 class DocumentUpdateRecommenderWorkflow:
     """
@@ -180,6 +70,13 @@ class DocumentUpdateRecommenderWorkflow:
         self.llm_client = llm_client or DocurecoLLMClient()
         self.baseline_map_repo = baseline_map_repo or create_baseline_map_repository()
         self.primary_baseline_branch = primary_baseline_branch
+        
+        # Check if Repomix is available
+        try:
+            subprocess.run(["repomix", "--version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            logger.warning("Repomix not available, falling back to placeholder content")
+            raise ValueError("Repomix not available")
         
         self.workflow = self._build_workflow()
         self.memory = MemorySaver()
@@ -323,10 +220,7 @@ class DocumentUpdateRecommenderWorkflow:
 
         # Step 2.2: Group classified changes into logical change sets
         logger.info("Step 2.2: Grouping classified changes into logical change sets")
-        logical_change_sets = await self._llm_group_classified_changes(
-            commits_with_classifications,
-            state.pr_event_data.get("commit_info", {})
-        )
+        logical_change_sets = await self._llm_group_classified_changes(commits_with_classifications)
         state.logical_change_sets = logical_change_sets
             
         total_files = sum(len(change_set["changes"]) for change_set in logical_change_sets)
@@ -363,8 +257,7 @@ class DocumentUpdateRecommenderWorkflow:
             # Process all file changes in one pass to determine traceability status and detect documentation changes
             changes_with_status, documentation_changes = await self._determine_traceability_status_and_detect_docs(
                 state.logical_change_sets,
-                baseline_map_data,
-                state.document_content
+                baseline_map_data
             )
             
             # 3.2 Trace Code Impact Through Map
@@ -406,7 +299,7 @@ class DocumentUpdateRecommenderWorkflow:
         
         return state
 
-    async def _determine_traceability_status_and_detect_docs(self, logical_change_sets: List[Dict[str, Any]], baseline_map_data: BaselineMapModel, document_content: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    async def _determine_traceability_status_and_detect_docs(self, logical_change_sets: List[Dict[str, Any]], baseline_map_data: BaselineMapModel) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Efficiently determine traceability status for code files and detect documentation changes in one pass.
         
@@ -1100,13 +993,6 @@ class DocumentUpdateRecommenderWorkflow:
         
         logger.info(f"Step 1.2: Fetching documentation content using Repomix for {repository}:{branch}")
         
-        # Check if Repomix is available
-        try:
-            subprocess.run(["repomix", "--version"], capture_output=True, check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            logger.warning("Repomix not available, falling back to placeholder content")
-            raise ValueError("Repomix not available")
-            
         # Use Repomix to scan the repository
         repo_data = await self._scan_repository_with_repomix(repository, branch)
             
@@ -1126,8 +1012,8 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Structure the documentation content
         document_content = {
-                "repo_name": repository,
-                "branch": branch,
+            "repo_name": repository,
+            "branch": branch,
             "sdd_content": sdd_content,
             "srs_content": srs_content,
         }
@@ -1422,7 +1308,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(err_message)
             raise
     
-    async def _llm_group_classified_changes(self, commits_with_classifications: List[Dict[str, Any]], commit_info: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _llm_group_classified_changes(self, commits_with_classifications: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Group classified changes into logical change sets using commit messages as semantic keys.
         
@@ -1609,7 +1495,7 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error in LLM suggestion generation: {str(e)}")
             return []
     
-    async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int, baseline_map: Optional[BaselineMapModel]) -> List[DocumentationRecommendationModel]:
+    async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int, baseline_map: Optional[BaselineMapModel]) -> List[Dict[str, Any]]:
         """
         Filter generated suggestions against existing ones and post new recommendations to PR.
         Implements duplication filtering and CI/CD status management per BAB III.md.
@@ -1636,98 +1522,30 @@ class DocumentUpdateRecommenderWorkflow:
             #     if not is_duplicate:
             #         new_suggestions.append(suggestion)
             
-            # Post new suggestions
-            posted_recommendations = []
-            critical_recommendations = 0
             
             # Use GitHub Review API for suggestions (Copilot-style)
             logger.info(f"Creating comprehensive PR review for {len(generated_suggestions)} suggestions")
             review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, generated_suggestions, baseline_map)
             
+            critical_recommendations = 0
+            total_recommendations = 0
             if review_posted:
-                # Extract individual recommendations from document groups
                 for document_group in generated_suggestions:
-                    target_document = document_group.get('summary', {}).get('target_document', 'Unknown')
-                    recommendations = document_group.get('recommendations', [])
-                    
-                    for suggestion in recommendations:
-                        recommendation = self._create_recommendation_model(suggestion, target_document)
-                        posted_recommendations.append(recommendation)
-                        
+                    for suggestion in document_group.get('recommendations', []):
+                        total_recommendations += 1
                         if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
                             critical_recommendations += 1
+                        
             
             # Update CI/CD check status based on recommendations
-            await self._update_ci_cd_status(repository, pr_number, critical_recommendations, len(posted_recommendations))
+            await self._update_ci_cd_status(repository, pr_number, critical_recommendations, total_recommendations)
             
-            logger.info(f"Posted {len(posted_recommendations)} new recommendations ({critical_recommendations} critical)")
-            return posted_recommendations
+            logger.info(f"Posted {total_recommendations} new recommendations ({critical_recommendations} critical) for {len(generated_suggestions)} document(s)")
+            return review_posted
             
         except Exception as e:
             logger.error(f"Error in filter and post suggestions: {str(e)}")
             return []
-    
-    def _create_recommendation_model(self, suggestion: Dict[str, Any], target_document: str = "Unknown") -> DocumentationRecommendationModel:
-        """Convert suggestion dict to DocumentationRecommendationModel."""
-        try:
-            # Map recommendation type
-            rec_type_str = suggestion.get('recommendation_type', 'UPDATE').upper()
-            if rec_type_str in ['CREATE', 'ADD']:
-                rec_type = RecommendationType.CREATE
-            elif rec_type_str in ['DELETE', 'REMOVE']:
-                rec_type = RecommendationType.DELETE
-            elif rec_type_str in ['REVIEW', 'INVESTIGATE']:
-                rec_type = RecommendationType.REVIEW
-            else:
-                rec_type = RecommendationType.UPDATE
-            
-            # Map priority (priority is a string field, not an enum)
-            priority_str = suggestion.get('priority', 'MEDIUM').upper()
-            # Normalize priority values
-            if priority_str in ['HIGH', 'CRITICAL']:
-                priority = 'HIGH'
-            elif priority_str in ['LOW', 'MINOR']:
-                priority = 'LOW'
-            else:
-                priority = 'MEDIUM'
-            
-            # Generate where_to_update and how_to_update based on the suggestion
-            section = suggestion.get('section', 'Unknown')
-            where_to_update = f"{target_document} - {section}" if target_document != "Unknown" else section
-            how_to_update = suggestion.get('suggested_content', suggestion.get('what_to_update', 'Manual review needed'))
-            
-            return DocumentationRecommendationModel(
-                target_document=target_document,
-                section=section,
-                recommendation_type=rec_type,
-                priority=priority,
-                what_to_update=suggestion.get('what_to_update', ''),
-                where_to_update=where_to_update,
-                why_update_needed=suggestion.get('why_update_needed', ''),
-                how_to_update=how_to_update,
-                affected_element_id=suggestion.get('finding_id', ''),
-                affected_element_type=suggestion.get('finding_type', ''),
-                confidence_score=suggestion.get('confidence_score', 0.5),
-                status=RecommendationStatus.PENDING
-            )
-                
-        except Exception as e:
-            logger.error(f"Error creating recommendation model: {str(e)}")
-            # Return a default model
-            return DocumentationRecommendationModel(
-                target_document="Unknown",
-                section="Unknown", 
-                recommendation_type=RecommendationType.REVIEW,
-                priority="MEDIUM",  # String value, not enum
-                what_to_update="Error creating recommendation",
-                where_to_update="Unknown",
-                why_update_needed="Error occurred",
-                how_to_update="Manual review needed",
-                affected_element_id="unknown",
-                affected_element_type="Unknown",
-                confidence_score=0.1,
-                status=RecommendationStatus.PENDING
-            )
     
     async def _update_ci_cd_status(self, repository: str, pr_number: int, critical_count: int, total_count: int) -> None:
         """Update CI/CD check status based on recommendations."""

@@ -33,6 +33,13 @@ from agent.models.docureco_models import (
     CodeComponentModel, TraceabilityLinkModel
 )
 from .prompts import BaselineMapCreatorPrompts as prompts
+from .models import (
+    DesignElementOutput,
+    TraceabilityMatrixEntry,
+    DesignElementsWithMatrixOutput,
+    RequirementOutput,
+    RequirementsWithDesignElementsOutput
+)
 
 logger = logging.getLogger(__name__)
 
