@@ -1409,7 +1409,8 @@ class DocumentUpdateRecommenderWorkflow:
                         "scope": classification["scope"],
                         "nature": classification["nature"],
                         "volume": classification["volume"],
-                        "reasoning": classification["reasoning"]
+                        "reasoning": classification["reasoning"],
+                        "patch": classification["patch"]
                     })
                 
                 commits_with_classifications.append(commit_dict)
@@ -1855,6 +1856,7 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Create detailed breakdown by document group
         group_details = []
+        traceability_map_section = ""
         suggestion_counter = 1
         
         for group in document_groups:
@@ -1917,12 +1919,15 @@ class DocumentUpdateRecommenderWorkflow:
                 group_text += suggestion_text
                 suggestion_counter += 1
             
+            # Add traceability map for context
+            affected_files = summary.get('traceability_anomaly_affected_files', [])
+            how_to_fix = summary.get('how_to_fix_traceability_anomaly', '')
+            if len(affected_files) > 0:
+                traceability_map_section = self._format_baseline_map_for_comment(baseline_map, affected_files, how_to_fix)            
+            
             group_details.append(group_text)
         
         suggestions_text = "".join(group_details)
-        
-        # Add traceability map for context
-        traceability_map_section = self._format_baseline_map_for_comment(baseline_map)
         
         return f"""
 {suggestions_text}
@@ -1937,7 +1942,7 @@ class DocumentUpdateRecommenderWorkflow:
 ---
 *This review was generated automatically by Docureco Agent based on code changes in this PR*"""
 
-    def _format_baseline_map_for_comment(self, baseline_map: Optional[BaselineMapModel]) -> str:
+    def _format_baseline_map_for_comment(self, baseline_map: Optional[BaselineMapModel], affected_files: List[str], how_to_fix: str) -> str:
         """Format baseline map into a collapsible markdown block for GitHub comments"""
         if not baseline_map:
             return """
@@ -2003,6 +2008,9 @@ The baseline map exists but contains no elements. This usually indicates:
                 traceability_links_section += f"- {link.source_id} → {link.target_id}\n"
         
         return f"""
+**Traceability Anomaly Detected for the following files**: {', '.join([f'`{file}`' for file in affected_files])}
+See the current traceability map below for more details.
+
 <details>
 <summary>📋 Current Traceability Map</summary>
 
@@ -2011,6 +2019,8 @@ The baseline map exists but contains no elements. This usually indicates:
 **Total Elements**: {req_count} requirements, {de_count} design elements, {cc_count} code components, {tl_count} traceability links
 
 </details>
+
+**How to Fix Traceability Anomaly**: {how_to_fix}
 """
 
 def create_document_update_recommender(
