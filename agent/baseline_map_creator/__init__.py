@@ -12,5 +12,8 @@ from .models import (
     RelationshipOutput
 )
 from .workflow import BaselineMapCreatorWorkflow
+from .main import main as baseline_map_creator_main
 
-__all__ = ["BaselineMapCreatorWorkflow", "DesignElementOutput", "TraceabilityMatrixEntry", "DesignElementsWithMatrixOutput", "RequirementOutput", "RequirementsWithDesignElementsOutput", "RelationshipOutput"] 
+__all__ = [
+    "BaselineMapCreatorWorkflow", "DesignElementOutput", "TraceabilityMatrixEntry", "DesignElementsWithMatrixOutput", "RequirementOutput", "RequirementsWithDesignElementsOutput", "RelationshipOutput", "baseline_map_creator_main"
+] 
