@@ -10,7 +10,7 @@ from datetime import datetime
 class RequirementModel(BaseModel):
     """Requirement model for SRS elements"""
     id: str = Field(..., description="Unique requirement identifier")
-    reference_id: str = Field(..., description="Requirement identifier reference from the document (e.g., 'REQ-001', 'UC01', 'M01', etc.)")
+    reference_id: Optional[str] = Field(default=None, description="Requirement identifier reference from the document (e.g., 'REQ-001', 'UC01', 'M01', etc.)")
     title: str = Field(..., description="Requirement title")
     description: str = Field(..., description="Detailed requirement description")
     type: str = Field(..., description="Requirement type (Functional/Non-functional)")
@@ -20,7 +20,7 @@ class RequirementModel(BaseModel):
 class DesignElementModel(BaseModel):
     """Design element model for SDD components"""
     id: str = Field(..., description="Unique design element identifier")
-    reference_id: str = Field(..., description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)")
+    reference_id: Optional[str] = Field(default=None, description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)")
     name: str = Field(..., description="Design element name")
     description: str = Field(..., description="Design element description")
     type: str = Field(..., description="Design element type")
