@@ -38,11 +38,11 @@ class DocurecoLLMClient:
         setup_langsmith()
         
         self.config = config or get_llm_config()
-        self.llm = self._initialize_llm()
+        self.llm = self._initialize_llm(temperature=self.config.temperature)
         
         logger.info(f"Initialized LLM client with provider: {self.config.provider}, model: {self.config.llm_model}")
     
-    def _initialize_llm(self) -> BaseLanguageModel:
+    def _initialize_llm(self, temperature: float = 0.1) -> BaseLanguageModel:
         """
         Initialize the appropriate LLM based on configuration
         
@@ -50,11 +50,11 @@ class DocurecoLLMClient:
             BaseLanguageModel: Configured LLM instance
         """
         if self.config.provider == LLMProvider.GROK:
-            return self._initialize_grok()
+            return self._initialize_grok(temperature)
         else:
-            return self._initialize_openai()
+            return self._initialize_openai(temperature)
     
-    def _initialize_grok(self) -> ChatOpenAI:
+    def _initialize_grok(self, temperature: float = 0.1) -> ChatOpenAI:
         """
         Initialize Grok 3 using OpenAI-compatible interface
         
@@ -67,14 +67,11 @@ class DocurecoLLMClient:
         # Ensure base_url is always set for Grok
         base_url = self.config.base_url or "https://api.x.ai/v1"
         
-        logger.info(f"Initializing Grok with base_url: {base_url}")
-        logger.info(f"Grok API key starts with: {self.config.api_key[:10]}...")
-        
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
             base_url=base_url,
-            temperature=self.config.temperature,
+            temperature=temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
             request_timeout=self.config.request_timeout,
@@ -82,7 +79,7 @@ class DocurecoLLMClient:
             # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
-    def _initialize_openai(self) -> ChatOpenAI:
+    def _initialize_openai(self, temperature: float = 0.1) -> ChatOpenAI:
         """
         Initialize OpenAI model (fallback)
         
@@ -92,14 +89,11 @@ class DocurecoLLMClient:
         if not self.config.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI")
         
-        logger.info(f"Initializing OpenAI with base_url: {self.config.base_url}")
-        logger.info(f"OpenAI API key starts with: {self.config.api_key[:10]}...")
-        
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
             base_url=self.config.base_url,
-            temperature=self.config.temperature,
+            temperature=temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
             request_timeout=self.config.request_timeout,
@@ -110,7 +104,8 @@ class DocurecoLLMClient:
         self,
         prompt: str,
         system_message: Optional[str] = None,
-        output_format: str = "text"
+        output_format: str = "text",
+        temperature: float = 0.1
     ) -> LLMResponse:
         """
         Generate response using LLM
@@ -129,6 +124,10 @@ class DocurecoLLMClient:
             if system_message:
                 messages.append(SystemMessage(content=system_message))
             messages.append(HumanMessage(content=prompt))
+
+            # Reinitialize LLM with temperature if provided
+            if temperature:
+                self.llm = self._initialize_llm(temperature)
             
             # Generate response
             response = await self.llm.ainvoke(messages)

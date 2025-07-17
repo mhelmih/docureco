@@ -83,7 +83,6 @@ def get_llm_config() -> LLMConfig:
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
             thinking=True
         )
-        print(f"Configured Grok provider with base_url: {config.base_url}")
     else:
         # OpenAI fallback configuration
         # For OpenAI, base_url can be None (uses default)
@@ -100,7 +99,6 @@ def get_llm_config() -> LLMConfig:
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
             thinking=True
         )
-        print(f"Configured OpenAI provider with base_url: {config.base_url}")
     
     return config
 
@@ -122,10 +120,10 @@ def setup_langsmith() -> None:
         if not os.getenv("LANGCHAIN_PROJECT"):
             os.environ["LANGCHAIN_PROJECT"] = "docureco-agent"
         
-        print(f"✅ LangSmith enabled for project: {os.getenv('LANGCHAIN_PROJECT')}")
-        print(f"🔍 Tracing enabled - view runs at: https://smith.langchain.com/")
+        logger.info(f"✅ LangSmith enabled for project: {os.getenv('LANGCHAIN_PROJECT')}")
+        logger.info(f"🔍 Tracing enabled - view runs at: https://smith.langchain.com/")
     else:
-        print("⚠️  LangSmith not configured - set LANGCHAIN_API_KEY to enable tracing")
+        logger.info("⚠️  LangSmith not configured - set LANGCHAIN_API_KEY to enable tracing")
 
 def setup_logging(level: str = "INFO") -> None:
     """
