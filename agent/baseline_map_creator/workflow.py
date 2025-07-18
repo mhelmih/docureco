@@ -36,7 +36,7 @@ from .prompts import BaselineMapCreatorPrompts as prompts
 from .models import (
     DesignElementsWithMatrixOutput,
     RequirementsWithDesignElementsOutput,
-    RelationshipOutput
+    RelationshipListOutput
 )
 
 logger = logging.getLogger(__name__)
@@ -587,7 +587,7 @@ class BaselineMapCreatorWorkflow:
         
         # Create relationships between design elements using LLM analysis with traceability matrix context
         if len(state["design_elements"]) > 1:
-            links_data = await self._create_design_element_relationships(
+            links_data = await self._llm_create_design_element_relationships(
                 state["design_elements"], 
                 state["sdd_traceability_matrix"]
             )
@@ -740,7 +740,7 @@ class BaselineMapCreatorWorkflow:
         link_counter = 1
         
         # Extract traceability matrix from SDD and create requirement-design links with full context
-        req_to_design_links = await self._create_requirement_design_links_from_sdd(
+        req_to_design_links = await self._llm_create_requirement_design_links_from_sdd(
             state["requirements"], 
             state["design_elements"], 
             state["sdd_content"],
@@ -853,7 +853,7 @@ class BaselineMapCreatorWorkflow:
         logger.info(f"Extracted {len(response.content['requirements'])} requirements and {len(response.content['design_elements'])} design elements from {file_path} with traceability matrix context")
         return response.content
     
-    async def _create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _llm_create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""
         if len(design_elements) < 2:
             logger.error("Not enough design elements to create relationships")
@@ -871,7 +871,7 @@ class BaselineMapCreatorWorkflow:
                 "section": element.section
             })
             
-        output_parser = JsonOutputParser(pydantic_object=RelationshipOutput)
+        output_parser = JsonOutputParser(pydantic_object=RelationshipListOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.design_element_relationships_system_prompt()
@@ -885,8 +885,8 @@ class BaselineMapCreatorWorkflow:
             temperature=0.15  # Low-medium temperature for consistent but thoughtful analysis
         )
 
-        # Response content is already parsed as JSON (list of dicts)
-        llm_relationships = response.content
+        # Response content is now a dict with a 'relationships' key
+        llm_relationships = response.content.get('relationships', [])
 
         # Validate relationships
         validated_relationships = []
@@ -913,7 +913,7 @@ class BaselineMapCreatorWorkflow:
         logger.info(f"Created {len(validated_relationships)} validated design element relationships")
         return validated_relationships
     
-    async def _create_requirement_design_links_from_sdd(self, requirements: List[RequirementModel], 
+    async def _llm_create_requirement_design_links_from_sdd(self, requirements: List[RequirementModel], 
                                                        design_elements: List[DesignElementModel],
                                                        sdd_content: Dict[str, str],
                                                        sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -945,6 +945,8 @@ class BaselineMapCreatorWorkflow:
                 "type": elem.type,
                 "section": elem.section
             })
+            
+        output_parser = JsonOutputParser(pydantic_object=RelationshipListOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.requirement_design_links_system_prompt()
@@ -953,7 +955,7 @@ class BaselineMapCreatorWorkflow:
         # Generate LLM response
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
-            system_message=system_message,
+            system_message=system_message + "\n" + output_parser.get_format_instructions(),
             output_format="json",
             temperature=0.1  # Low temperature for consistent analysis
         )
@@ -1031,7 +1033,7 @@ class BaselineMapCreatorWorkflow:
         # Convert Pydantic models to dicts for JSON serialization
         design_links_data = [link.model_dump(mode='json') for link in design_to_design_links]
             
-        output_parser = JsonOutputParser(pydantic_object=RelationshipOutput)
+        output_parser = JsonOutputParser(pydantic_object=RelationshipListOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.design_code_links_system_prompt()
@@ -1045,8 +1047,8 @@ class BaselineMapCreatorWorkflow:
             temperature=0.15  # Low-medium temperature for consistent analysis
         )
 
-        # Parse JSON response
-        llm_relationships = response.content
+        # Parse JSON response which is now a dict with a 'relationships' key
+        llm_relationships = response.content.get('relationships', [])
         
         # Validate the response format
         if not isinstance(llm_relationships, list):

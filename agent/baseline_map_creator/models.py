@@ -39,7 +39,19 @@ class RelationshipOutput(BaseModel):
     """Structured output for relationships"""
     source_id: str = Field(description="ID of the source element")
     target_id: str = Field(description="ID of the target element")
-    relationship_type: str = Field(description="Type of relationship") 
+    relationship_type: str = Field(description="Type of relationship")
+
+class RelationshipListOutput(BaseModel):
+    """A list of relationship outputs."""
+    relationships: List[RelationshipOutput] = Field(description="A list of identified relationships between elements.")
 
 
-__all__ = ["DesignElementOutput", "TraceabilityMatrixEntry", "DesignElementsWithMatrixOutput", "RequirementOutput", "RequirementsWithDesignElementsOutput", "RelationshipOutput"] 
+__all__ = [
+    "DesignElementOutput", 
+    "TraceabilityMatrixEntry", 
+    "DesignElementsWithMatrixOutput", 
+    "RequirementOutput", 
+    "RequirementsWithDesignElementsOutput", 
+    "RelationshipOutput",
+    "RelationshipListOutput"
+] 
