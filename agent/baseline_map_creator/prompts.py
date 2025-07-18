@@ -14,7 +14,7 @@ class BaselineMapCreatorPrompts:
         """System prompt for extracting design elements and traceability matrix from SDD"""
         return """You are an expert software architect analyzing Software Design Documents (SDD). Your task is to:
 
-1. Extract all design elements (components, classes, use cases, modules, tables, user interfaces, queries, diagrams, etc.) from the SDD.
+1. Extract all design elements (components, classes, use cases, modules, tables, user interfaces, queries, diagrams, etc.) that are most likely to change when the code changes.
 2. Identify and extract the traceability matrix from the SDD, which maps requirements to design elements. If no traceability matrix is found, return an empty array for traceability_matrix.
 
 For each design element found, provide:
@@ -39,13 +39,16 @@ For the traceability matrix, provide relationships between ANY artifacts (requir
 - If you cannot confidently map a matrix entry to a valid reference_id, SKIP that relationship.
 
 NOTES:
-- The SDD will be provided in the markdown format.
+- The SDD will be provided in the markdown format. 
+- Software design documentation usually structured into many sections and people organize each section differently. But the most design documents will contain these common sections that most likely change when the code changes:
+    1. Selected Design Viewpoints: This section defines the design perspective used to describe the overall system architecture. Major architectural changes in the code will impact this view.
+    2. Design Views: This section is the core of the SDD, containing the architectural and design details of each program or module, complete with diagrams such as class diagrams, sequence diagrams, and deployment diagrams, which also describe the functionality and interfaces of each component. This is the section most frequently impacted by code changes at the implementation level.
 - Images in markdown format would look like this:
 ```
 ![Diagram Name](image_path.png)
 ```
 - Please be aware of the diagram images in the SDD because all images in the SDD are already described textually in the SDD.
-- All design elements need to be extracted from the SDD because the design elements will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
+- All design elements need to be extracted from the SDD, especially from those two sections (different section structure may exist, but the most design documents will contain these two sections, maybe with different names), because the design elements will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
 - This traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations. So, extract as many design elements as possible from the SDD.
 - The explicit traceability matrix inside the SDD will be used as a baseline for the traceability map.
 - Use the design element identifier used in the SDD for reference_id field if available. If the design element identifier is not available, use the design element name and the type as the reference_id (for example, there is a class "Book" without ID but it is in the section "4.1.1 Class: Book" then the reference_id should be "Book-Class").
@@ -68,7 +71,7 @@ Content:
         """System prompt for extracting requirements and design elements from SRS"""
         return """You are an expert software architect analyzing Software Requirements Specification (SRS) documents. Your task is to:
 
-1. Extract functional and non-functional requirements from the SRS.
+1. Extract functional and non-functional requirements from the SRS that are most likely to change when the design (and code) changes.
 2. Identify and extract design elements (usually the initial design elements produced from the requirements analysis) from the SRS (which are typically use cases, components, classes, interfaces, tables, diagrams, scenarios, activities, flowchart, DFD, etc.) that are directly referenced or implied by the SRS.
 3. Use the provided traceability matrix from SDD to help identify requirements that must be extracted from the SRS because they are already mapped to design elements in the SDD.
 4. If there is an explicit traceability matrix in the SRS, use it to help identify requirements and (initial) design elements that must be extracted from the SRS.
@@ -90,14 +93,18 @@ For each design element found, provide:
 
 NOTES:
 - The SRS will be provided in the markdown format.
+- Software requirements specification usually structured into many sections and people organize each section differently. But the most SRS will contain these common sections that most likely change when the design (and code) changes:
+    1. Product Functions: This section provides an overview of the key capabilities and services provided by the system/software. Code changes that add, modify, or remove key features will impact this section.
+    2. Requirements Specification: This section details the technical and operational requirements that must be met. Changes to business logic, validation rules, or interactions with external systems may impact this section.
+    3. Functions: This section describes how the system works in terms of inputs and outputs, process flows, and internal operations. Modifications to the workflow or data processing within the code will be reflected here.
 - Images in markdown format would look like this:
 ```
 ![Diagram Name](image_path.png)
 ```
 - Please be aware of the diagram images in the SRS because all images in the SRS are already described textually in the SRS.
-- All requirements and design elements need to be extracted from the SRS because they will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
+- All requirements and design elements need to be extracted from the SRS, especially from those three sections (different section structure may exist, but the most SRS will contain these three sections, maybe with different names), because they will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
 - This traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations. So, extract as many requirements and design elements as possible from the SRS.
-- Use the requirement and design element identifier used in the SRS for reference_id field if available. If the requirement or design element identifier is not available, use the requirement or design element name as the reference_id (for example, there is a class "Book" without ID but it is in the section "4.1.1 Class: Book" then the reference_id should be "Book").
+- Use the requirement and design element identifier used in the SRS for reference_id field if available. If the requirement or design element identifier is not available, use the requirement or design element name as the reference_id (for example, there is a class "Book" without ID but it is in the section "4.1.1 Class: Book" then the reference_id should be "Book-Class").
 
 The response will be automatically structured with the required fields."""
     

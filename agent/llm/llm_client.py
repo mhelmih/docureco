@@ -72,27 +72,27 @@ class DocurecoLLMClient:
             "reasoning_effort": self.config.reasoning_effort
         }
         
-        return ChatXAI(
-            model=self.config.llm_model,
-            api_key=self.config.api_key,
-            temperature=temperature,
-            max_tokens=self.config.max_tokens,
-            max_retries=self.config.max_retries,
-            timeout=self.config.request_timeout,
-            extra_body=extra_body
-        )
-        
-        # return ChatOpenAI(
+        # return ChatXAI(
         #     model=self.config.llm_model,
         #     api_key=self.config.api_key,
-        #     base_url=base_url,
         #     temperature=temperature,
         #     max_tokens=self.config.max_tokens,
         #     max_retries=self.config.max_retries,
-        #     request_timeout=self.config.request_timeout,
+        #     timeout=self.config.request_timeout,
         #     extra_body=extra_body
-        #     # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         # )
+        
+        return ChatOpenAI(
+            model=self.config.llm_model,
+            api_key=self.config.api_key,
+            base_url=base_url,
+            temperature=temperature,
+            max_tokens=self.config.max_tokens,
+            max_retries=self.config.max_retries,
+            request_timeout=self.config.request_timeout,
+            extra_body=extra_body
+            # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
+        )
     
     def _initialize_openai(self, temperature: float = 0.1) -> ChatOpenAI:
         """

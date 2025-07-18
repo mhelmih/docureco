@@ -1029,7 +1029,7 @@ class BaselineMapCreatorWorkflow:
             })
             
         # Convert Pydantic models to dicts for JSON serialization
-        design_links_data = [link.model_dump() for link in design_to_design_links]
+        design_links_data = [link.model_dump(mode='json') for link in design_to_design_links]
             
         output_parser = JsonOutputParser(pydantic_object=RelationshipOutput)
         
