@@ -27,7 +27,7 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     max_tokens: int = Field(default=200000, gt=0)
     max_retries: int = Field(default=3, ge=0)
-    request_timeout: int = Field(default=120, gt=0)
+    request_timeout: int = Field(default=300, gt=0)
     reasoning_effort: str = Field(default="high")
     
     # Grok 3 specific settings based on benchmark analysis
@@ -80,7 +80,7 @@ def get_llm_config() -> LLMConfig:
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
-            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
+            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "300")),
             reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
         )
     else:
@@ -96,7 +96,7 @@ def get_llm_config() -> LLMConfig:
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
-            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
+            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "300")),
             reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
         )
     
