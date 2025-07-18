@@ -75,7 +75,6 @@ class DocurecoLLMClient:
         return ChatXAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
-            base_url=base_url,
             temperature=temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
