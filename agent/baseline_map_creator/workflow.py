@@ -960,8 +960,8 @@ class BaselineMapCreatorWorkflow:
             temperature=0.1  # Low temperature for consistent analysis
         )
 
-        # Parse JSON response
-        llm_relationships = response.content
+        # Parse JSON response which is now a dict with a 'relationships' key
+        llm_relationships = response.content.get('relationships', [])
         
         # Validate the response format
         if not isinstance(llm_relationships, list):

@@ -25,7 +25,7 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=100000, gt=0)
+    max_tokens: int = Field(default=200000, gt=0)
     max_retries: int = Field(default=3, ge=0)
     request_timeout: int = Field(default=120, gt=0)
     reasoning_effort: str = Field(default="high")
@@ -78,7 +78,7 @@ def get_llm_config() -> LLMConfig:
             api_key=grok_api_key,
             base_url=grok_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
-            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "100000")),
+            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
             reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
@@ -94,7 +94,7 @@ def get_llm_config() -> LLMConfig:
             api_key=openai_api_key,
             base_url=openai_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
-            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "100000")),
+            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120")),
             reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
