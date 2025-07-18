@@ -565,7 +565,6 @@ class BaselineMapCreatorWorkflow:
             
             # Process traceability matrix (without relationship types initially)
             for matrix_entry in extraction_result['traceability_matrix']:
-                matrix_entry['source_file'] = file_path  # Track which file it came from
                 sdd_traceability_matrix.append(matrix_entry)
         
         state["design_elements"] = design_elements

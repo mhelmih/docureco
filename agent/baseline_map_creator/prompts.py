@@ -22,7 +22,7 @@ For each design element found, provide:
 - name: Clear, descriptive name of the design element with its type (e.g., AddBook Class)
 - description: Brief description of purpose/functionality
 - type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
-- section: Section reference from the document (if available). If available, please choose more specific section name.
+- section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
 
 For the traceability matrix, provide relationships between ANY artifacts (requirements, design elements, etc.) found:
 - source_id: ID of the source artifact (e.g., 'REQ-001', 'DE001', etc.). If the source artifact is a design element, use the reference_id of the design element. If the source artifact is a requirement, use the reference_id of the requirement.
@@ -31,7 +31,9 @@ For the traceability matrix, provide relationships between ANY artifacts (requir
 - source_file: File path where this relationship was found
 
 **CRITICAL INSTRUCTIONS:**
-- For every relationship in the traceability matrix, the source_id and target_id MUST exactly match the reference_id field from the extracted design elements or requirements. If you cannot find a valid reference_id, SKIP that relationship.
+- Anything extracted from the traceability matrix as a design element should have `Traceability Matrix Element - <element_type>` as the type. For example, if the element is a requirement, the type should be `Traceability Matrix Element - Requirement`.
+- For every relationship in the traceability matrix, the target_id MUST exactly match the reference_id field from the extracted design elements. If the source_id is not a design element, it is OK to use the source_id as it is because it will be verified in the next step.
+- If you cannot find a valid reference_id for the target_id, SKIP that relationship.
 - Do NOT use class names, section titles, or any other label as an ID. Only use the reference_id from the extracted elements.
 - If the SDD traceability matrix uses a different label (e.g., just "Book"), you MUST map it to the correct reference_id you extracted (e.g., "Book-Class").
 - If you cannot confidently map a matrix entry to a valid reference_id, SKIP that relationship.
@@ -77,14 +79,14 @@ For each requirement found, provide:
 - description: Detailed description of what is required
 - type: Category (Functional, Non-Functional, Business, User, System, etc.)
 - priority: Importance level (High, Medium, Low)
-- section: Section reference from the document (if available)
+- section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
 
 For each design element found, provide:
 - reference_id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)
 - name: Clear, descriptive name of the design element
 - description: Brief description of purpose/functionality
 - type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
-- section: Section reference from the document (if available)
+- section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
 
 NOTES:
 - The SRS will be provided in the markdown format.
@@ -143,9 +145,8 @@ For each relationship found, provide:
 - relationship_type: MUST be one of: "refines", "realizes", "depends_on".
 
 **CRITICAL INSTRUCTIONS:**
-- For every relationship in the traceability matrix, the source_id and target_id MUST exactly match the reference_id field from the extracted requirements or design elements. If you cannot find a valid reference_id, SKIP that relationship.
+- For every relationship in the traceability matrix, the source_id and target_id MUST exactly match the reference_id field from the extracted design elements. If you cannot find a valid reference_id, SKIP that relationship.
 - Do NOT use class names, section titles, or any other label as an ID. Only use the reference_id from the extracted elements.
-- If the SDD traceability matrix uses a different label (e.g., just "Book"), you MUST map it to the correct reference_id you extracted (e.g., "Book-Class").
 - If you cannot confidently map a matrix entry to a valid reference_id, SKIP that relationship.
 
 NOTES:
@@ -198,6 +199,11 @@ For each relationship found, provide:
 - source_id: ID of the requirement. Use the reference_id of the requirement.
 - target_id: ID of the design element. Use the reference_id of the design element.
 - relationship_type: MUST be one of: "satisfies", "realizes"
+
+**CRITICAL INSTRUCTIONS:**
+- For every relationship in the traceability matrix, the source_id and target_id MUST exactly match the reference_id field from the extracted requirements or design elements. If you cannot find a valid reference_id, SKIP that relationship.
+- Do NOT use class names, section titles, or any other label as an ID. Only use the reference_id from the extracted elements.
+- If you cannot confidently map a matrix entry to a valid reference_id, SKIP that relationship.
 
 NOTES:
 - The existing traceability matrix is extracted from SDD documentations first.
