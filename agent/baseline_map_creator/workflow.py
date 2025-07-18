@@ -634,7 +634,6 @@ class BaselineMapCreatorWorkflow:
                 name=Path(file_path).name
             )
             code_components.append(code_component)
-            comp_counter += 1
         
         state["code_components"] = code_components
         state["processing_stats"]["code_components_count"] = len(code_components)
