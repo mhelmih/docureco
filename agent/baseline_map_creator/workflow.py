@@ -231,7 +231,7 @@ class BaselineMapCreatorWorkflow:
     
     async def _scan_repository(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
         """
-        Scan repository for documentation and code files using Repomix
+        Scan repository for documentation and all other files using Repomix.
         """
         logger.info(f"Scanning repository {state['repository']}:{state['branch']} with Repomix")
         state["current_step"] = "scanning_repository"
@@ -240,23 +240,43 @@ class BaselineMapCreatorWorkflow:
             # Use Repomix to scan the repository
             repo_data = await self._scan_repository_with_repomix(state["repository"], state["branch"])
             
-            # Extract files by type
-            state["sdd_content"] = self._extract_documentation_files(repo_data, [
+            sdd_patterns = [
                 "design.md", "sdd.md", "software-design.md", "architecture.md",
                 "docs/design.md", "docs/sdd.md", "docs/architecture.md",
                 "traceability.md", "traceability-matrix.md"
-            ])
-            
-            state["srs_content"] = self._extract_documentation_files(repo_data, [
+            ]
+            srs_patterns = [
                 "requirements.md", "srs.md", "software-requirements.md",
                 "docs/requirements.md", "docs/srs.md", "documentation/requirements.md"
-            ])
+            ]
             
-            state["code_files"] = self._extract_code_files(repo_data, [
-                "*.py", "*.java", "*.js", "*.ts", "*.cpp", "*.h"
-            ])
+            # Extract documentation files
+            state["sdd_content"] = self._extract_documentation_files(repo_data, sdd_patterns)
+            state["srs_content"] = self._extract_documentation_files(repo_data, srs_patterns)
             
-            logger.info(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
+            # Get a set of all documentation file paths
+            doc_paths = set(state["sdd_content"].keys()) | set(state["srs_content"].keys())
+            
+            # Extract all other files (non-documentation)
+            other_files = []
+            code_files_counter = 1
+            if "files" in repo_data:
+                for file_info in repo_data["files"]:
+                    file_path = file_info.get("path", "")
+                    if file_path and file_path not in doc_paths:
+                        _, file_extension = os.path.splitext(file_path)
+                        file_type = file_extension.lstrip('.') if file_extension else 'unknown'
+                        other_files.append({
+                            "id": f"CC-{code_files_counter:03d}",
+                            "path": file_path,
+                            "content": file_info.get("content", ""),
+                            "type": file_type
+                        })
+                        code_files_counter += 1
+            
+            state["code_files"] = other_files
+            
+            logger.info(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, and {len(state['code_files'])} other files.")
             
         except Exception as e:
             logger.error(f"Error scanning repository: {str(e)}")
@@ -485,38 +505,6 @@ class BaselineMapCreatorWorkflow:
         
         return documentation_files
     
-    def _extract_code_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> List[Dict[str, Any]]:
-        """
-        Extract code files from Repomix output
-        
-        Args:
-            repo_data: Repomix output data
-            patterns: File patterns to match
-            
-        Returns:
-            List of code file info dictionaries
-        """
-        code_files = []
-        
-        if "files" not in repo_data:
-            return code_files
-        
-        code_files_counter = 1
-        for file_info in repo_data["files"]:
-            file_path = file_info.get("path", "")
-            file_content = file_info.get("content", "")
-            
-            if self._matches_patterns(file_path, patterns):
-                code_files.append({
-                    "id": f"CC-{code_files_counter:03d}",
-                    "path": file_path,
-                    "content": file_content
-                })
-                code_files_counter += 1
-                logger.info(f"Found code file: {file_path}")
-        
-        return code_files
-    
     def _matches_patterns(self, file_path: str, patterns: List[str]) -> bool:
         """Check if file path matches any of the given patterns"""
         for pattern in patterns:
@@ -622,7 +610,8 @@ class BaselineMapCreatorWorkflow:
         for file_info in state["code_files"]:
             file_id = file_info.get("id", "")
             file_path = file_info.get("path", "")
-            
+            file_type = file_info.get("type", "File") # Use the stored type, default to "File"
+
             if not file_path:
                 continue
             
@@ -630,7 +619,7 @@ class BaselineMapCreatorWorkflow:
             code_component = CodeComponentModel(
                 id=file_id,
                 path=file_path,
-                type="File",
+                type=file_type,
                 name=Path(file_path).name
             )
             code_components.append(code_component)
@@ -642,7 +631,7 @@ class BaselineMapCreatorWorkflow:
         design_to_code_links = []
         link_counter = 1
         
-        links_data = await self._create_design_code_links(
+        links_data = await self._llm_create_design_code_links(
             state["design_elements"], 
             code_components, 
             state["code_files"],
@@ -1000,7 +989,7 @@ class BaselineMapCreatorWorkflow:
         
         return validated_relationships
     
-    async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], design_to_design_links: List[TraceabilityLinkModel]) -> List[Dict[str, Any]]:
+    async def _llm_create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], design_to_design_links: List[TraceabilityLinkModel]) -> List[Dict[str, Any]]:
         """Create links between design elements and code components using LLM analysis. Raises exceptions on failure instead of using fallbacks."""
         if not design_elements or not code_components:
             logger.error("No design elements or code components available for linking")
@@ -1057,7 +1046,7 @@ class BaselineMapCreatorWorkflow:
         # Validate each relationship has required fields
         validated_relationships = []
         valid_design_ids = {elem.reference_id for elem in design_elements}
-        valid_code_ids = {comp.path for comp in code_components}
+        valid_code_ids = {comp.id for comp in code_components}
         
         for rel in llm_relationships:
             if not isinstance(rel, dict):
