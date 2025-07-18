@@ -998,7 +998,7 @@ class BaselineMapCreatorWorkflow:
         
         return validated_relationships
     
-    async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], design_to_design_links: List[TraceabilityLinkModel]) -> List[Dict[str, Any]]:
         """Create links between design elements and code components using LLM analysis. Raises exceptions on failure instead of using fallbacks."""
         if not design_elements or not code_components:
             logger.error("No design elements or code components available for linking")
@@ -1028,11 +1028,14 @@ class BaselineMapCreatorWorkflow:
                 "content": code_content
             })
             
+        # Convert Pydantic models to dicts for JSON serialization
+        design_links_data = [link.model_dump() for link in design_to_design_links]
+            
         output_parser = JsonOutputParser(pydantic_object=RelationshipOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.design_code_links_system_prompt()
-        human_prompt = prompts.design_code_links_human_prompt(elements_data, components_data, sdd_traceability_matrix)
+        human_prompt = prompts.design_code_links_human_prompt(elements_data, components_data, design_links_data)
 
         # Generate LLM response
         response = await self.llm_client.generate_response(

@@ -276,7 +276,7 @@ The response will be automatically structured."""
     @staticmethod
     def design_code_links_human_prompt(elements_data: List[Dict[str, Any]], 
                                      components_data: List[Dict[str, Any]], 
-                                     sdd_traceability_matrix: List[Dict[str, Any]]) -> str:
+                                     design_to_design_links: List[Dict[str, Any]]) -> str:
         """Human prompt for design-to-code link analysis"""
         return f"""Analyze the following design elements and code components to identify meaningful relationships between them:
 
@@ -286,7 +286,7 @@ Design Elements:
 Code Components:
 {json.dumps(components_data, indent=2)}
 
-Traceability Matrix (for context):
-{json.dumps(sdd_traceability_matrix, indent=2)}
+Traceability Matrix Between Design Elements (for context):
+{json.dumps(design_to_design_links, indent=2)}
 
 Identify relationships between design elements and code components and return them as a JSON array.""" 
