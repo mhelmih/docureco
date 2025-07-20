@@ -47,7 +47,7 @@ NOTES:
 ```
 ![Diagram Name](image_path.png)
 ```
-- Please be aware of the diagram images in the SDD because all images in the SDD are already described textually in the SDD.
+- Please be aware of the diagram images in the SDD because all images in the SDD are already described textually in the SDD. Diagrams are also design elements that needs to be updated when the code changes. Diagrams often placed in a section without a caption or title. Extract the diagram with the section and diagram name as the reference_id. For example, if the diagram is in the section "5.2 Use Case Realization" and the diagram name is "UC01 Sequence Diagram", the reference_id should be "5.2 Use Case Realization - UC01 Sequence Diagram".
 - All design elements need to be extracted from the SDD, especially from those two sections (different section structure may exist, but the most design documents will contain these two sections, maybe with different names), because the design elements will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
 - This traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations. So, extract as many design elements as possible from the SDD.
 - The explicit traceability matrix inside the SDD will be used as a baseline for the traceability map.
@@ -101,7 +101,7 @@ NOTES:
 ```
 ![Diagram Name](image_path.png)
 ```
-- Please be aware of the diagram images in the SRS because all images in the SRS are already described textually in the SRS.
+- Please be aware of the diagram images in the SRS because all images in the SRS are already described textually in the SRS. Diagrams are also design elements that needs to be updated when the design in SDD or code changes. Diagrams often placed in a section without a caption or title. Extract the diagram with the section and diagram name as the reference_id. For example, if the diagram is in the section "5.2 Use Case Scenario" and the diagram name is "UC01 Sequence Diagram", the reference_id should be "5.2 Use Case Scenario - UC01 Sequence Diagram".
 - All requirements and design elements need to be extracted from the SRS, especially from those three sections (different section structure may exist, but the most SRS will contain these three sections, maybe with different names), because they will be used to create a traceability map (requirements <-> design elements, design elements <-> design elements, design elements <-> code components).
 - This traceability map will be used to track code changes impact to the documentation and will be used to generate documentation update recommendations. So, extract as many requirements and design elements as possible from the SRS.
 - Use the requirement and design element identifier used in the SRS for reference_id field if available. If the requirement or design element identifier is not available, use the requirement or design element name as the reference_id (for example, there is a class "Book" without ID but it is in the section "4.1.1 Class: Book" then the reference_id should be "Book-Class").

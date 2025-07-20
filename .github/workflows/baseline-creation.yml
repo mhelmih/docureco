@@ -1,12 +1,8 @@
-name: 'Docureco Agent: Baseline Map'
+name: 'Docureco Agent: Baseline Map Creator'
 
 on:
   workflow_dispatch:
     inputs:
-      repository:
-        description: 'Repository name (owner/repo)'
-        required: true
-        default: 'mhelmih/docureco'
       branch:
         description: 'Branch name to analyze'
         required: true
@@ -71,24 +67,19 @@ jobs:
       run: |
         pip install --upgrade pip
         pip install -r agent/requirements.txt
-    
+        
     - name: Validate inputs
       run: |
-        echo "Repository: ${{ github.event.inputs.repository }}"
+        echo "Repository: ${{ github.repository }}"
         echo "Branch: ${{ github.event.inputs.branch }}"
         echo "Force recreate: ${{ github.event.inputs.force_recreate }}"
-        
-        if [[ ! "${{ github.event.inputs.repository }}" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
-          echo "Error: Repository must be in format 'owner/repo'"
-          exit 1
-        fi
     
     - name: Create baseline traceability map
       env:
         LOG_LEVEL: 'INFO'
       run: |
         python -m agent baseline-map-creator \
-          ${{ github.event.inputs.repository }} \
+          ${{ github.repository }} \
           --branch ${{ github.event.inputs.branch }} \
           ${{ github.event.inputs.force_recreate == 'true' && '--force' || '' }} \
           --log-level INFO
@@ -97,19 +88,19 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: baseline-map-${{ github.event.inputs.repository }}-${{ github.event.inputs.branch }}
+        name: baseline-map-${{ github.repository }}-${{ github.event.inputs.branch }}
         path: |
           agent/logs/
           agent/output/
           *.log
-        retention-days: 30
+        retention-days: 90
     
     - name: Create summary
       if: always()
       run: |
         echo "## 📊 Baseline Map Creation Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Repository:** \`${{ github.event.inputs.repository }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Repository:** \`${{ github.repository }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Branch:** \`${{ github.event.inputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Force Recreate:** \`${{ github.event.inputs.force_recreate }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

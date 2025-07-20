@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from langchain_core.output_parsers import JsonOutputParser
 
-
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -792,8 +791,17 @@ class BaselineMapCreatorWorkflow:
             raise Exception("Failed to save baseline map to database")
         
         logger.info(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
+        state["baseline_map"] = baseline_map
+            
+        # Final processing stats
+        stats = state.get("processing_stats", {})
+        stats["total_traceability_links_count"] = len(baseline_map.traceability_links)
+        
+        state["processing_stats"] = stats
         state["current_step"] = "completed"
         
+        logger.info(f"✅ Baseline map creation completed successfully for {repository}:{branch}")
+
         return state
     
     async def _llm_extract_design_elements_with_matrix(self, content: str, file_path: str) -> DesignElementsWithMatrixOutput:

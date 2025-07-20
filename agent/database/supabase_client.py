@@ -184,7 +184,8 @@ class SupabaseClient:
                 "description": req["description"],
                 "type": req["type"],
                 "priority": req.get("priority", "Medium"),
-                "section": req["section"]
+                "section": req["section"],
+                "reference_id": req.get("reference_id")
             })
         
         self.client.table("requirements").insert(records).execute()
@@ -202,7 +203,8 @@ class SupabaseClient:
                 "name": element["name"],
                 "description": element["description"],
                 "type": element["type"],
-                "section": element["section"]
+                "section": element["section"],
+                "reference_id": element.get("reference_id")
             })
         
         self.client.table("design_elements").insert(records).execute()
