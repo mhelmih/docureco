@@ -800,7 +800,7 @@ class BaselineMapCreatorWorkflow:
         state["processing_stats"] = stats
         state["current_step"] = "completed"
         
-        logger.info(f"✅ Baseline map creation completed successfully for {repository}:{branch}")
+        logger.info(f"✅ Baseline map creation completed successfully for {state['repository']}:{state['branch']}")
 
         return state
     
