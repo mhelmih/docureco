@@ -83,12 +83,18 @@ jobs:
           --branch ${{ github.event.inputs.branch }} \
           ${{ github.event.inputs.force_recreate == 'true' && '--force' || '' }} \
           --log-level INFO
+
+    - name: Sanitize artifact name
+      run: |
+        repo_name="${{ github.repository }}"
+        branch_name="${{ github.event.inputs.branch }}"
+        echo "ARTIFACT_NAME=baseline-map-${repo_name//\//_}-${branch_name//\//_}" >> $GITHUB_ENV
     
     - name: Upload baseline map artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: baseline-map-${{ github.repository }}-${{ github.event.inputs.branch }}
+        name: ${{ env.ARTIFACT_NAME }}
         path: |
           agent/logs/
           agent/output/

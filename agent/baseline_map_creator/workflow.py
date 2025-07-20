@@ -21,7 +21,6 @@ root_dir = os.path.dirname(parent_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, root_dir)
 
-from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -851,11 +850,7 @@ class BaselineMapCreatorWorkflow:
         return response.content
     
     async def _llm_create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""
-        if len(design_elements) < 2:
-            logger.error("Not enough design elements to create relationships")
-            return []
-        
+        """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""        
         # Prepare design elements data for LLM analysis
         elements_data = []
         for element in design_elements:
