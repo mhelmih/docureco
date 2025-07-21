@@ -432,6 +432,8 @@ class DocumentUpdateRecommenderWorkflow:
         """
         all_findings = []
         
+        print("BASELINE MAP DATA:", baseline_map_data)
+        
         # Create lookup structures for efficient access (build once, use for all change sets)
         code_to_design_map = {}
         design_to_design_map = {}
@@ -442,6 +444,8 @@ class DocumentUpdateRecommenderWorkflow:
         if baseline_map_data.code_components:
             for component in baseline_map_data.code_components:
                 path_to_component_ref_id[component.path] = component.id
+        
+        print("PATH TO COMPONENT REF ID:", path_to_component_ref_id)
         
         # Build mappings from traceability links (handling many-to-many relationships)
         if baseline_map_data.traceability_links:
@@ -468,10 +472,17 @@ class DocumentUpdateRecommenderWorkflow:
                         design_to_requirement_map[link.target_id] = []
                     if link.source_id not in design_to_requirement_map[link.target_id]:
                         design_to_requirement_map[link.target_id].append(link.source_id)
-                        
+        
+        print("CODE TO DESIGN MAP:", code_to_design_map)
+        print("DESIGN TO DESIGN MAP:", design_to_design_map)
+        print("DESIGN TO REQUIREMENT MAP:", design_to_requirement_map)
+        
         # Build lookup dictionaries for design elements and requirements
         design_elements_by_ref_id = {de.reference_id: de for de in getattr(baseline_map_data, "design_elements", []) if de.reference_id}
         requirements_by_ref_id = {req.reference_id: req for req in getattr(baseline_map_data, "requirements", []) if req.reference_id}
+        
+        print("DESIGN ELEMENTS BY REF ID:", design_elements_by_ref_id)
+        print("REQUIREMENTS BY REF ID:", requirements_by_ref_id)
         
         # Process each logical change set separately
         for change_set in changes_with_status:
@@ -550,6 +561,10 @@ class DocumentUpdateRecommenderWorkflow:
                 if design_element_ref_id in design_to_requirement_map:
                     requirement_ids = design_to_requirement_map[design_element_ref_id]
                     or_set.update(requirement_ids)
+            
+            print("PIDE:", pide)
+            print("PIR:", pir)
+            print("OR_SET:", or_set)
             
             # Form Finding Records for this change set
             # Standard Impact findings for PIDE and PIR
