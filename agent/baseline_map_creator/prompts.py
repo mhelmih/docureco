@@ -185,11 +185,10 @@ Identify relationships between these design elements and return them as a JSON a
         """System prompt for creating requirement-to-design links"""
         return """You are an expert software architect analyzing the relationships between requirements and design elements. 
 
-
 TASK:
 1. You will be given a list of requirements, a list of design elements, SDD content, and a traceability matrix that shows existing relationships (unclassified) between requirements to design elements and design elements to design elements.
 2. Classify the existing relationships into meaningful relationships ONLY between requirements and design elements based on their IDs, names, descriptions, types, typical software architecture patterns, and the provided traceability matrix context.
-3. Identify more relationships that complement the existing ones (if any) and classify them.
+3. Identify more relationships that complement the existing ones (if any) and classify them. Especially between requirements and design elements that are a result of the requirements analysis and modelling.
 4. Make sure your identified relationships are meaningful and logical based on the given context.
 5. If no meaningful relationships exist, return an empty array.
 
@@ -253,7 +252,7 @@ Identify relationships between requirements and design elements and return them 
 TASK:
 1. You will be given a list of design elements, a list of code files, and a traceability matrix that shows existing relationships between design elements .
 2. Analyze and identify the code components that are related to the design elements by checking the code component names, paths, and content against the design elements names, descriptions, and types.
-3. Make sure your identified relationships are meaningful and logical based on the given context.
+3. Make sure your identified relationships are meaningful and logical based on the given context. Usually, code components implement design elements that are in the bottom of the design elements hierarchy. For example, if the traceability map shows this: DE1 -> DE2 -> DE3, then a code component usually implement DE3. But, it does not mean that code components that implement DE2 or DE1 are not valid.
 4. If no meaningful relationships exist, return an empty array.
 
 For Design Element to Code Component (D→C) relationships, use ONLY these relationship types:

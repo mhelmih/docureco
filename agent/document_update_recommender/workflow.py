@@ -438,55 +438,40 @@ class DocumentUpdateRecommenderWorkflow:
         design_to_requirement_map = {}
         
         # Create path-to-component-id mapping for efficient lookups
-        path_to_component_id = {}
+        path_to_component_ref_id = {}
         if baseline_map_data.code_components:
             for component in baseline_map_data.code_components:
-                path_to_component_id[component.path] = component.id
+                path_to_component_ref_id[component.path] = component.id
         
         # Build mappings from traceability links (handling many-to-many relationships)
         if baseline_map_data.traceability_links:
             for link in baseline_map_data.traceability_links:
-                # Code-to-design mapping (bidirectional)
-                if link.source_type == "CodeComponent" and link.target_type == "DesignElement":
-                    if link.source_id not in code_to_design_map:
-                        code_to_design_map[link.source_id] = []
-                    if link.target_id not in code_to_design_map[link.source_id]:
-                        code_to_design_map[link.source_id].append(link.target_id)
-                elif link.source_type == "DesignElement" and link.target_type == "CodeComponent":
+                if link.source_type == "DesignElement" and link.target_type == "CodeComponent":
                     if link.target_id not in code_to_design_map:
                         code_to_design_map[link.target_id] = []
                     if link.source_id not in code_to_design_map[link.target_id]:
                         code_to_design_map[link.target_id].append(link.source_id)
                 
-                # Design-to-design mapping (bidirectional)
                 elif link.source_type == "DesignElement" and link.target_type == "DesignElement":
-                    # Source -> Target
                     if link.source_id not in design_to_design_map:
                         design_to_design_map[link.source_id] = []
                     if link.target_id not in design_to_design_map[link.source_id]:
                         design_to_design_map[link.source_id].append(link.target_id)
                     
-                    # Target -> Source (bidirectional)
                     if link.target_id not in design_to_design_map:
                         design_to_design_map[link.target_id] = []
                     if link.source_id not in design_to_design_map[link.target_id]:
                         design_to_design_map[link.target_id].append(link.source_id)
                 
-                # Design-to-requirement mapping (bidirectional)
-                elif link.source_type == "DesignElement" and link.target_type == "Requirement":
-                    if link.source_id not in design_to_requirement_map:
-                        design_to_requirement_map[link.source_id] = []
-                    if link.target_id not in design_to_requirement_map[link.source_id]:
-                        design_to_requirement_map[link.source_id].append(link.target_id)
-                elif link.source_type == "Requirement" and link.target_type == "DesignElement":
+                if link.source_type == "Requirement" and link.target_type == "DesignElement":
                     if link.target_id not in design_to_requirement_map:
                         design_to_requirement_map[link.target_id] = []
                     if link.source_id not in design_to_requirement_map[link.target_id]:
                         design_to_requirement_map[link.target_id].append(link.source_id)
                         
         # Build lookup dictionaries for design elements and requirements
-        design_elements_by_id = {de.id: de for de in getattr(baseline_map_data, "design_elements", [])}
-        requirements_by_id = {req.id: req for req in getattr(baseline_map_data, "requirements", [])}
+        design_elements_by_ref_id = {de.reference_id: de for de in getattr(baseline_map_data, "design_elements", []) if de.reference_id}
+        requirements_by_ref_id = {req.reference_id: req for req in getattr(baseline_map_data, "requirements", []) if req.reference_id}
         
         # Process each logical change set separately
         for change_set in changes_with_status:
@@ -508,15 +493,15 @@ class DocumentUpdateRecommenderWorkflow:
                 
                 # Only process changes that can be traced through the map
                 if status in ["modification", "anomaly (addition mapped)", "rename", "outdated"]:
-                    if file_path in path_to_component_id:
-                        component_id = path_to_component_id[file_path]
-                        if component_id in code_to_design_map:
-                            design_element_ids = code_to_design_map[component_id]
+                    if file_path in path_to_component_ref_id:
+                        component_ref_id = path_to_component_ref_id[file_path]
+                        if component_ref_id in code_to_design_map:
+                            design_element_ref_ids = code_to_design_map[component_ref_id]
                             
                             if status in ["modification", "anomaly (addition mapped)", "rename"]:
-                                dide.update(design_element_ids)
+                                dide.update(design_element_ref_ids)
                             elif status == "outdated":
-                                ode.update(design_element_ids)
+                                ode.update(design_element_ref_ids)
                 
                 # Handle gap and anomaly findings directly for this change set
                 elif status in ["gap", "anomaly (deletion unmapped)", 
@@ -542,9 +527,9 @@ class DocumentUpdateRecommenderWorkflow:
             # Trace Indirect Impact on Design Elements (IIDE) for this change set
             iide = set()  # Indirectly Impacted Design Elements for this change set
             
-            for design_element_id in dide:
-                if design_element_id in design_to_design_map:
-                    related_element_ids = design_to_design_map[design_element_id]
+            for design_element_ref_id in dide:
+                if design_element_ref_id in design_to_design_map:
+                    related_element_ids = design_to_design_map[design_element_ref_id]
                     iide.update(related_element_ids)
             
             # Combine to form Potentially Impacted Design Elements (PIDE) for this change set
@@ -555,67 +540,73 @@ class DocumentUpdateRecommenderWorkflow:
             or_set = set()  # Outdated Requirements for this change set
             
             # Trace PIDE to requirements
-            for design_element_id in pide:
-                if design_element_id in design_to_requirement_map:
-                    requirement_ids = design_to_requirement_map[design_element_id]
+            for design_element_ref_id in pide:
+                if design_element_ref_id in design_to_requirement_map:
+                    requirement_ids = design_to_requirement_map[design_element_ref_id]
                     pir.update(requirement_ids)
             
             # Trace ODE to requirements  
-            for design_element_id in ode:
-                if design_element_id in design_to_requirement_map:
-                    requirement_ids = design_to_requirement_map[design_element_id]
+            for design_element_ref_id in ode:
+                if design_element_ref_id in design_to_requirement_map:
+                    requirement_ids = design_to_requirement_map[design_element_ref_id]
                     or_set.update(requirement_ids)
             
             # Form Finding Records for this change set
             # Standard Impact findings for PIDE and PIR
-            for design_element_id in pide:
+            for design_element_ref_id in pide:
+                if design_element_ref_id not in design_elements_by_ref_id:
+                    logger.warning(f"Design element ID '{design_element_ref_id}' found in trace links but not in baseline map design elements list. Skipping.")
+                    continue
                 finding = {
                     "finding_type": "Standard_Impact",
-                    "affected_element_id": design_element_id,
-                    "affected_element_reference_id": design_elements_by_id[design_element_id].reference_id,
-                    "affected_element_name": design_elements_by_id[design_element_id].name,
-                    "affected_element_description": design_elements_by_id[design_element_id].description,
-                    "affected_element_type": "DesignElement - " + design_elements_by_id[design_element_id].type,
-                    "trace_path_type": "Direct" if design_element_id in dide else "Indirect",
+                    "affected_element_id": design_elements_by_ref_id[design_element_ref_id].id,
+                    "affected_element_reference_id": design_element_ref_id,
+                    "affected_element_name": design_elements_by_ref_id[design_element_ref_id].name,
+                    "affected_element_description": design_elements_by_ref_id[design_element_ref_id].description,
+                    "affected_element_type": "DesignElement - " + design_elements_by_ref_id[design_element_ref_id].type,
+                    "trace_path_type": "Direct" if design_element_ref_id in dide else "Indirect",
                     "source_change_set": change_set_name
                 }
                 change_set_findings.append(finding)
             
-            for requirement_id in pir:
+            for requirement_ref_id in pir:
                 finding = {
                     "finding_type": "Standard_Impact",
-                    "affected_element_id": requirement_id, 
-                    "affected_element_reference_id": requirements_by_id[requirement_id].reference_id,
-                    "affected_element_name": requirements_by_id[requirement_id].title,
-                    "affected_element_description": requirements_by_id[requirement_id].description,
-                    "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
+                    "affected_element_id": requirements_by_ref_id[requirement_ref_id].id, 
+                    "affected_element_reference_id": requirement_ref_id,
+                    "affected_element_name": requirements_by_ref_id[requirement_ref_id].title,
+                    "affected_element_description": requirements_by_ref_id[requirement_ref_id].description,
+                    "affected_element_type": "Requirement - " + requirements_by_ref_id[requirement_ref_id].type,
                     "trace_path_type": "Direct",
                     "source_change_set": change_set_name
                 }
                 change_set_findings.append(finding)
             
             # Outdated Documentation findings for ODE and OR
-            for design_element_id in ode:
+            for design_element_ref_id in ode:
                 finding = {
                     "finding_type": "Outdated_Documentation",
-                    "affected_element_id": design_element_id,
-                    "affected_element_reference_id": design_elements_by_id[design_element_id].reference_id,
-                    "affected_element_name": design_elements_by_id[design_element_id].name,
-                    "affected_element_description": design_elements_by_id[design_element_id].description,
-                    "affected_element_type": "DesignElement - " + design_elements_by_id[design_element_id].type,
+                    "affected_element_id": design_elements_by_ref_id[design_element_ref_id].id,
+                    "affected_element_reference_id": design_element_ref_id,
+                    "affected_element_name": design_elements_by_ref_id[design_element_ref_id].name,
+                    "affected_element_description": design_elements_by_ref_id[design_element_ref_id].description,
+                    "affected_element_type": "DesignElement - " + design_elements_by_ref_id[design_element_ref_id].type,
                     "trace_path_type": None,
                     "source_change_set": change_set_name
                 }
                 change_set_findings.append(finding)
             
-            for requirement_id in or_set:
+            for requirement_ref_id in or_set:
+                if requirement_ref_id not in requirements_by_ref_id:
+                    logger.warning(f"Requirement ID '{requirement_ref_id}' found in trace links but not in baseline map requirements list. Skipping.")
+                    continue
                 finding = {
                     "finding_type": "Outdated_Documentation", 
-                    "affected_element_id": requirement_id,
-                    "affected_element_reference_id": requirements_by_id[requirement_id].reference_id,
-                    "affected_element_name": requirements_by_id[requirement_id].title,
-                    "affected_element_description": requirements_by_id[requirement_id].description,
-                    "affected_element_type": "Requirement - " + requirements_by_id[requirement_id].type,
+                    "affected_element_id": requirements_by_ref_id[requirement_ref_id].id,
+                    "affected_element_reference_id": requirement_ref_id,
+                    "affected_element_name": requirements_by_ref_id[requirement_ref_id].title,
+                    "affected_element_description": requirements_by_ref_id[requirement_ref_id].description,
+                    "affected_element_type": "Requirement - " + requirements_by_ref_id[requirement_ref_id].type,
                     "trace_path_type": None,
                     "source_change_set": change_set_name
                 }
