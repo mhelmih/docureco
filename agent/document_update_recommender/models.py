@@ -68,6 +68,7 @@ class AssessedFinding(BaseModel):
     """Finding with likelihood and severity assessment"""
     finding_type: str = Field(description="Type of finding")
     affected_element_id: str = Field(description="ID of affected element")
+    affected_element_reference_id: str = Field(description="Reference ID of affected element")
     affected_element_name: str = Field(description="Name of affected element")
     affected_element_description: str = Field(description="Description of affected element")
     affected_element_type: str = Field(description="Type of affected element (DesignElement or Requirement) along with the type of the element (Class, Function, etc.)")
