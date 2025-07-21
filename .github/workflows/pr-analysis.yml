@@ -1,21 +1,14 @@
-name: 'Docureco Agent: PR Analysis'
+name: 'Docureco Agent: Document Update Recommender'
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  pull_request_target:
-    types: [closed]  # Triggers on both merged and closed without merge
-    branches: [main, develop]  # Only for main branches
   workflow_dispatch:  # Manual trigger for PR analysis
     inputs:
       pr_number:
         description: 'PR number (for manual analysis)'
         required: true
         type: string
-      repository:
-        description: 'Repository name (owner/repo)'
-        required: false
-        default: 'auto'
 
 permissions:
   contents: read
@@ -85,10 +78,10 @@ jobs:
         id: pr_info
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ "${{ github.event.inputs.repository }}" = "auto" ]; then
+            if [ "${{ github.repository }}" = "auto" ]; then
               REPO="${{ github.repository }}"
             else
-              REPO="${{ github.event.inputs.repository }}"
+              REPO="${{ github.repository }}"
             fi
             PR_URL="https://github.com/${REPO}/pull/${{ github.event.inputs.pr_number }}"
             echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
@@ -141,91 +134,3 @@ jobs:
             agent/*.log
             /tmp/docureco*.log
           retention-days: 7
-
-  # Baseline Map Update Job (Baseline Map Updater)
-  # update-baseline-map:
-  #   if: >
-  #     (github.event_name == 'pull_request_target' && github.event.pull_request.merged == true)
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Validate PR merge status
-  #       run: |
-  #         echo "Checking if PR was actually merged..."
-  #         if [ "${{ github.event.pull_request.merged }}" != "true" ]; then
-  #           echo "❌ PR was closed without merging. Skipping baseline map update."
-  #           echo "PR #${{ github.event.pull_request.number }} status: closed (not merged)"
-  #           exit 78  # Exit code for neutral (not failure)
-  #         else
-  #           echo "✅ PR #${{ github.event.pull_request.number }} was successfully merged"
-  #           echo "Target branch: ${{ github.event.pull_request.base.ref }}"
-  #           echo "Merged commit: ${{ github.event.pull_request.merge_commit_sha }}"
-  #         fi
-
-  #     - name: Checkout merged code
-  #       uses: actions/checkout@v4
-  #       with:
-  #         ref: ${{ github.event.pull_request.base.ref }}
-
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.11'
-
-  #     - name: Set up Node.js (for Repomix)
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: '18'
-
-  #     - name: Install Repomix
-  #       run: |
-  #         npm install -g repomix
-  #         repomix --version
-
-  #     - name: Install Python dependencies
-  #       run: |
-  #         pip install --upgrade pip
-  #         pip install -r agent/requirements.txt
-
-  #     - name: Update baseline traceability map
-  #       env:
-  #         GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-  #         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-  #         LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
-  #         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  #         SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-  #         SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #         LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
-  #       run: |
-  #         python -m agent baseline-map-updater \
-  #           ${{ github.repository }} \
-  #           --branch ${{ github.event.pull_request.base.ref }} \
-  #           --since ${{ github.event.pull_request.merge_commit_sha }}~1 \
-  #           --log-level ${{ vars.LOG_LEVEL || 'INFO' }}
-  #       timeout-minutes: 20
-
-  #     - name: Upload baseline map update logs
-  #       if: always()
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: docureco-baseline-update-logs-pr-${{ github.event.pull_request.number }}
-  #         path: |
-  #           agent/*.log
-  #           /tmp/docureco*.log
-  #         retention-days: 7
-
-  #     - name: Comment on merged PR
-  #       if: success()
-  #       uses: actions/github-script@v7
-  #       with:
-  #         script: |
-  #           const mergedAt = '${{ github.event.pull_request.merged_at }}';
-  #           const baseBranch = '${{ github.event.pull_request.base.ref }}';
-  #           const headBranch = '${{ github.event.pull_request.head.ref }}';
-            
-  #           github.rest.issues.createComment({
-  #             issue_number: ${{ github.event.pull_request.number }},
-  #             owner: context.repo.owner,
-  #             repo: context.repo.repo,
-  #             body: `🗺️ **Baseline Traceability Map Updated**\n\nThe baseline traceability map for branch \`${baseBranch}\` has been automatically updated to reflect the changes from this merged pull request.\n\n**Merge Details:**\n- **From:** \`${headBranch}\` → \`${baseBranch}\`\n- **Merged at:** ${mergedAt}\n- **Workflow run:** [View logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\nThe updated baseline map will be used for future PR analysis and documentation recommendations.\n\n*Generated by Docureco Agent 🤖*`
-  #           })
