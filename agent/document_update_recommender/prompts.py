@@ -470,3 +470,25 @@ Document: {doc_path}
 {chr(10).join(docs_summary)}
 
 Generate recommendations grouped by target document with summaries and detailed recommendations."""
+
+    @staticmethod
+    def suggestion_filtering_system_prompt() -> str:
+        """System prompt for suggestion filtering"""
+        return "You are an intelligent assistant that filters duplicate documentation suggestions. Your task is to compare newly generated suggestions with existing comments on a pull request and return only the suggestions that are genuinely new and not redundant."
+
+    @staticmethod
+    def suggestion_filtering_human_prompt(generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]]) -> str:
+        """Human-readable prompt for suggestion filtering"""
+        return f"""
+Analyze the `generated_suggestions` and compare them against the `existing_suggestions` from the pull request comments. Identify and remove any generated suggestions that are duplicates or substantially similar to existing ones.
+
+A suggestion is considered a duplicate if it addresses the same document, section, and describes a similar change. Focus on the semantic meaning, not just the exact wording.
+
+Return a filtered list containing only the new, non-duplicate suggestions. The output format must match the provided JSON schema.
+
+Generated suggestions:
+{json.dumps(generated_suggestions, indent=2)}
+
+Existing suggestions:
+{json.dumps(existing_suggestions, indent=2)}
+"""

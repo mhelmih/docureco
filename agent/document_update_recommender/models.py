@@ -64,6 +64,10 @@ class RecommendationGenerationOutput(BaseModel):
     """Structured output for recommendation generation grouped by target document"""
     document_groups: List[DocumentRecommendationGroup] = Field(description="Recommendations grouped by target document")
 
+class FilteredSuggestionsOutput(BaseModel):
+    """Structured output for the suggestion filtering process."""
+    new_suggestions: List[DocumentRecommendationGroup] = Field(description="A list of new, non-duplicate document groups with recommendations.")
+
 class AssessedFinding(BaseModel):
     """Finding with likelihood and severity assessment"""
     finding_type: str = Field(description="Type of finding")

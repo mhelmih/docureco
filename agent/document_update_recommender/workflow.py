@@ -38,7 +38,8 @@ from .models import (
     ChangeGroupingOutput,
     RecommendationGenerationOutput,
     LikelihoodSeverityAssessmentOutput,
-    DocumentUpdateRecommenderState
+    DocumentUpdateRecommenderState,
+    FilteredSuggestionsOutput
 )
 
 logger = logging.getLogger(__name__)
@@ -751,12 +752,17 @@ class DocumentUpdateRecommenderWorkflow:
             
             # 4.5 Filter Against Existing & Post Details
             logger.info("Step 4.5: Filtering and posting suggestions")
+            head_sha = state.pr_event_data.get("pull_request", {}).get("head", {}).get("sha")
+            if not head_sha:
+                raise ValueError("Could not determine head SHA for status update.")
+
             final_recommendations = await self._llm_filter_and_post_suggestions(
                 generated_suggestions,
                 existing_suggestions,
                 state.repository,
                 state.pr_number,
-                state.baseline_map
+                state.baseline_map,
+                head_sha
             )
             
             state.recommendations = final_recommendations
@@ -958,7 +964,8 @@ class DocumentUpdateRecommenderWorkflow:
                             "ref": pr_data.get("base", {}).get("ref", "")
                         },
                         "head": {
-                            "ref": pr_data.get("head", {}).get("ref", "")
+                            "ref": pr_data.get("head", {}).get("ref", ""),
+                            "sha": pr_data.get("head", {}).get("sha", "")
                         }
                     },
                     "repository": {
@@ -1482,59 +1489,65 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error in LLM suggestion generation: {str(e)}")
             return []
     
-    async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int, baseline_map: Optional[BaselineMapModel]) -> List[Dict[str, Any]]:
+    async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int, baseline_map: Optional[BaselineMapModel], head_sha: str) -> List[Dict[str, Any]]:
         """
         Filter generated suggestions against existing ones and post new recommendations to PR.
         Implements duplication filtering and CI/CD status management per BAB III.md.
         """
         try:
-            # # Extract flat list of recommendations from document groups
-            # all_recommendations = []
-            # for group in generated_suggestions:
-            #     all_recommendations.extend(group.get('recommendations', []))
+            # Filter out duplicate suggestions by comparing with existing ones
+            output_parser = JsonOutputParser(pydantic_object=FilteredSuggestionsOutput)
             
-            # # Filter out duplicate suggestions by comparing with existing ones
-            # new_suggestions = []
-            # existing_bodies = [comment.get("body", "") for comment in existing_suggestions]
+            system_message = prompts.suggestion_filtering_system_prompt()
+            human_prompt = prompts.suggestion_filtering_human_prompt(generated_suggestions, existing_suggestions)
             
-            # for suggestion in all_recommendations:                
-            #     # Simple duplicate check - in production, could use semantic similarity
-            #     is_duplicate = False
-            #     for existing_body in existing_bodies:
-            #         if (suggestion.get('section', '') in existing_body and
-            #             suggestion.get('what_to_update', '') in existing_body):
-            #             is_duplicate = True
-            #             break
-                
-            #     if not is_duplicate:
-            #         new_suggestions.append(suggestion)
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                system_message=system_message + "\n" + output_parser.get_format_instructions(),
+                output_format="json",
+                temperature=0.1
+            )
             
+            filtered_suggestions = response.content["new_suggestions"]
             
-            # Use GitHub Review API for suggestions (Copilot-style)
-            logger.info(f"Creating comprehensive PR review for {len(generated_suggestions)} suggestions")
-            review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, generated_suggestions, baseline_map)
+            # Base CI/CD status on pre-filtered suggestions to reflect true documentation state
+            critical_generated_count = 0
+            total_generated_count = 0
+            for document_group in generated_suggestions:
+                for suggestion in document_group.get('recommendations', []):
+                    total_generated_count += 1
+                    if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
+                        critical_generated_count += 1
             
-            critical_recommendations = 0
-            total_recommendations = 0
+            await self._update_ci_cd_status(
+                repository, 
+                head_sha,
+                critical_generated_count, 
+                total_generated_count
+            )
+            
+            # Use GitHub Review API for the filtered (posted) suggestions
+            logger.info(f"Creating comprehensive PR review for {len(filtered_suggestions)} new suggestions")
+            review_posted = await self._create_pr_review_with_suggestions(repository, pr_number, filtered_suggestions, baseline_map)
+            
+            # Log statistics based on what was actually posted
+            critical_posted_count = 0
+            total_posted_count = 0
             if review_posted:
-                for document_group in generated_suggestions:
+                for document_group in filtered_suggestions:
                     for suggestion in document_group.get('recommendations', []):
-                        total_recommendations += 1
+                        total_posted_count += 1
                         if suggestion.get('priority', '').upper() in ['HIGH', 'CRITICAL']:
-                            critical_recommendations += 1
-                        
+                            critical_posted_count += 1
             
-            # Update CI/CD check status based on recommendations
-            await self._update_ci_cd_status(repository, pr_number, critical_recommendations, total_recommendations)
-            
-            logger.info(f"Posted {total_recommendations} new recommendations ({critical_recommendations} critical) for {len(generated_suggestions)} document(s)")
-            return generated_suggestions
+            logger.info(f"Posted {total_posted_count} new recommendations ({critical_posted_count} critical) for {len(filtered_suggestions)} document(s)")
+            return filtered_suggestions
             
         except Exception as e:
             logger.error(f"Error in filter and post suggestions: {str(e)}")
             return []
     
-    async def _update_ci_cd_status(self, repository: str, pr_number: int, critical_count: int, total_count: int) -> None:
+    async def _update_ci_cd_status(self, repository: str, head_sha: str, critical_count: int, total_count: int) -> None:
         """Update CI/CD check status based on recommendations."""
         try:
             github_token = os.getenv("GITHUB_TOKEN")
@@ -1542,21 +1555,52 @@ class DocumentUpdateRecommenderWorkflow:
                 logger.warning("GITHUB_TOKEN not found, cannot update CI/CD status")
                 return
             
+            owner, repo_name = repository.split("/")
+            
             # Determine status based on critical recommendations
             if critical_count > 0:
-                conclusion = "action_required"
-                summary = f"⚠️ {critical_count} critical documentation updates needed"
+                conclusion = "failure"
+                title = "Critical Documentation Updates Required"
+                summary = f"⚠️ Found {critical_count} critical documentation issue(s) that need to be addressed."
             elif total_count > 0:
                 conclusion = "neutral"
-                summary = f"📝 {total_count} documentation recommendations available"
+                title = "Documentation Recommendations Available"
+                summary = f"📝 Found {total_count} documentation recommendation(s)."
             else:
                 conclusion = "success"
-                summary = "✅ No documentation updates needed"
+                title = "No Documentation Updates Needed"
+                summary = "✅ All relevant documentation appears to be up-to-date."
             
-            logger.info(f"CI/CD Status: {conclusion} - {summary}")
+            logger.info(f"CI/CD Status for {head_sha}: {conclusion} - {summary}")
             
-            # Note: Actual GitHub Check Run API implementation would go here
-            # For now, we just log the intended status
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json"
+            }
+            
+            check_run_data = {
+                "name": "Docureco Agent",
+                "head_sha": head_sha,
+                "status": "completed",
+                "conclusion": conclusion,
+                "output": {
+                    "title": title,
+                    "summary": summary
+                }
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/check-runs",
+                    headers=headers,
+                    json=check_run_data
+                )
+                
+                if response.status_code == 201:
+                    logger.info(f"Successfully created check run for commit {head_sha}")
+                else:
+                    logger.error(f"Failed to create check run: {response.status_code} - {response.text}")
             
         except Exception as e:
             logger.error(f"Error updating CI/CD status: {str(e)}")
