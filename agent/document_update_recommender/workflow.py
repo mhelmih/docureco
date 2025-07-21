@@ -463,7 +463,7 @@ class DocumentUpdateRecommenderWorkflow:
                     if link.source_id not in design_to_design_map[link.target_id]:
                         design_to_design_map[link.target_id].append(link.source_id)
                 
-                if link.source_type == "Requirement" and link.target_type == "DesignElement":
+                elif link.source_type == "Requirement" and link.target_type == "DesignElement":
                     if link.target_id not in design_to_requirement_map:
                         design_to_requirement_map[link.target_id] = []
                     if link.source_id not in design_to_requirement_map[link.target_id]:
@@ -554,9 +554,6 @@ class DocumentUpdateRecommenderWorkflow:
             # Form Finding Records for this change set
             # Standard Impact findings for PIDE and PIR
             for design_element_ref_id in pide:
-                if design_element_ref_id not in design_elements_by_ref_id:
-                    logger.warning(f"Design element ID '{design_element_ref_id}' found in trace links but not in baseline map design elements list. Skipping.")
-                    continue
                 finding = {
                     "finding_type": "Standard_Impact",
                     "affected_element_id": design_elements_by_ref_id[design_element_ref_id].id,
@@ -597,9 +594,6 @@ class DocumentUpdateRecommenderWorkflow:
                 change_set_findings.append(finding)
             
             for requirement_ref_id in or_set:
-                if requirement_ref_id not in requirements_by_ref_id:
-                    logger.warning(f"Requirement ID '{requirement_ref_id}' found in trace links but not in baseline map requirements list. Skipping.")
-                    continue
                 finding = {
                     "finding_type": "Outdated_Documentation", 
                     "affected_element_id": requirements_by_ref_id[requirement_ref_id].id,
