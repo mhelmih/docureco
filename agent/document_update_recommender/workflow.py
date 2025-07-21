@@ -1468,7 +1468,7 @@ class DocumentUpdateRecommenderWorkflow:
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 output_format="json",
-                temperature=0.3  # Slightly higher for more creative recommendations
+                temperature=0.1  # Slightly higher for more creative recommendations
             )
             
             # Parse the structured response
