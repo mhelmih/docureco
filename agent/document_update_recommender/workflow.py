@@ -1528,7 +1528,7 @@ class DocumentUpdateRecommenderWorkflow:
             await self._update_ci_cd_status(repository, pr_number, critical_recommendations, total_recommendations)
             
             logger.info(f"Posted {total_recommendations} new recommendations ({critical_recommendations} critical) for {len(generated_suggestions)} document(s)")
-            return review_posted
+            return generated_suggestions
             
         except Exception as e:
             logger.error(f"Error in filter and post suggestions: {str(e)}")

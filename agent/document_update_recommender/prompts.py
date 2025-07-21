@@ -283,9 +283,10 @@ The suggested documentation content should be:
 - Professional: Well-written, clear, and follows documentation best practices
 - Relevant: Match IDs and names of the design elements and requirements with the ones in the document.
 
-**GITHUB STYLE DIFF FORMAT**
+**CRITICAL: GITHUB STYLE DIFF FORMAT**
 - Use GitHub-style diff with `+` for additions, `-` for deletions, and no prefix (just use space) for context lines and unchanged lines.
-- Keep the context lines enough to understand the change.
+- Keep the context lines enough to understand the change. REMEMBER TO ADD SPACES FOR UNMODIFIED AND CONTEXT LINES. See the example below.
+- If there are consecutive lines that need to be modified, use `-` deletion first for all consecutive lines, then use `+` addition. DO NOT ALTERNATE BETWEEN PAIRS OF `+` AND `-`. See the example below.
 - Don't add any comments.
 - Example:
 ```diff
@@ -297,7 +298,7 @@ The suggested documentation content should be:
 + | F02 | The software must allow users to view list of books.      | The user can view the list of books (with title, number of pages, status, reading start date and time, number of days since starting, number of times read, the last page read, and favorite status) stored in the software. The user can also view the number of books to be read, currently being read, and already read, including filtering by favorite status. |
 ```
 
-**CRITICAL NOTES**
+**CRITICAL: NOTES**
 - Group by Target Document: Group all recommendations by target_document 
 - Summary per Document: For each document group, provide a summary with:
    - target_document: Document path
@@ -308,6 +309,7 @@ The suggested documentation content should be:
 - If you find that two or more findings are related to the same section (or tables, diagrams, etc.) in one document, GROUP THEM INTO A SINGLE RECOMMENDATION. Make sure you produce MINIMUM THE EQUAL NUMBER OF RECOMMENDATIONS AS THE NUMBER OF SECTIONS AFFECTED.
 - The number of recommendations does not need to be the same as the number of findings. If there are many small recommendations in one section (or tabes, diagrams, etc.) per document, please think again, it may be a sign that the recommendations need to be grouped into a single recommendation.
 - DO NOT recommend updating the same section (or tables, diagrams, etc.) multiple times in one document.
+- If there are multiple sections (or design elements, tables, diagrams, etc.) that are affected by the same code changes with the same recommendations content, KEEP GENERATE THE SUGGESTED CONTENT FOR EACH SECTION / DESIGN ELEMENTS. For example, there are changes needed for design components A, B, C, and D to add 2-3 more attributes (the suggestion contents might be the same or just slightly different for each section/design elements). DO NOT JUST PRODUCE SUGGESTION CONTENT FOR ONLY 1 DESIGN COMPONENT. PRODUCE SUGGESTIONS FOR ALL ATTRIBUTE (A, B, C, and D).
 - NEVER USE the auto-generated IDs (the affected element IDs) of the design elements and requirements that are not mentioned inside the document both across all fields (overview, what to update, suggested content, etc.). Use the IDs from the document (or reference_id in the findings) if available.
 - The target document path is specified at the document group level in the summary, not in individual recommendations.
 - For every modifications type of finding, analyze first before modifying the current document content. Be careful of what is being modified since it could leads to unecessary updates to design elements or requirements.
