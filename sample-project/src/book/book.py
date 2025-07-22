@@ -3,12 +3,14 @@ class Book:
     _bookTitle = ""
     _bookStatus = ""
     _totalPages = 0
+    _isFavorite = False
 
-    def __init__(self, bookId, bookTitle, bookStatus, totalPages) -> None:
+    def __init__(self, bookId, bookTitle, bookStatus, totalPages, isFavorite=False) -> None:
         self._bookId = bookId
         self._bookTitle = bookTitle
         self._bookStatus = bookStatus
         self._totalPages = totalPages
+        self._isFavorite = isFavorite
         
 
     def get_bookId(self) :
@@ -23,6 +25,9 @@ class Book:
     def get_totalPages(self) :
         return self._totalPages
     
+    def get_isFavorite(self) :
+        return self._isFavorite
+    
     def set_bookId(self, bookId) :
         self._bookId = bookId
 
@@ -35,6 +40,9 @@ class Book:
     def set_totalPages(self, totalPages) :
         self._totalPages = totalPages
 
+    def set_isFavorite(self, isFavorite) :
+        self._isFavorite = isFavorite
+
     def __eq__(self, value: object) -> bool:
 
         if (not isinstance(value, Book)) :
@@ -43,6 +51,7 @@ class Book:
         res = self.get_bookTitle() == value.get_bookTitle()
         res = res and self.get_bookStatus() == value.get_bookStatus()
         res = res and self.get_totalPages() == value.get_totalPages()
+        res = res and self.get_isFavorite() == value.get_isFavorite()
         return res
     
     def delete_by_id(self, id) :
