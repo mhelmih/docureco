@@ -134,3 +134,36 @@ jobs:
             agent/*.log
             /tmp/docureco*.log
           retention-days: 7
+
+      - name: Upload Recommendations Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recommendations-pr-${{ steps.pr_info.outputs.pr_number }}
+          path: recommendations.json
+          retention-days: 30
+
+      - name: Create Summary
+        if: always()
+        run: |
+          echo "## 📄 PR Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR:** [${{ steps.pr_info.outputs.repository }}#${{ steps.pr_info.outputs.pr_number }}](${{ steps.pr_info.outputs.pr_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "recommendations.json" ]; then
+            RECOMMENDATION_COUNT=$(jq '. | length' recommendations.json)
+            echo "### Recommendations" >> $GITHUB_STEP_SUMMARY
+            echo "- **${RECOMMENDATION_COUNT}** recommendations generated." >> $GITHUB_STEP_SUMMARY
+            echo "- See the 'Docureco Agent' PR review and CI/CD check for details." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### No Recommendations File" >> $GITHUB_STEP_SUMMARY
+            echo "The `recommendations.json` artifact was not created." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Workflow Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Actor:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
