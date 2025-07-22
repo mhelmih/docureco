@@ -465,7 +465,7 @@ Document: {doc_path}
 {chr(10).join(change_sets_summary)}
 
 **Current Documentation Content:**
-{chr(10).join(docs_summary)}
+{docs_summary}
 
 Generate recommendations for the target document with summaries and detailed recommendations."""
 
