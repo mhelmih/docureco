@@ -1431,63 +1431,73 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error fetching existing suggestions: {str(e)}")
             return []
     
-
-    
     async def _llm_generate_suggestions(self, filtered_findings: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Generate specific documentation update recommendations using LLM.
-        Processes all findings at once for efficient batch recommendation generation.
+        Processes each target document in parallel for focused, high-quality recommendations.
         """
         try:
-            if not filtered_findings:
+            if not filtered_findings or not current_docs:
                 return []
+
+            # Create a list of async tasks, one for each document
+            tasks = []
+            for doc_path, doc_info in current_docs.items():
+                task = self._generate_suggestions_for_document(
+                    doc_path,
+                    doc_info,
+                    filtered_findings,
+                    logical_change_sets
+                )
+                tasks.append(task)
             
-            # Add action type to each finding based on finding type (per BAB III.md Table III.2)
-            findings_with_actions = []
-            for finding in filtered_findings:
-                finding_with_action = finding.copy()
-                finding_type = finding.get("finding_type", "")
-                
-                if finding_type == "Standard_Impact":
-                    finding_with_action["recommended_action"] = "Modification" 
-                elif finding_type == "Outdated_Documentation":
-                    finding_with_action["recommended_action"] = "Review/Delete"
-                elif finding_type == "Documentation_Gap":
-                    finding_with_action["recommended_action"] = "Create"
-                elif finding_type == "Traceability_Anomaly":
-                    finding_with_action["recommended_action"] = "Investigate Map"
-                else:
-                    finding_with_action["recommended_action"] = "Review"
-                
-                findings_with_actions.append(finding_with_action)
+            # Run all tasks in parallel
+            document_group_results = await asyncio.gather(*tasks)
             
-            # Create output parser for structured response
+            # Combine results from all tasks
+            all_document_groups = []
+            for group_list in document_group_results:
+                if group_list:
+                    all_document_groups.extend(group_list)
+            
+            logger.info(f"Generated recommendations for {len(all_document_groups)} document(s) from {len(filtered_findings)} findings.")
+            return all_document_groups
+            
+        except Exception as e:
+            logger.error(f"Error in parallel suggestion generation: {str(e)}")
+            return []
+
+    async def _generate_suggestions_for_document(self, doc_path: str, doc_info: Dict[str, Any], all_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+        """Helper function to generate suggestions for a single document."""
+        try:
             output_parser = JsonOutputParser(pydantic_object=RecommendationGenerationOutput)
             
-            # Get prompts for recommendation generation
             system_message = prompts.recommendation_generation_system_prompt()
             human_prompt = prompts.recommendation_generation_human_prompt(
-                findings_with_actions, current_docs, logical_change_sets
+                all_findings, doc_path, doc_info, logical_change_sets
             )
             
-            # Generate recommendations using LLM with structured output
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 output_format="json",
-                temperature=0.1  # Slightly higher for more creative recommendations
+                temperature=0.1
             )
             
             # Parse the structured response
             recommendation_result = response.content
-            document_groups = recommendation_result["document_groups"]
+            document_groups = recommendation_result.get("document_groups", [])
             
-            logger.info(f"Generated recommendations for {len(document_groups)} document groups from {len(filtered_findings)} findings")
-            return document_groups
-            
+            if document_groups:
+                logger.info(f"Successfully generated {len(document_groups[0].get('recommendations', []))} recommendations for {doc_path}")
+                return document_groups
+            else:
+                logger.info(f"No relevant recommendations generated for {doc_path}")
+                return None
+                
         except Exception as e:
-            logger.error(f"Error in LLM suggestion generation: {str(e)}")
-            return []
+            logger.error(f"Error generating suggestions for document {doc_path}: {str(e)}")
+            return None
     
     async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int, baseline_map: Optional[BaselineMapModel], head_sha: str) -> List[Dict[str, Any]]:
         """

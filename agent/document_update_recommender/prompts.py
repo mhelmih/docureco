@@ -301,15 +301,16 @@ The suggested documentation content should be:
 ```
 
 **CRITICAL: NOTES**
-- Group by Target Document: Group all recommendations by target_document 
-- Summary per Document: For each document group, provide a summary with:
+- Group by Target Document: Group all recommendations by target_document (you will only be given 1 document to generate recommendations for)
+- Summary per Document: For the document you are given, provide a summary with:
    - target_document: Document path
    - total_recommendations: Count of recommendations for this document
    - high_priority_count, medium_priority_count, low_priority_count: Priority breakdown
    - overview: Brief description of what needs updating in this document. If there are traceability anomalies, mention it in the overview.
    - sections_affected: List of sections that need updates
-- If you find that two or more findings are related to the same section (or tables, diagrams, etc.) in one document, GROUP THEM INTO A SINGLE RECOMMENDATION. Make sure you produce MINIMUM THE EQUAL NUMBER OF RECOMMENDATIONS AS THE NUMBER OF SECTIONS AFFECTED.
-- The number of recommendations does not need to be the same as the number of findings. If there are many small recommendations in one section (or tabes, diagrams, etc.) per document, please think again, it may be a sign that the recommendations need to be grouped into a single recommendation.
+- You DO NOT HAVE TO use all findings. Just use findings that are related to the document you are given.
+- If you find that two or more findings are related to the same section (or tables, diagrams, etc.), GROUP THEM INTO A SINGLE RECOMMENDATION. Make sure you produce MINIMUM THE EQUAL NUMBER OF RECOMMENDATIONS AS THE NUMBER OF SECTIONS AFFECTED.
+- The number of recommendations does not need to be the same as the number of relevant findings. If there are many small recommendations in one section (or tabes, diagrams, etc.) per document, please think again, it may be a sign that the recommendations need to be grouped into a single recommendation.
 - DO NOT recommend updating the same section (or tables, diagrams, etc.) multiple times in one document.
 - If there are multiple design elements or requirements with the same type in different sections (or tables) that are affected by the same code changes with the same recommendations content, KEEP GENERATE THE SUGGESTED CONTENT FOR DESIGN ELEMENTS. For example, there are changes needed for class A, B, C, and D to add 2-3 more attributes (the suggestion contents might be the same or just slightly different for each class). DO NOT JUST PRODUCE SUGGESTION CONTENT FOR ONLY 1 CLASS. PRODUCE SUGGESTIONS FOR ALL CLASSES. But, if those design elements are located in the same section (or table), you MUST group them into a single recommendation.
 - NEVER USE the auto-generated IDs (the affected element IDs) of the design elements and requirements that are not mentioned inside the document both across all fields (overview, what to update, suggested content, etc.). Use the IDs from the document (or reference_id in the findings) if available.
@@ -391,7 +392,7 @@ You will also be provided with the Logical Change Sets and the current documenta
 The response will be automatically structured with detailed recommendations and complete documentation snippets."""
     
     @staticmethod
-    def recommendation_generation_human_prompt(findings_with_actions: List[Dict[str, Any]], current_docs: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> str:
+    def recommendation_generation_human_prompt(findings_with_actions: List[Dict[str, Any]], doc_path: str, doc_info: Dict[str, Any], logical_change_sets: List[Dict[str, Any]]) -> str:
         """Human prompt for recommendation generation with content snippets"""
         
         findings_summary = []
@@ -451,13 +452,10 @@ Change Set {i+1}: {change_set.get('name', 'Unknown')}
 {chr(10).join(changes_summary)}
 """)
         
-        docs_summary = []
-        for doc_path, doc_info in current_docs.items():
-            docs_summary.append(f"""
+        docs_summary = f"""
 Document: {doc_path}
 - Document Type: {doc_info.get('document_type', 'N/A')}
-- Content: {doc_info.get('content', 'N/A')}
-""")
+- Content: {doc_info.get('content', 'N/A')}"""
         
         return f"""Generate specific documentation update recommendations with COMPLETE documentation content snippets for the following findings:
 **Findings:**
@@ -469,7 +467,7 @@ Document: {doc_path}
 **Current Documentation Content:**
 {chr(10).join(docs_summary)}
 
-Generate recommendations grouped by target document with summaries and detailed recommendations."""
+Generate recommendations for the target document with summaries and detailed recommendations."""
 
     @staticmethod
     def suggestion_filtering_system_prompt() -> str:
