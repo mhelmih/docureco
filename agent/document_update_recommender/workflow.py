@@ -399,7 +399,7 @@ class DocumentUpdateRecommenderWorkflow:
         """
         Get traceability status based on change type and baseline map presence.
         
-        Returns status according to Table III.1 in BAB III.md.
+        Returns status
         """
         is_in_baseline = file_path in code_component_lookup
         
@@ -1502,7 +1502,7 @@ class DocumentUpdateRecommenderWorkflow:
     async def _llm_filter_and_post_suggestions(self, generated_suggestions: List[Dict[str, Any]], existing_suggestions: List[Dict[str, Any]], repository: str, pr_number: int, baseline_map: Optional[BaselineMapModel], head_sha: str) -> List[Dict[str, Any]]:
         """
         Filter generated suggestions against existing ones and post new recommendations to PR.
-        Implements duplication filtering and CI/CD status management per BAB III.md.
+        Implements duplication filtering and CI/CD status management
         """
         try:
             # Filter out duplicate suggestions by comparing with existing ones

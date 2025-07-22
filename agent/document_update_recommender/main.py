@@ -28,7 +28,7 @@ async def main():
     parser.add_argument("pr_url", help="GitHub PR URL to analyze (e.g., https://github.com/owner/repo/pull/123)")
     parser.add_argument("--output", help="Output file for recommendations (default: stdout)")
     parser.add_argument("--format", choices=["json", "markdown", "text"], default="text", 
-                        help="Output format (default: text)")
+                        help="Output format (default: json)")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], 
                         help="Logging level (default: INFO)")
     
