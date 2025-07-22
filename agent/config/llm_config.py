@@ -5,9 +5,11 @@ Supports Grok 3 Mini Reasoning (High) as specified in Q10 analysis
 
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Optional
 from pydantic import BaseModel, Field
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 class LLMProvider(str, Enum):
     """Supported LLM providers"""
@@ -23,45 +25,15 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=100000, gt=0)
+    max_tokens: int = Field(default=200000, gt=0)
     max_retries: int = Field(default=3, ge=0)
-    request_timeout: int = Field(default=120, gt=0)
+    request_timeout: int = Field(default=300, gt=0)
+    reasoning_effort: str = Field(default="high")
     
     # Grok 3 specific settings based on benchmark analysis
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
-
-class TaskSpecificConfig(BaseModel):
-    """Task-specific LLM configurations for different Docureco processes"""
-    
-    # For Code Change Classification (FR-B1)
-    code_analysis: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.1,  # Low temperature for consistent classification
-        "max_tokens": 100000,
-        "system_prompt_template": "code_change_classifier"
-    })
-    
-    # For Traceability Mapping (FR-C1, FR-C2)
-    traceability_mapping: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.2,
-        "max_tokens": 100000,
-        "system_prompt_template": "traceability_mapper"
-    })
-    
-    # For Impact Analysis (FR-C4)
-    impact_assessment: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.15,
-        "max_tokens": 100000,
-        "system_prompt_template": "impact_assessor"
-    })
-    
-    # For Recommendation Generation (FR-D1)
-    recommendation_generation: Dict[str, Any] = Field(default_factory=lambda: {
-        "temperature": 0.3,  # Slightly higher for creative recommendation text
-        "max_tokens": 100000,
-        "system_prompt_template": "recommendation_generator"
-    })
 
 def get_llm_config() -> LLMConfig:
     """
@@ -85,15 +57,15 @@ def get_llm_config() -> LLMConfig:
     elif grok_api_key and grok_api_key.startswith("xai-"):
         # Auto-detect Grok/xAI based on key format
         provider = LLMProvider.GROK
-        print(f"Auto-detected Grok provider based on xAI API key format")
+        logger.info(f"Auto-detected Grok provider based on xAI API key format")
     elif openai_api_key and openai_api_key.startswith("sk-"):
         # Auto-detect OpenAI based on key format
         provider = LLMProvider.OPENAI
-        print(f"Auto-detected OpenAI provider based on key format")
+        logger.info(f"Auto-detected OpenAI provider based on key format")
     else:
         # Default to Grok as specified in requirements
         provider = LLMProvider.GROK
-        print(f"Using default Grok provider")
+        logger.info(f"Using default Grok provider")
     
     if provider == LLMProvider.GROK:
         # Grok 3 configuration
@@ -106,11 +78,11 @@ def get_llm_config() -> LLMConfig:
             api_key=grok_api_key,
             base_url=grok_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
-            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "10000")),
+            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
-            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120"))
+            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "300")),
+            reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
         )
-        print(f"Configured Grok provider with base_url: {config.base_url}")
     else:
         # OpenAI fallback configuration
         # For OpenAI, base_url can be None (uses default)
@@ -122,11 +94,11 @@ def get_llm_config() -> LLMConfig:
             api_key=openai_api_key,
             base_url=openai_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
-            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "4000")),
+            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
-            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "120"))
+            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "300")),
+            reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
         )
-        print(f"Configured OpenAI provider with base_url: {config.base_url}")
     
     return config
 
@@ -148,10 +120,10 @@ def setup_langsmith() -> None:
         if not os.getenv("LANGCHAIN_PROJECT"):
             os.environ["LANGCHAIN_PROJECT"] = "docureco-agent"
         
-        print(f"✅ LangSmith enabled for project: {os.getenv('LANGCHAIN_PROJECT')}")
-        print(f"🔍 Tracing enabled - view runs at: https://smith.langchain.com/")
+        logger.info(f"✅ LangSmith enabled for project: {os.getenv('LANGCHAIN_PROJECT')}")
+        logger.info(f"🔍 Tracing enabled - view runs at: https://smith.langchain.com/")
     else:
-        print("⚠️  LangSmith not configured - set LANGCHAIN_API_KEY to enable tracing")
+        logger.info("⚠️  LangSmith not configured - set LANGCHAIN_API_KEY to enable tracing")
 
 def setup_logging(level: str = "INFO") -> None:
     """
@@ -181,14 +153,5 @@ def setup_logging(level: str = "INFO") -> None:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-def get_task_config() -> TaskSpecificConfig:
-    """
-    Get task-specific LLM configurations
-    
-    Returns:
-        TaskSpecificConfig: Task-specific settings
-    """
-    return TaskSpecificConfig()
-
 # Export configurations
-__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith", "setup_logging"] 
+__all__ = ["LLMProvider", "LLMConfig", "get_llm_config", "setup_langsmith", "setup_logging"] 

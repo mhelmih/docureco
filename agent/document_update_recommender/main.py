@@ -9,7 +9,6 @@ import os
 import sys
 import argparse
 import logging
-from pathlib import Path
 
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,14 +22,13 @@ from agent.config.llm_config import setup_logging
 
 logger = logging.getLogger(__name__)
 
-
 async def main():
     """Main function for document update recommender"""
     parser = argparse.ArgumentParser(description="Recommend documentation updates based on code changes and traceability analysis")
     parser.add_argument("pr_url", help="GitHub PR URL to analyze (e.g., https://github.com/owner/repo/pull/123)")
     parser.add_argument("--output", help="Output file for recommendations (default: stdout)")
     parser.add_argument("--format", choices=["json", "markdown", "text"], default="text", 
-                        help="Output format (default: text)")
+                        help="Output format (default: json)")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], 
                         help="Logging level (default: INFO)")
     
@@ -44,45 +42,20 @@ async def main():
         workflow = DocumentUpdateRecommenderWorkflow()
         
         print(f"Analyzing documentation update needs for PR: {args.pr_url}")
-        print("Following 5-step process:")
-        print("1. Scan PR")
-        print("2. Analyze Code Changes")
-        print("3. Assess Documentation Impact")
-        print("4. Generate and Post Recommendations")
-        print("5. Complete")
         
         final_state = await workflow.execute(args.pr_url)
         
         # Get recommendations and stats
-        recommendations = final_state.recommendations
-        stats = final_state.processing_stats
-        
-        # Print summary
-        print("\n" + "="*50)
-        print("DOCUMENTATION UPDATE RECOMMENDATIONS")
-        print("="*50)
-        print(f"PR URL: {args.pr_url}")
-        print(f"Repository: {final_state.repository}")
-        print(f"PR Number: {final_state.pr_number}")
-        print(f"Branch: {final_state.branch}")
-        print(f"Files Changed: {stats.get('pr_files_changed', 0)}")
-        print(f"Logical Change Sets: {stats.get('logical_change_sets', 0)}")
-        print(f"Potentially Impacted Elements: {stats.get('potentially_impacted_elements', 0)}")
-        print(f"High Priority Findings: {stats.get('high_priority_findings', 0)}")
-        print(f"Final Recommendations: {len(recommendations)}")
-        
-        if final_state.errors:
-            print(f"\nErrors encountered: {len(final_state.errors)}")
-            for error in final_state.errors[:3]:  # Show first 3 errors
-                print(f"  - {error}")
+        recommendations = final_state['recommendations']
         
         print("="*50)
         
         # Count recommendations by priority
         priority_counts = {}
-        for rec in recommendations:
-            priority = getattr(rec, 'priority', 'unknown')
-            priority_counts[priority] = priority_counts.get(priority, 0) + 1
+        for group in recommendations:
+            for rec in group.get('recommendations', []):
+                priority = rec.get('priority', 'unknown')
+                priority_counts[priority] = priority_counts.get(priority, 0) + 1
         
         if priority_counts:
             print("\nRecommendations by Priority:")
@@ -95,74 +68,63 @@ async def main():
             with open(args.output, 'w') as f:
                 if args.format == "json":
                     import json
-                    # Convert recommendations to dict for JSON serialization
-                    recommendations_dict = []
-                    for rec in recommendations:
-                        rec_dict = {
-                            "target_document": rec.target_document,
-                            "section": rec.section,
-                            "recommendation_type": rec.recommendation_type.value if hasattr(rec.recommendation_type, 'value') else str(rec.recommendation_type),
-                            "priority": rec.priority,
-                            "what_to_update": rec.what_to_update,
-                            "where_to_update": rec.where_to_update,
-                            "why_update_needed": rec.why_update_needed,
-                            "how_to_update": rec.how_to_update,
-                            "affected_element_id": rec.affected_element_id,
-                            "affected_element_type": rec.affected_element_type,
-                            "confidence_score": rec.confidence_score,
-                            "status": rec.status.value if hasattr(rec.status, 'value') else str(rec.status)
-                        }
-                        recommendations_dict.append(rec_dict)
-                    json.dump(recommendations_dict, f, indent=2)
+                    json.dump(recommendations, f, indent=2)
                 elif args.format == "markdown":
                     f.write("# Documentation Update Recommendations\n\n")
                     f.write(f"**PR URL:** {args.pr_url}\n\n")
-                    f.write(f"**Repository:** {final_state.repository}\n\n")
-                    f.write(f"**PR Number:** {final_state.pr_number}\n\n")
-                    f.write(f"**Branch:** {final_state.branch}\n\n")
-                    f.write("## Recommendations\n\n")
-                    for i, rec in enumerate(recommendations, 1):
-                        f.write(f"### {i}. {rec.target_document}\n\n")
-                        f.write(f"**Priority:** {rec.priority}\n\n")
-                        f.write(f"**Section:** {rec.section}\n\n")
-                        f.write(f"**Type:** {rec.recommendation_type}\n\n")
-                        f.write(f"**What to Update:** {rec.what_to_update}\n\n")
-                        f.write(f"**Where to Update:** {rec.where_to_update}\n\n")
-                        f.write(f"**Why Update Needed:** {rec.why_update_needed}\n\n")
-                        f.write(f"**How to Update:** {rec.how_to_update}\n\n")
-                        f.write(f"**Confidence Score:** {rec.confidence_score}\n\n")
-                        f.write("---\n\n")
+                    
+                    rec_counter = 1
+                    for group in recommendations:
+                        summary = group.get('summary', {})
+                        target_document = summary.get('target_document', 'Unknown Document')
+                        f.write(f"## Document: {target_document}\n\n")
+                        for rec in group.get('recommendations', []):
+                            f.write(f"### Recommendation {rec_counter}\n\n")
+                            f.write(f"**Priority:** {rec.get('priority', 'N/A')}\n\n")
+                            f.write(f"**Section:** {rec.get('section', 'N/A')}\n\n")
+                            f.write(f"**Type:** {rec.get('recommendation_type', 'N/A')}\n\n")
+                            f.write(f"**What to Update:** {rec.get('what_to_update', 'N/A')}\n\n")
+                            f.write(f"**Why Update Needed:** {rec.get('why_update_needed', 'N/A')}\n\n")
+                            f.write(f"**Suggested Content:**\n```diff\n{rec.get('suggested_content', 'N/A')}\n```\n\n")
+                            f.write("---\n\n")
+                            rec_counter += 1
                 else:  # text format
                     f.write(f"Documentation Update Recommendations\n")
-                    f.write(f"PR URL: {args.pr_url}\n")
-                    f.write(f"Repository: {final_state.repository}\n")
-                    f.write(f"PR Number: {final_state.pr_number}\n")
-                    f.write(f"Branch: {final_state.branch}\n\n")
-                    f.write("Recommendations:\n\n")
-                    for i, rec in enumerate(recommendations, 1):
-                        f.write(f"{i}. {rec.target_document}\n")
-                        f.write(f"   Priority: {rec.priority}\n")
-                        f.write(f"   Section: {rec.section}\n")
-                        f.write(f"   Type: {rec.recommendation_type}\n")
-                        f.write(f"   What: {rec.what_to_update}\n")
-                        f.write(f"   Where: {rec.where_to_update}\n")
-                        f.write(f"   Why: {rec.why_update_needed}\n")
-                        f.write(f"   How: {rec.how_to_update}\n")
-                        f.write(f"   Confidence: {rec.confidence_score}\n")
-                        f.write("\n")
+                    f.write(f"PR URL: {args.pr_url}\n\n")
+                    rec_counter = 1
+                    for group in recommendations:
+                        summary = group.get('summary', {})
+                        target_document = summary.get('target_document', 'Unknown Document')
+                        f.write(f"\n--- Document: {target_document} ---\n")
+                        for rec in group.get('recommendations', []):
+                            f.write(f"\n{rec_counter}. Recommendation\n")
+                            f.write(f"   Priority: {rec.get('priority', 'N/A')}\n")
+                            f.write(f"   Section: {rec.get('section', 'N/A')}\n")
+                            f.write(f"   Type: {rec.get('recommendation_type', 'N/A')}\n")
+                            f.write(f"   What: {rec.get('what_to_update', 'N/A')}\n")
+                            f.write(f"   Why: {rec.get('why_update_needed', 'N/A')}\n")
+                            f.write(f"   Suggested Content:\n---\n{rec.get('suggested_content', 'N/A')}\n---\n")
+                            rec_counter += 1
             
             print(f"📄 Recommendations saved to: {args.output}")
         else:
             # Print to stdout
             if recommendations:
                 print("\nTop 5 Recommendations:")
-                for i, rec in enumerate(recommendations[:5], 1):
-                    print(f"{i}. {rec.target_document}")
-                    print(f"   Priority: {rec.priority}")
-                    print(f"   What: {rec.what_to_update}")
-                    print(f"   Why: {rec.why_update_needed}")
-                    print(f"   Confidence: {rec.confidence_score}")
-                    print()
+                all_recs = []
+                for group in recommendations:
+                    target_doc = group.get('summary', {}).get('target_document', 'Unknown')
+                    for rec in group.get('recommendations', []):
+                        rec['target_document'] = target_doc
+                        all_recs.append(rec)
+
+                for i, rec in enumerate(all_recs[:5], 1):
+                    print(f"\n{i}. Document: {rec.get('target_document', 'N/A')}")
+                    print(f"   Section: {rec.get('section', 'N/A')}")
+                    print(f"   Priority: {rec.get('priority', 'N/A')}")
+                    print(f"   What: {rec.get('what_to_update', 'N/A')}")
+                    print(f"   Why: {rec.get('why_update_needed', 'N/A')}")
+                    print(f"   Suggested Content:\n---\n{rec.get('suggested_content', 'N/A')}\n---")
             else:
                 print("\nNo recommendations generated.")
         

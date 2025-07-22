@@ -68,13 +68,13 @@ class SupabaseClient:
         """
         try:
             # Get baseline map record
-            response = self.client.table("baseline_maps").select("""
-                id, repository, branch, created_at, updated_at,
-                requirements (id, title, description, type, priority, section),
-                design_elements (id, name, description, type, section),
-                code_components (id, path, type, name),
-                traceability_links (id, source_type, source_id, target_type, target_id, relationship_type)
-            """).eq("repository", repository).eq("branch", branch).order("updated_at", desc=True).limit(1).execute()
+            response = self.client.table("baseline_maps").select(
+                "id, repository, branch, created_at, updated_at, "
+                "requirements (id, title, description, type, priority, section, reference_id), "
+                "design_elements (id, name, description, type, section, reference_id), "
+                "code_components (id, path, type, name), "
+                "traceability_links (id, source_type, source_id, target_type, target_id, relationship_type)"
+            ).eq("repository", repository).eq("branch", branch).order("updated_at", desc=True).limit(1).execute()
             
             if not response.data:
                 logger.info(f"No baseline map found for {repository}:{branch}")
@@ -184,7 +184,8 @@ class SupabaseClient:
                 "description": req["description"],
                 "type": req["type"],
                 "priority": req.get("priority", "Medium"),
-                "section": req["section"]
+                "section": req["section"],
+                "reference_id": req.get("reference_id")
             })
         
         self.client.table("requirements").insert(records).execute()
@@ -202,7 +203,8 @@ class SupabaseClient:
                 "name": element["name"],
                 "description": element["description"],
                 "type": element["type"],
-                "section": element["section"]
+                "section": element["section"],
+                "reference_id": element.get("reference_id")
             })
         
         self.client.table("design_elements").insert(records).execute()

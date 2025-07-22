@@ -78,7 +78,7 @@ This structure chart shows the calling relationships between the six modules in 
 
 ---
 
-### 3. Overall Class Diagram
+## 3. Overall Class Diagram
 
 ![Overall Class Diagram](diagram-class-design.png)
 
@@ -90,13 +90,13 @@ The application's architecture is designed using a clear separation of concerns,
 
 - **Boundary Classes** (`MainRouter`, `ReadBuddy`, `BookDisplay`, etc.): These classes constitute the user interface (View) layer. They are responsible for rendering the application's windows, forms, and data displays. They do not contain business logic but instead delegate user actions to the appropriate **Control** classes. For example, when a user clicks "Add Book" in the `ReadBuddy` view, the action is passed to the `BookCollection` to create a new record. The Boundary classes then receive data back from the Control classes to display to the user. `MainRouter` handles navigation between different views.
 
-### 4. Detailed Class Design
+## 4. Detailed Class Design
 
 This section provides a detailed breakdown of each class based on class diagram above.
 
-#### 4.1 Entity Classes
+### 4.1 Entity Classes
 
-##### 4.1.1 Class: Book
+#### 4.1.1 Class: Book
 
 **Class Name**: `Book`
 
@@ -118,7 +118,7 @@ This section provides a detailed breakdown of each class based on class diagram 
 | `_bookStatus`                | private        | String                                       |
 | `_totalPages`                | private        | Integer                                      |
 
-##### 4.1.2 Class: Note
+#### 4.1.2 Class: Note
 
 **Class Name**: `Note`
 
@@ -140,7 +140,7 @@ This section provides a detailed breakdown of each class based on class diagram 
 | `_bookPage`                    | private        | Integer                                      |
 | `_noteContent`                 | private        | String                                       |
 
-##### 4.1.3 Class: ReadingProgress
+#### 4.1.3 Class: ReadingProgress
 
 **Class Name**: `ReadingProgress`
 
@@ -164,9 +164,9 @@ This section provides a detailed breakdown of each class based on class diagram 
 
 ---
 
-#### 4.2 Control Classes
+### 4.2 Control Classes
 
-##### 4.2.1 Class: BookCollection
+#### 4.2.1 Class: BookCollection
 
 **Class Name**: `BookCollection`
 
@@ -184,7 +184,7 @@ This section provides a detailed breakdown of each class based on class diagram 
 | `_conn`              | private        | sqlite3.Connection                               |
 | `_cursor`            | private        | sqlite3.Cursor                                   |
 
-##### 4.2.2 Class: NoteCollection
+#### 4.2.2 Class: NoteCollection
 
 **Class Name**: `NoteCollection`
 
@@ -205,7 +205,7 @@ This section provides a detailed breakdown of each class based on class diagram 
 | `_conn`                           | private        | sqlite3.Connection                                           |
 | `_cursor`                         | private        | sqlite3.Cursor                                               |
 
-##### 4.2.3 Class: ReadingProgressCollection
+#### 4.2.3 Class: ReadingProgressCollection
 
 **Class Name**: `ReadingProgressCollection`
 
@@ -225,11 +225,11 @@ This section provides a detailed breakdown of each class based on class diagram 
 
 ---
 
-#### 4.3 Boundary Classes
+### 4.3 Boundary Classes
 
 _Note: For UI classes, methods often correspond to building UI components or handling user events. Attributes are typically UI widgets._
 
-##### 4.3.1 Class: MainRouter
+#### 4.3.1 Class: MainRouter
 
 **Class Name**: `MainRouter`
 
@@ -240,7 +240,7 @@ _Note: For UI classes, methods often correspond to building UI components or han
 | **Attribute Name**          | **Visibility** | **Type**                                 |
 | _(No attributes specified)_ | -              | -                                        |
 
-##### 4.3.2 Class: ReadBuddy
+#### 4.3.2 Class: ReadBuddy
 
 **Class Name**: `ReadBuddy`
 
@@ -258,7 +258,7 @@ _Note: For UI classes, methods often correspond to building UI components or han
 | `filter`                   | private        | ft.Tabs                                                  |
 | `items_left`               | private        | ft.Text                                                  |
 
-##### 4.3.3 Class: BookDisplay
+#### 4.3.3 Class: BookDisplay
 
 **Class Name**: `BookDisplay`
 
@@ -277,7 +277,7 @@ _Note: For UI classes, methods often correspond to building UI components or han
 | `detail_view_1`           | private        | ft.Row                                                        |
 | `detail_view_2`           | private        | ft.Row                                                        |
 
-##### 4.3.4 Other Boundary Classes
+#### 4.3.4 Other Boundary Classes
 
 - **BookCollectionDisplay**: Builds the application icon and the main list of books.
 - **BookDetail**: Manages the detailed view of a book, including logic for uploading a book cover.

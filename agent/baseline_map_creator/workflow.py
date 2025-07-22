@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from langchain_core.output_parsers import JsonOutputParser
 
-
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -22,7 +21,6 @@ root_dir = os.path.dirname(parent_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, root_dir)
 
-from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -33,47 +31,13 @@ from agent.models.docureco_models import (
     CodeComponentModel, TraceabilityLinkModel
 )
 from .prompts import BaselineMapCreatorPrompts as prompts
+from .models import (
+    DesignElementsWithMatrixOutput,
+    RequirementsWithDesignElementsOutput,
+    RelationshipListOutput
+)
 
 logger = logging.getLogger(__name__)
-
-# Structured output models
-class DesignElementOutput(BaseModel):
-    """Structured output for design elements"""
-    name: str = Field(description="Clear, descriptive name of the design element")
-    description: str = Field(description="Brief description of purpose/functionality")
-    type: str = Field(description="Category (Service, Class, Interface, Component, Database, UI, etc.)")
-    section: str = Field(description="Section reference from the document")
-
-class TraceabilityMatrixEntry(BaseModel):
-    """Structured output for traceability matrix entries"""
-    source_id: str = Field(description="ID of the source artifact (e.g., 'REQ-001', 'DE-001', etc.)")
-    target_id: str = Field(description="ID of the target artifact (e.g., 'DE-002', 'UC01', etc.)")
-    relationship_type: str = Field(default="unclassified", description="Relationship type (will be classified later)")
-    source_file: str = Field(description="File path where this relationship was found")
-
-class DesignElementsWithMatrixOutput(BaseModel):
-    """Structured output for design elements and traceability matrix extraction"""
-    design_elements: List[DesignElementOutput] = Field(description="List of design elements found")
-    traceability_matrix: List[TraceabilityMatrixEntry] = Field(description="List of traceability relationships found")
-
-class RequirementOutput(BaseModel):
-    """Structured output for requirements"""
-    title: str = Field(description="Clear, concise title of the requirement")
-    description: str = Field(description="Detailed description of what is required")
-    type: str = Field(description="Category (Functional, Non-Functional, Business, User, System, etc.)")
-    priority: str = Field(description="Importance level (High, Medium, Low)")
-    section: str = Field(description="Section reference from the document")
-
-class RequirementsWithDesignElementsOutput(BaseModel):
-    """Structured output for requirements and design elements extraction"""
-    requirements: List[RequirementOutput] = Field(description="List of requirements found")
-    design_elements: List[DesignElementOutput] = Field(description="List of design elements found")
-
-class RelationshipOutput(BaseModel):
-    """Structured output for relationships"""
-    source_id: str = Field(description="ID of the source element")
-    target_id: str = Field(description="ID of the target element")
-    relationship_type: str = Field(description="Type of relationship")
 
 BaselineMapCreatorState = Dict[str, Any]
 
@@ -107,7 +71,7 @@ class BaselineMapCreatorWorkflow:
         # Check if Repomix is available
         try:
             subprocess.run(["repomix", "--version"], capture_output=True, check=True)
-            print("Repomix is available for repository scanning")
+            logger.info("Repomix is available for repository scanning")
         except (subprocess.CalledProcessError, FileNotFoundError):
             raise RuntimeError("Repomix is not installed. Please install it with: npm install -g repomix")
         
@@ -176,14 +140,14 @@ class BaselineMapCreatorWorkflow:
         has_srs = len(state.get("srs_content", {})) > 0
         
         if not has_sdd and not has_srs:
-            print("❌ No SDD or SRS documentation found. Workflow will terminate.")
-            print(f"   - SDD files: {len(state.get('sdd_content', {}))}")
-            print(f"   - SRS files: {len(state.get('srs_content', {}))}")
+            logger.error("❌ No SDD or SRS documentation found. Workflow will terminate.")
+            logger.error(f"   - SDD files: {len(state.get('sdd_content', {}))}")
+            logger.error(f"   - SRS files: {len(state.get('srs_content', {}))}")
             return "end"
         
-        print(f"✅ Documentation found - proceeding to design element identification")
-        print(f"   - SDD files: {len(state.get('sdd_content', {}))}")
-        print(f"   - SRS files: {len(state.get('srs_content', {}))}")
+        logger.info(f"✅ Documentation found - proceeding to design element identification")
+        logger.info(f"   - SDD files: {len(state.get('sdd_content', {}))}")
+        logger.info(f"   - SRS files: {len(state.get('srs_content', {}))}")
         return "identify_design_elements"
     
     def _route_after_design_elements(self, state: BaselineMapCreatorState) -> str:
@@ -191,10 +155,10 @@ class BaselineMapCreatorWorkflow:
         design_elements_count = len(state.get("design_elements", []))
         
         if design_elements_count == 0:
-            print("❌ No design elements extracted. Workflow will terminate.")
+            logger.error("❌ No design elements extracted. Workflow will terminate.")
             return "end"
         
-        print(f"✅ Found {design_elements_count} design elements - proceeding to requirements identification")
+        logger.info(f"✅ Found {design_elements_count} design elements - proceeding to requirements identification")
         return "identify_requirements"
     
     def _route_after_requirements(self, state: BaselineMapCreatorState) -> str:
@@ -202,10 +166,10 @@ class BaselineMapCreatorWorkflow:
         requirements_count = len(state.get("requirements", []))
         
         if requirements_count == 0:
-            print("❌ No requirements extracted. Workflow will terminate.")
+            logger.error("❌ No requirements extracted. Workflow will terminate.")
             return "end"
         
-        print(f"✅ Found {requirements_count} requirements - proceeding with full workflow")
+        logger.info(f"✅ Found {requirements_count} requirements - proceeding with full workflow")
         return "design_to_design_mapping"
     
     async def execute(self, repository: str, branch: str = "main") -> BaselineMapCreatorState:
@@ -243,8 +207,8 @@ class BaselineMapCreatorWorkflow:
         force_recreate = os.getenv("FORCE_RECREATE", "false").lower() == "true"
         
         if existing_map and not force_recreate:
-            print(f"Baseline map already exists for {repository}:{branch}")
-            print("Use FORCE_RECREATE=true to overwrite existing map")
+            logger.info(f"Baseline map already exists for {repository}:{branch}")
+            logger.info("Use FORCE_RECREATE=true to overwrite existing map")
             return initial_state
         
         # Compile and run workflow
@@ -256,44 +220,64 @@ class BaselineMapCreatorWorkflow:
         # Print completion summary
         current_step = final_state.get("current_step", "unknown")
         if current_step == "completed":
-            print(f"✅ Baseline map creation completed successfully for {repository}:{branch}")
+            logger.info(f"✅ Baseline map creation completed successfully for {repository}:{branch}")
         else:
-            print(f"⚠️  Baseline map creation terminated early at step: {current_step}")
-            print(f"   Repository: {repository}:{branch}")
+            logger.error(f"⚠️  Baseline map creation terminated early at step: {current_step}")
+            logger.error(f"   Repository: {repository}:{branch}")
             
         return final_state
     
     async def _scan_repository(self, state: BaselineMapCreatorState) -> BaselineMapCreatorState:
         """
-        Scan repository for documentation and code files using Repomix
+        Scan repository for documentation and all other files using Repomix.
         """
-        print(f"Scanning repository {state['repository']}:{state['branch']} with Repomix")
+        logger.info(f"Scanning repository {state['repository']}:{state['branch']} with Repomix")
         state["current_step"] = "scanning_repository"
         
         try:
             # Use Repomix to scan the repository
             repo_data = await self._scan_repository_with_repomix(state["repository"], state["branch"])
             
-            # Extract files by type
-            state["sdd_content"] = self._extract_documentation_files(repo_data, [
+            sdd_patterns = [
                 "design.md", "sdd.md", "software-design.md", "architecture.md",
                 "docs/design.md", "docs/sdd.md", "docs/architecture.md",
                 "traceability.md", "traceability-matrix.md"
-            ])
-            
-            state["srs_content"] = self._extract_documentation_files(repo_data, [
+            ]
+            srs_patterns = [
                 "requirements.md", "srs.md", "software-requirements.md",
                 "docs/requirements.md", "docs/srs.md", "documentation/requirements.md"
-            ])
+            ]
             
-            state["code_files"] = self._extract_code_files(repo_data, [
-                "*.py", "*.java", "*.js", "*.ts", "*.cpp", "*.h"
-            ])
+            # Extract documentation files
+            state["sdd_content"] = self._extract_documentation_files(repo_data, sdd_patterns)
+            state["srs_content"] = self._extract_documentation_files(repo_data, srs_patterns)
             
-            print(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, {len(state['code_files'])} code files")
+            # Get a set of all documentation file paths
+            doc_paths = set(state["sdd_content"].keys()) | set(state["srs_content"].keys())
+            
+            # Extract all other files (non-documentation)
+            other_files = []
+            code_files_counter = 1
+            if "files" in repo_data:
+                for file_info in repo_data["files"]:
+                    file_path = file_info.get("path", "")
+                    if file_path and file_path not in doc_paths:
+                        _, file_extension = os.path.splitext(file_path)
+                        file_type = file_extension.lstrip('.') if file_extension else 'unknown'
+                        other_files.append({
+                            "id": f"CC-{code_files_counter:03d}",
+                            "path": file_path,
+                            "content": file_info.get("content", ""),
+                            "type": file_type
+                        })
+                        code_files_counter += 1
+            
+            state["code_files"] = other_files
+            
+            logger.info(f"Found {len(state['sdd_content'])} SDD files, {len(state['srs_content'])} SRS files, and {len(state['code_files'])} other files.")
             
         except Exception as e:
-            print(f"Error scanning repository: {str(e)}")
+            logger.error(f"Error scanning repository: {str(e)}")
             raise e
         
         return state
@@ -329,7 +313,7 @@ class BaselineMapCreatorWorkflow:
                     "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage, agent, .github, .vscode, .env, .env.local, .env.development.local, .env.test.local, .env.production.local"
                 ]
                 
-                print(f"Running Repomix: {' '.join(cmd)}")
+                logger.info(f"Running Repomix: {' '.join(cmd)}")
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                 
                 if result.returncode != 0:
@@ -341,7 +325,7 @@ class BaselineMapCreatorWorkflow:
                 
                 repo_data = self._parse_repomix_xml(xml_content)
                 
-                print(f"Repomix scan completed successfully")
+                logger.info(f"Repomix scan completed successfully")
                 return repo_data
                 
             except subprocess.TimeoutExpired:
@@ -424,7 +408,7 @@ class BaselineMapCreatorWorkflow:
             return {"files": files}
                 
         except Exception as e:
-            print(f"Warning: Repomix XML parsing failed ({e}), attempting fallback parsing")
+            logger.warning(f"Warning: Repomix XML parsing failed ({e}), attempting fallback parsing")
             return self._parse_repomix_fallback(xml_content)
     
     def _parse_repomix_fallback(self, content: str) -> Dict[str, Any]:
@@ -511,42 +495,13 @@ class BaselineMapCreatorWorkflow:
             
             if self._matches_patterns(file_path, patterns):
                 documentation_files[file_path] = file_content
-                print(f"Found documentation file: {file_path}")
+                logger.info(f"Found documentation file: {file_path}")
         
         # Allow empty documentation files - will be handled by conditional workflow
         if len(documentation_files) == 0:
-            print(f"No documentation files found matching patterns: {patterns}")
+            logger.error(f"No documentation files found matching patterns: {patterns}")
         
         return documentation_files
-    
-    def _extract_code_files(self, repo_data: Dict[str, Any], patterns: List[str]) -> List[Dict[str, Any]]:
-        """
-        Extract code files from Repomix output
-        
-        Args:
-            repo_data: Repomix output data
-            patterns: File patterns to match
-            
-        Returns:
-            List of code file info dictionaries
-        """
-        code_files = []
-        
-        if "files" not in repo_data:
-            return code_files
-        
-        for file_info in repo_data["files"]:
-            file_path = file_info.get("path", "")
-            file_content = file_info.get("content", "")
-            
-            if self._matches_patterns(file_path, patterns):
-                code_files.append({
-                    "path": file_path,
-                    "content": file_content
-                })
-                print(f"Found code file: {file_path}")
-        
-        return code_files
     
     def _matches_patterns(self, file_path: str, patterns: List[str]) -> bool:
         """Check if file path matches any of the given patterns"""
@@ -567,7 +522,7 @@ class BaselineMapCreatorWorkflow:
         Identify design elements from SDD documentation using LLM and extract traceability matrix
         SDD is processed first as it contains the traceability matrix between design elements and requirements
         """
-        print("Identifying design elements from SDD and extracting traceability matrix")
+        logger.info("Identifying design elements from SDD and extracting traceability matrix")
         state["current_step"] = "identifying_design_elements"
         
         design_elements = []
@@ -585,6 +540,7 @@ class BaselineMapCreatorWorkflow:
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
+                    reference_id=elem_data['reference_id'],
                     name=elem_data['name'],
                     description=elem_data['description'],
                     type=elem_data['type'],
@@ -595,14 +551,13 @@ class BaselineMapCreatorWorkflow:
             
             # Process traceability matrix (without relationship types initially)
             for matrix_entry in extraction_result['traceability_matrix']:
-                matrix_entry['source_file'] = file_path  # Track which file it came from
                 sdd_traceability_matrix.append(matrix_entry)
         
         state["design_elements"] = design_elements
         state["sdd_traceability_matrix"] = sdd_traceability_matrix
         state["processing_stats"]["design_elements_count"] = len(design_elements)
         state["processing_stats"]["sdd_traceability_matrix_count"] = len(sdd_traceability_matrix)
-        print(f"Identified {len(design_elements)} design elements and {len(sdd_traceability_matrix)} traceability matrix entries")
+        logger.info(f"Identified {len(design_elements)} design elements and {len(sdd_traceability_matrix)} traceability matrix entries")
         
         return state
     
@@ -610,7 +565,7 @@ class BaselineMapCreatorWorkflow:
         """
         Create mappings between design elements (internal relationships)
         """
-        print("Creating design-to-design mappings")
+        logger.info("Creating design-to-design mappings")
         state["current_step"] = "design_to_design_mapping"
         
         design_to_design_links = []
@@ -618,7 +573,7 @@ class BaselineMapCreatorWorkflow:
         
         # Create relationships between design elements using LLM analysis with traceability matrix context
         if len(state["design_elements"]) > 1:
-            links_data = await self._create_design_element_relationships(
+            links_data = await self._llm_create_design_element_relationships(
                 state["design_elements"], 
                 state["sdd_traceability_matrix"]
             )
@@ -637,7 +592,7 @@ class BaselineMapCreatorWorkflow:
         
         state["design_to_design_links"] = design_to_design_links
         state["processing_stats"]["design_to_design_links_count"] = len(design_to_design_links)
-        print(f"Created {len(design_to_design_links)} design-to-design mappings")
+        logger.info(f"Created {len(design_to_design_links)} design-to-design mappings")
         
         return state
     
@@ -645,28 +600,27 @@ class BaselineMapCreatorWorkflow:
         """
         Create mappings between design elements and code components
         """
-        print("Creating design-to-code mappings")
+        logger.info("Creating design-to-code mappings")
         state["current_step"] = "design_to_code_mapping"
         
         # Create code components from file paths (simplified approach)
-        code_components = []
-        comp_counter = 1
-        
+        code_components = []        
         for file_info in state["code_files"]:
+            file_id = file_info.get("id", "")
             file_path = file_info.get("path", "")
-            
+            file_type = file_info.get("type", "File") # Use the stored type, default to "File"
+
             if not file_path:
                 continue
             
             # Create a code component for each file path
             code_component = CodeComponentModel(
-                id=f"CC-{comp_counter:03d}",
+                id=file_id,
                 path=file_path,
-                type="File",
-                name=Path(file_path).name  # Use full filename instead of stem
+                type=file_type,
+                name=Path(file_path).name
             )
             code_components.append(code_component)
-            comp_counter += 1
         
         state["code_components"] = code_components
         state["processing_stats"]["code_components_count"] = len(code_components)
@@ -675,11 +629,11 @@ class BaselineMapCreatorWorkflow:
         design_to_code_links = []
         link_counter = 1
         
-        links_data = await self._create_design_code_links(
+        links_data = await self._llm_create_design_code_links(
             state["design_elements"], 
             code_components, 
             state["code_files"],
-            state["sdd_traceability_matrix"]
+            state["design_to_design_links"]
         )
         
         for link_data in links_data:
@@ -696,7 +650,7 @@ class BaselineMapCreatorWorkflow:
         
         state["design_to_code_links"] = design_to_code_links
         state["processing_stats"]["design_to_code_links_count"] = len(design_to_code_links)
-        print(f"Created {len(design_to_code_links)} design-to-code mappings")
+        logger.info(f"Created {len(design_to_code_links)} design-to-code mappings")
         
         return state
     
@@ -705,7 +659,7 @@ class BaselineMapCreatorWorkflow:
         Identify requirements and additional design elements from SRS documentation using LLM
         Uses the traceability matrix from SDD as context for more targeted extraction
         """
-        print("Identifying requirements and design elements from SRS")
+        logger.info("Identifying requirements and design elements from SRS")
         state["current_step"] = "identifying_requirements"
         
         requirements = []
@@ -726,6 +680,7 @@ class BaselineMapCreatorWorkflow:
             for req_data in extraction_result['requirements']:
                 requirement = RequirementModel(
                     id=f"REQ-{req_counter:03d}",
+                    reference_id=req_data['reference_id'],
                     title=req_data['title'],
                     description=req_data['description'],
                     type=req_data['type'],
@@ -739,6 +694,7 @@ class BaselineMapCreatorWorkflow:
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
                     id=f"DE-{elem_counter:03d}",
+                    reference_id=elem_data['reference_id'],
                     name=elem_data['name'],
                     description=elem_data['description'],
                     type=elem_data['type'],
@@ -754,8 +710,8 @@ class BaselineMapCreatorWorkflow:
         state["processing_stats"]["additional_design_elements_count"] = len(additional_design_elements)
         state["processing_stats"]["total_design_elements_count"] = len(state["design_elements"])
         
-        print(f"Identified {len(requirements)} requirements and {len(additional_design_elements)} additional design elements from SRS")
-        print(f"Total design elements: {len(state['design_elements'])}")
+        logger.info(f"Identified {len(requirements)} requirements and {len(additional_design_elements)} additional design elements from SRS")
+        logger.info(f"Total design elements: {len(state['design_elements'])}")
         
         return state
     
@@ -764,14 +720,14 @@ class BaselineMapCreatorWorkflow:
         Create mappings between requirements and design elements
         Uses the traceability matrix from SDD documentation
         """
-        print("Creating requirements-to-design mappings")
+        logger.info("Creating requirements-to-design mappings")
         state["current_step"] = "requirements_to_design_mapping"
         
         requirements_to_design_links = []
         link_counter = 1
         
         # Extract traceability matrix from SDD and create requirement-design links with full context
-        req_to_design_links = await self._create_requirement_design_links_from_sdd(
+        req_to_design_links = await self._llm_create_requirement_design_links_from_sdd(
             state["requirements"], 
             state["design_elements"], 
             state["sdd_content"],
@@ -793,7 +749,7 @@ class BaselineMapCreatorWorkflow:
         state["requirements_to_design_links"] = requirements_to_design_links
         state["processing_stats"]["requirements_to_design_links_count"] = len(requirements_to_design_links)
         
-        print(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
+        logger.info(f"Created {len(requirements_to_design_links)} requirements-to-design mappings")
         
         return state
     
@@ -801,7 +757,7 @@ class BaselineMapCreatorWorkflow:
         """
         Save baseline map to database
         """
-        print("Saving baseline map to database")
+        logger.info("Saving baseline map to database")
         state["current_step"] = "saving_baseline_map"
         
         # Combine all traceability links before saving (handle empty lists gracefully)
@@ -812,10 +768,10 @@ class BaselineMapCreatorWorkflow:
         )
         state["processing_stats"]["total_traceability_links_count"] = len(state["traceability_links"])
         
-        print(f"Total traceability links: {len(state['traceability_links'])}")
-        print(f"  - Design-to-design: {len(state.get('design_to_design_links', []))}")
-        print(f"  - Design-to-code: {len(state.get('design_to_code_links', []))}")
-        print(f"  - Requirements-to-design: {len(state.get('requirements_to_design_links', []))}")
+        logger.info(f"Total traceability links: {len(state['traceability_links'])}")
+        logger.info(f"  - Design-to-design: {len(state.get('design_to_design_links', []))}")
+        logger.info(f"  - Design-to-code: {len(state.get('design_to_code_links', []))}")
+        logger.info(f"  - Requirements-to-design: {len(state.get('requirements_to_design_links', []))}")
         
         # Create baseline map model (handle potentially empty state values)
         baseline_map = BaselineMapModel(
@@ -833,9 +789,18 @@ class BaselineMapCreatorWorkflow:
         if not success:
             raise Exception("Failed to save baseline map to database")
         
-        print(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
+        logger.info(f"Successfully saved baseline map for {state['repository']}:{state['branch']}")
+        state["baseline_map"] = baseline_map
+            
+        # Final processing stats
+        stats = state.get("processing_stats", {})
+        stats["total_traceability_links_count"] = len(baseline_map.traceability_links)
+        
+        state["processing_stats"] = stats
         state["current_step"] = "completed"
         
+        logger.info(f"✅ Baseline map creation completed successfully for {state['repository']}:{state['branch']}")
+
         return state
     
     async def _llm_extract_design_elements_with_matrix(self, content: str, file_path: str) -> DesignElementsWithMatrixOutput:
@@ -850,24 +815,16 @@ class BaselineMapCreatorWorkflow:
         # Create output parser for JSON format
         output_parser = JsonOutputParser(pydantic_object=DesignElementsWithMatrixOutput)
 
-        # Generate JSON response (avoid generate_structured_response as it forces function calling)
+        # Generate JSON response
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
             system_message=system_message + "\n" + output_parser.get_format_instructions(),
-            task_type="code_analysis",
-            output_format="text",  # Use text so we can parse into Pydantic model
+            output_format="json",
             temperature=0.1  # Low temperature for consistent extraction
         )
 
-        # Parse the JSON response into Pydantic model
-        extraction_result = output_parser.parse(response.content)
-
-        # Add source_file to each traceability matrix entry
-        for matrix_entry in extraction_result['traceability_matrix']:
-            matrix_entry['source_file'] = file_path
-
-        print(f"Extracted {len(extraction_result['design_elements'])} design elements and {len(extraction_result['traceability_matrix'])} traceability matrix entries from {file_path}")
-        return extraction_result
+        logger.info(f"Extracted {len(response.content['design_elements'])} design elements and {len(response.content['traceability_matrix'])} traceability matrix entries from {file_path}")
+        return response.content
     
     async def _llm_extract_requirements_with_design_elements(self, content: str, file_path: str, sdd_traceability_matrix: List[Dict[str, Any]]) -> RequirementsWithDesignElementsOutput:
         """
@@ -885,33 +842,28 @@ class BaselineMapCreatorWorkflow:
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
             system_message=system_message + "\n" + output_parser.get_format_instructions(),
-            task_type="code_analysis",
-            output_format="text",  # Use text so we can parse into Pydantic model
+            output_format="json",
             temperature=0.1  # Low temperature for consistent extraction
         )
 
-        # Parse the JSON response into Pydantic model
-        extraction_result = output_parser.parse(response.content)
-
-        print(f"Extracted {len(extraction_result['requirements'])} requirements and {len(extraction_result['design_elements'])} design elements from {file_path} with traceability matrix context")
-        return extraction_result
+        logger.info(f"Extracted {len(response.content['requirements'])} requirements and {len(response.content['design_elements'])} design elements from {file_path} with traceability matrix context")
+        return response.content
     
-    async def _create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""
-        if len(design_elements) < 2:
-            print("Not enough design elements to create relationships")
-            return []
-        
+    async def _llm_create_design_element_relationships(self, design_elements: List[DesignElementModel], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create relationships between design elements using LLM analysis with structured output. Raises exceptions on failure instead of using fallbacks."""        
         # Prepare design elements data for LLM analysis
         elements_data = []
         for element in design_elements:
             elements_data.append({
                 "id": element.id,
+                "reference_id": element.reference_id,
                 "name": element.name,
                 "description": element.description,
                 "type": element.type,
                 "section": element.section
             })
+            
+        output_parser = JsonOutputParser(pydantic_object=RelationshipListOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.design_element_relationships_system_prompt()
@@ -920,51 +872,46 @@ class BaselineMapCreatorWorkflow:
         # Generate JSON response (use auto-parsing since we don't need full Pydantic validation)
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
-            system_message=system_message,
-            task_type="traceability_mapping",
+            system_message=system_message + "\n" + output_parser.get_format_instructions(),
             output_format="json",  # Auto-parses JSON
             temperature=0.15  # Low-medium temperature for consistent but thoughtful analysis
         )
 
-        # Response content is already parsed as JSON (list of dicts)
-        llm_relationships = response.content
+        # Response content is now a dict with a 'relationships' key
+        llm_relationships = response.content.get('relationships', [])
 
         # Validate relationships
         validated_relationships = []
-        valid_element_ids = {elem.id for elem in design_elements}
+        valid_element_ids = {elem.reference_id for elem in design_elements}
         
         for relationship in llm_relationships:
             # Validate that relationship has required fields
             if not isinstance(relationship, dict) or not all(key in relationship for key in ["source_id", "target_id", "relationship_type"]):
-                print(f"Warning: Invalid relationship format: {relationship}")
-                continue
+                raise ValueError(f"Invalid relationship format: {relationship}")
                 
             # Validate that source and target IDs exist
             if relationship["source_id"] not in valid_element_ids:
-                print(f"Warning: Invalid source_id '{relationship['source_id']}' in design element relationship")
-                continue
+                raise ValueError(f"Invalid source_id '{relationship['source_id']}' in design element relationship")
                 
             if relationship["target_id"] not in valid_element_ids:
-                print(f"Warning: Invalid target_id '{relationship['target_id']}' in design element relationship")
-                continue
+                raise ValueError(f"Invalid target_id '{relationship['target_id']}' in design element relationship")
                 
             # Validate relationship type
             if relationship["relationship_type"] not in ["refines", "realizes", "depends_on"]:
-                print(f"Warning: Invalid relationship_type '{relationship['relationship_type']}' for design element relationship")
-                continue
+                raise ValueError(f"Invalid relationship_type '{relationship['relationship_type']}' for design element relationship")
                 
             validated_relationships.append(relationship)
         
-        print(f"Created {len(validated_relationships)} validated design element relationships")
+        logger.info(f"Created {len(validated_relationships)} validated design element relationships")
         return validated_relationships
     
-    async def _create_requirement_design_links_from_sdd(self, requirements: List[RequirementModel], 
+    async def _llm_create_requirement_design_links_from_sdd(self, requirements: List[RequirementModel], 
                                                        design_elements: List[DesignElementModel],
                                                        sdd_content: Dict[str, str],
                                                        sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Create links between requirements and design elements using SDD traceability matrix and LLM analysis"""
         if not requirements or not design_elements:
-            print("No requirements or design elements available for linking")
+            logger.error("No requirements or design elements available for linking")
             return []
         
         # Prepare requirements and design elements data for LLM analysis
@@ -972,6 +919,7 @@ class BaselineMapCreatorWorkflow:
         for req in requirements:
             requirements_data.append({
                 "id": req.id,
+                "reference_id": req.reference_id,
                 "title": req.title,
                 "description": req.description,
                 "type": req.type,
@@ -983,11 +931,14 @@ class BaselineMapCreatorWorkflow:
         for elem in design_elements:
             design_elements_data.append({
                 "id": elem.id,
+                "reference_id": elem.reference_id,
                 "name": elem.name,
                 "description": elem.description,
                 "type": elem.type,
                 "section": elem.section
             })
+            
+        output_parser = JsonOutputParser(pydantic_object=RelationshipListOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.requirement_design_links_system_prompt()
@@ -996,14 +947,13 @@ class BaselineMapCreatorWorkflow:
         # Generate LLM response
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
-            system_message=system_message,
-            task_type="traceability_mapping",
+            system_message=system_message + "\n" + output_parser.get_format_instructions(),
             output_format="json",
             temperature=0.1  # Low temperature for consistent analysis
         )
 
-        # Parse JSON response
-        llm_relationships = response.content
+        # Parse JSON response which is now a dict with a 'relationships' key
+        llm_relationships = response.content.get('relationships', [])
         
         # Validate the response format
         if not isinstance(llm_relationships, list):
@@ -1011,8 +961,8 @@ class BaselineMapCreatorWorkflow:
         
         # Validate each relationship has required fields
         validated_relationships = []
-        valid_requirement_ids = {req.id for req in requirements}
-        valid_design_ids = {elem.id for elem in design_elements}
+        valid_requirement_ids = {req.reference_id for req in requirements}
+        valid_design_ids = {elem.reference_id for elem in design_elements}
         
         for rel in llm_relationships:
             if not isinstance(rel, dict):
@@ -1042,10 +992,10 @@ class BaselineMapCreatorWorkflow:
         
         return validated_relationships
     
-    async def _create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], sdd_traceability_matrix: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _llm_create_design_code_links(self, design_elements: List[DesignElementModel], code_components: List[CodeComponentModel], code_files: List[Dict[str, Any]], design_to_design_links: List[TraceabilityLinkModel]) -> List[Dict[str, Any]]:
         """Create links between design elements and code components using LLM analysis. Raises exceptions on failure instead of using fallbacks."""
         if not design_elements or not code_components:
-            print("No design elements or code components available for linking")
+            logger.error("No design elements or code components available for linking")
             return []
         
         # Prepare design elements and code components data for LLM analysis
@@ -1053,6 +1003,7 @@ class BaselineMapCreatorWorkflow:
         for element in design_elements:
             elements_data.append({
                 "id": element.id,
+                "reference_id": element.reference_id,
                 "name": element.name,
                 "description": element.description,
                 "type": element.type,
@@ -1061,34 +1012,35 @@ class BaselineMapCreatorWorkflow:
         
         components_data = []
         code_content_map = {file_info["path"]: file_info.get("content", "") for file_info in code_files}
-        
         for component in code_components:
-            # Get actual code content for this component
             code_content = code_content_map.get(component.path, "")
-            
             components_data.append({
                 "id": component.id,
                 "name": component.name,
                 "path": component.path,
                 "type": component.type,
-                "content_preview": code_content[:500]  # First 500 chars as preview
+                "content": code_content
             })
+            
+        # Convert Pydantic models to dicts for JSON serialization
+        design_links_data = [link.model_dump(mode='json') for link in design_to_design_links]
+            
+        output_parser = JsonOutputParser(pydantic_object=RelationshipListOutput)
         
         # Get prompts from the prompts module
         system_message = prompts.design_code_links_system_prompt()
-        human_prompt = prompts.design_code_links_human_prompt(elements_data, components_data, sdd_traceability_matrix)
+        human_prompt = prompts.design_code_links_human_prompt(elements_data, components_data, design_links_data)
 
         # Generate LLM response
         response = await self.llm_client.generate_response(
             prompt=human_prompt,
-            system_message=system_message,
-            task_type="traceability_mapping",
+            system_message=system_message + "\n" + output_parser.get_format_instructions(),
             output_format="json",
             temperature=0.15  # Low-medium temperature for consistent analysis
         )
 
-        # Parse JSON response
-        llm_relationships = response.content
+        # Parse JSON response which is now a dict with a 'relationships' key
+        llm_relationships = response.content.get('relationships', [])
         
         # Validate the response format
         if not isinstance(llm_relationships, list):
@@ -1096,7 +1048,7 @@ class BaselineMapCreatorWorkflow:
         
         # Validate each relationship has required fields
         validated_relationships = []
-        valid_design_ids = {elem.id for elem in design_elements}
+        valid_design_ids = {elem.reference_id for elem in design_elements}
         valid_code_ids = {comp.id for comp in code_components}
         
         for rel in llm_relationships:

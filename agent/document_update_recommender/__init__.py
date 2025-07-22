@@ -4,6 +4,19 @@ Recommends documentation updates based on code changes and traceability analysis
 """
 
 from .workflow import DocumentUpdateRecommenderWorkflow
-from .main import main as document_update_recommender_main
+from .models import (
+    CodeChangeClassification,
+    CommitWithClassifications,
+    BatchClassificationOutput,
+    LogicalChangeSet,
+    ChangeGroupingOutput,
+    DocumentationRecommendation,
+    DocumentSummary,
+    DocumentRecommendationGroup,
+    RecommendationGenerationOutput,
+    AssessedFinding,
+    LikelihoodSeverityAssessmentOutput,
+    DocumentUpdateRecommenderState
+)
 
-__all__ = ["DocumentUpdateRecommenderWorkflow", "document_update_recommender_main"] 
+__all__ = ["DocumentUpdateRecommenderWorkflow", "CodeChangeClassification", "CommitWithClassifications", "BatchClassificationOutput", "LogicalChangeSet", "ChangeGroupingOutput", "DocumentationRecommendation", "DocumentSummary", "DocumentRecommendationGroup", "RecommendationGenerationOutput", "AssessedFinding", "LikelihoodSeverityAssessmentOutput", "DocumentUpdateRecommenderState"] 

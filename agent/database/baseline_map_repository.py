@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 
 from .supabase_client import SupabaseClient, create_supabase_client
 from ..models.docureco_models import BaselineMapModel, TraceabilityLinkModel
+from ..models.docureco_models import RequirementModel, DesignElementModel, CodeComponentModel
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,15 @@ class BaselineMapRepository:
             baseline_map = BaselineMapModel(
                 repository=map_data["repository"],
                 branch=map_data["branch"],
-                requirements=map_data.get("requirements", []),
-                design_elements=map_data.get("design_elements", []),
-                code_components=map_data.get("code_components", []),
+                requirements=[
+                    RequirementModel(**req) for req in map_data.get("requirements", [])
+                ],
+                design_elements=[
+                    DesignElementModel(**elem) for elem in map_data.get("design_elements", [])
+                ],
+                code_components=[
+                    CodeComponentModel(**comp) for comp in map_data.get("code_components", [])
+                ],
                 traceability_links=[
                     TraceabilityLinkModel(**link) for link in map_data.get("traceability_links", [])
                 ],

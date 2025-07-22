@@ -3,18 +3,17 @@ LLM Client for Docureco Agent
 Provides unified interface for Grok 3 and OpenAI models using LangChain
 """
 
-import os
 import logging
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 from langchain_core.language_models import BaseLanguageModel
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain_xai import ChatXAI
 
-from ..config.llm_config import LLMConfig, LLMProvider, get_llm_config, get_task_config
+from ..config.llm_config import LLMConfig, LLMProvider, get_llm_config
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +39,11 @@ class DocurecoLLMClient:
         setup_langsmith()
         
         self.config = config or get_llm_config()
-        self.task_config = get_task_config()
-        self.llm = self._initialize_llm()
+        self.llm = self._initialize_llm(temperature=self.config.temperature)
         
         logger.info(f"Initialized LLM client with provider: {self.config.provider}, model: {self.config.llm_model}")
     
-    def _initialize_llm(self) -> BaseLanguageModel:
+    def _initialize_llm(self, temperature: float = 0.1) -> BaseLanguageModel:
         """
         Initialize the appropriate LLM based on configuration
         
@@ -53,11 +51,11 @@ class DocurecoLLMClient:
             BaseLanguageModel: Configured LLM instance
         """
         if self.config.provider == LLMProvider.GROK:
-            return self._initialize_grok()
+            return self._initialize_grok(temperature)
         else:
-            return self._initialize_openai()
+            return self._initialize_openai(temperature)
     
-    def _initialize_grok(self) -> ChatOpenAI:
+    def _initialize_grok(self, temperature: float = 0.1) -> ChatOpenAI:
         """
         Initialize Grok 3 using OpenAI-compatible interface
         
@@ -70,21 +68,33 @@ class DocurecoLLMClient:
         # Ensure base_url is always set for Grok
         base_url = self.config.base_url or "https://api.x.ai/v1"
         
-        print(f"Initializing Grok with base_url: {base_url}")
-        print(f"Grok API key starts with: {self.config.api_key[:10]}...")
+        extra_body = {
+            "reasoning_effort": self.config.reasoning_effort
+        }
+        
+        # return ChatXAI(
+        #     model=self.config.llm_model,
+        #     api_key=self.config.api_key,
+        #     temperature=temperature,
+        #     max_tokens=self.config.max_tokens,
+        #     max_retries=self.config.max_retries,
+        #     timeout=self.config.request_timeout,
+        #     extra_body=extra_body
+        # )
         
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
             base_url=base_url,
-            temperature=self.config.temperature,
+            temperature=temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
-            request_timeout=self.config.request_timeout
+            request_timeout=self.config.request_timeout,
+            extra_body=extra_body
             # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
-    def _initialize_openai(self) -> ChatOpenAI:
+    def _initialize_openai(self, temperature: float = 0.1) -> ChatOpenAI:
         """
         Initialize OpenAI model (fallback)
         
@@ -94,14 +104,11 @@ class DocurecoLLMClient:
         if not self.config.api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI")
         
-        print(f"Initializing OpenAI with base_url: {self.config.base_url}")
-        print(f"OpenAI API key starts with: {self.config.api_key[:10]}...")
-        
         return ChatOpenAI(
             model=self.config.llm_model,
             api_key=self.config.api_key,
             base_url=self.config.base_url,
-            temperature=self.config.temperature,
+            temperature=temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
             request_timeout=self.config.request_timeout
@@ -111,9 +118,8 @@ class DocurecoLLMClient:
         self,
         prompt: str,
         system_message: Optional[str] = None,
-        task_type: Optional[str] = None,
         output_format: str = "text",
-        **kwargs
+        temperature: float = 0.1
     ) -> LLMResponse:
         """
         Generate response using LLM
@@ -121,25 +127,24 @@ class DocurecoLLMClient:
         Args:
             prompt: User prompt/query
             system_message: System message for context
-            task_type: Type of task (code_analysis, traceability_mapping, etc.)
             output_format: Response format ("text" or "json")
-            **kwargs: Additional parameters for LLM
             
         Returns:
             LLMResponse: Standardized response object
         """
-        try:
-            # Apply task-specific configuration if provided
-            llm = self._configure_for_task(task_type, **kwargs)
-            
+        try:            
             # Prepare messages
             messages = []
             if system_message:
                 messages.append(SystemMessage(content=system_message))
             messages.append(HumanMessage(content=prompt))
+
+            # Reinitialize LLM with temperature if provided
+            if temperature:
+                self.llm = self._initialize_llm(temperature)
             
             # Generate response
-            response = await llm.ainvoke(messages)
+            response = await self.llm.ainvoke(messages)
             
             # Parse response based on format
             if output_format == "json":
@@ -160,216 +165,6 @@ class DocurecoLLMClient:
             logger.error(f"Error generating LLM response: {str(e)}")
             raise
 
-    async def generate_structured_response(
-        self,
-        prompt: str,
-        system_message: Optional[str] = None,
-        task_type: Optional[str] = None,
-        pydantic_model = None,
-        **kwargs
-    ):
-        """
-        Generate structured response using Pydantic model
-        
-        Args:
-            prompt: User prompt/query
-            system_message: System message for context
-            task_type: Type of task (code_analysis, traceability_mapping, etc.)
-            pydantic_model: Pydantic model class for structured output
-            **kwargs: Additional parameters for LLM
-            
-        Returns:
-            Pydantic model instance with structured data
-        """
-        try:
-            # Apply task-specific configuration if provided
-            llm = self._configure_for_task(task_type, **kwargs)
-            
-            # Configure LLM for structured output
-            if pydantic_model:
-                structured_llm = llm.with_structured_output(pydantic_model)
-            else:
-                raise ValueError("pydantic_model is required for structured output")
-            
-            # Prepare messages
-            messages = []
-            if system_message:
-                messages.append(SystemMessage(content=system_message))
-            messages.append(HumanMessage(content=prompt))
-            
-            # Generate structured response
-            response = await structured_llm.ainvoke(messages)
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error generating structured LLM response: {str(e)}")
-            raise
-    
-    def _configure_for_task(self, task_type: Optional[str], **kwargs) -> BaseLanguageModel:
-        """
-        Configure LLM for specific task
-        
-        Args:
-            task_type: Type of task to configure for
-            **kwargs: Override parameters
-            
-        Returns:
-            BaseLanguageModel: Configured LLM
-        """
-        if not task_type:
-            return self.llm
-        
-        task_config = getattr(self.task_config, task_type, {})
-        
-        # Override configuration for specific task
-        if self.config.provider == LLMProvider.GROK:
-            # Ensure base_url is always set for Grok
-            base_url = self.config.base_url or "https://api.x.ai/v1"
-            return ChatOpenAI(
-                model=self.config.llm_model,
-                api_key=self.config.api_key,
-                base_url=base_url,
-                temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
-                max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
-                max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout
-                # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
-            )
-        else:
-            return ChatOpenAI(
-                model=self.config.llm_model,
-                api_key=self.config.api_key,
-                base_url=self.config.base_url,
-                temperature=kwargs.get('temperature', task_config.get('temperature', self.config.temperature)),
-                max_tokens=kwargs.get('max_tokens', task_config.get('max_tokens', self.config.max_tokens)),
-                max_retries=self.config.max_retries,
-                request_timeout=self.config.request_timeout
-            )
-    
-    def create_prompt_template(self, template_name: str) -> ChatPromptTemplate:
-        """
-        Create prompt template for specific use case
-        
-        Args:
-            template_name: Name of the template to create
-            
-        Returns:
-            ChatPromptTemplate: Configured prompt template
-        """
-        templates = {
-            "code_change_classifier": self._get_code_classification_template(),
-            "traceability_mapper": self._get_traceability_mapping_template(),
-            "impact_assessor": self._get_impact_assessment_template(),
-            "recommendation_generator": self._get_recommendation_generation_template(),
-        }
-        
-        if template_name not in templates:
-            raise ValueError(f"Unknown template: {template_name}")
-        
-        return templates[template_name]
-    
-    def _get_code_classification_template(self) -> ChatPromptTemplate:
-        """Code change classification prompt template"""
-        system_template = """You are an expert software analyst for the Docureco system. Your task is to classify code changes according to the 4W framework:
-
-1. What (Type): Addition, Deletion, Modification, Rename
-2. Where (Scope): Function/Method, Class/Interface/Struct/Type, Module/Package/Namespace, File, API Contract, Configuration, Dependencies, Test Code, etc.
-3. Why (Nature): New Feature, Bug Fix, Refactoring, Performance Optimization, Security Fix, etc.
-4. How (Volume): Trivial, Small, Medium, Large, Very Large
-
-Always respond in JSON format with: type, scope, nature, volume, and reasoning fields."""
-
-        human_template = """Analyze this code change:
-
-File: {filename}
-Commit Message: {commit_message}
-Code Diff:
-{code_diff}
-
-Classify according to the 4W framework."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
-    
-    def _get_traceability_mapping_template(self) -> ChatPromptTemplate:
-        """Traceability mapping prompt template"""
-        system_template = """You are an expert software architect for the Docureco system. Your task is to establish traceability mappings between code components, design elements, and requirements.
-
-You will analyze software artifacts and create mappings following these relationships:
-- Requirements (SRS) ↔ Design Elements (SDD)
-- Design Elements (SDD) ↔ Design Elements (SDD)
-- Design Elements (SDD) ↔ Code Components
-- Code Components ↔ Code Components
-
-Always respond in JSON format with clear mapping relationships."""
-
-        human_template = """Create traceability mappings for:
-
-{artifact_type}: {artifact_content}
-
-Context:
-{context}
-
-Generate mappings according to the traceability framework."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
-    
-    def _get_impact_assessment_template(self) -> ChatPromptTemplate:
-        """Impact assessment prompt template"""
-        system_template = """You are an expert software analyst for the Docureco system. Your task is to assess the impact of code changes on documentation (SRS and SDD).
-
-For each finding, provide:
-- likelihood: Very Likely, Likely, Possibly, Unlikely
-- severity: None, Trivial, Minor, Moderate, Major, Fundamental
-
-Consider the nature and volume of changes when making assessments."""
-
-        human_template = """Assess the impact of these findings:
-
-Change Set: {change_set}
-Traceability Information: {traceability_info}
-Affected Elements: {affected_elements}
-
-Provide likelihood and severity assessments for each element."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
-    
-    def _get_recommendation_generation_template(self) -> ChatPromptTemplate:
-        """Recommendation generation prompt template"""
-        system_template = """You are an expert technical writer for the Docureco system. Your task is to generate specific, actionable recommendations for updating SRS and SDD documentation.
-
-Generate recommendations that are:
-- Specific and clear
-- Actionable by developers
-- Contextually relevant to the code changes
-- Properly formatted for documentation updates
-
-Provide recommendations in clear, professional language."""
-
-        human_template = """Generate documentation update recommendations for:
-
-Finding Type: {finding_type}
-Affected Element: {affected_element}
-Code Changes: {code_changes}
-Current Documentation: {current_docs}
-Impact Assessment: {impact_assessment}
-
-Provide specific, actionable recommendations."""
-
-        return ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_template),
-            HumanMessagePromptTemplate.from_template(human_template)
-        ])
-
 # Factory function for easy instantiation
 def create_llm_client(config: Optional[LLMConfig] = None) -> DocurecoLLMClient:
     """
@@ -384,4 +179,4 @@ def create_llm_client(config: Optional[LLMConfig] = None) -> DocurecoLLMClient:
     return DocurecoLLMClient(config)
 
 # Export main classes and functions
-__all__ = ["LLMProvider", "LLMConfig", "TaskSpecificConfig", "get_llm_config", "get_task_config", "setup_langsmith"] 
+__all__ = ["LLMProvider", "LLMConfig", "get_llm_config", "setup_langsmith"] 

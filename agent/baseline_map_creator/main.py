@@ -8,7 +8,7 @@ import os
 import sys
 import argparse
 import logging
-from pathlib import Path
+import json
 
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -48,6 +48,23 @@ async def main():
         print(f"Creating baseline map for {args.repository}:{args.branch}")
         final_state = await workflow.execute(args.repository, args.branch)
         
+        # Save the final baseline map to a JSON file
+        if final_state.get("baseline_map"):
+            output_dir = os.path.join(agent_dir, "output")
+            os.makedirs(output_dir, exist_ok=True)
+            
+            repo_name = args.repository.replace('/', '_')
+            branch_name = args.branch.replace('/', '_')
+            output_file = os.path.join(output_dir, f"baseline-map-{repo_name}-{branch_name}.json")
+            
+            baseline_map = final_state["baseline_map"]
+            
+            # Use model_dump_json for proper serialization
+            with open(output_file, "w") as f:
+                f.write(baseline_map.model_dump_json(indent=2))
+            
+            print(f"✅ Baseline map saved to {output_file}")
+
         # Print summary
         stats = final_state.get("processing_stats", {})
         print("\n" + "="*50)
