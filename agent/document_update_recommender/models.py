@@ -12,7 +12,7 @@ class CodeChangeClassification(BaseModel):
     nature: str = Field(description="Nature of change (New Feature, Bug Fix, Refactoring, etc.)")
     volume: str = Field(description="Volume of change (Trivial, Small, Medium, Large, Very Large)")
     reasoning: str = Field(description="Brief explanation of the classification")
-    patch: str = Field(description="Patch of the change")
+    patch: Optional[str] = Field(default=None, description="Patch of the change")
 
 class CommitWithClassifications(BaseModel):
     """Structured output for a commit with its file classifications"""

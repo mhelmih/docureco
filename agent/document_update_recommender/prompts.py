@@ -117,7 +117,8 @@ For each file classification, determine:
 - nature: Nature of change (`New Feature`, `Feature Enhancement`, `Bug Fix`, `Security Fix`, `Refactoring`, `Performance Optimization`, `Code Style/Formatting`, `Technical Debt Reduction`, `Readability Improvement`, `Error Handling Improvement`, `Dependency Management`, `Build Process Improvement`, `Tooling Configuration`, `API Change`, `External System Integration`, `Documentation Update`, `UI/UX Adjustment`, `Static Content Update`, `Code Deprecation/Removal`, `Revert`, `Merge Conflict Resolution`, `License Update`, `Experimental`, `Chore`, `Other`)
 - volume: Volume of change (`Trivial`, `Small`, `Medium`, `Large`, `Very Large`) based on total lines changed
 - reasoning: Brief explanation of the classification
-- patch: The patch of the change (you can copy the patch from the PR data)
+
+DO NOT include the `patch` field in your response. It will be added manually later.
 
 The response will be automatically structured."""
     
