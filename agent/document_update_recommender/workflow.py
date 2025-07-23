@@ -1266,33 +1266,42 @@ class DocumentUpdateRecommenderWorkflow:
             human_prompt = prompts.individual_code_classification_human_prompt(pr_data)
 
             # Generate JSON response
-            response = await self.llm_client.generate_response(
+            raw_response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
-                output_format="json",  # Use text so we can parse into Pydantic model
+                output_format="text",
                 temperature=0.1  # Low temperature for consistent extraction
             )
 
-            classification_result = response.content
+            # Sanitize the response to fix invalid escape sequences
+            sanitized_response_content = raw_response.content.replace("\\'", "'")
+
+            # Manually parse the sanitized response
+            try:
+                classification_result = output_parser.parse(sanitized_response_content)
+            except Exception as e:
+                err_message = f"Step 2.1: Error parsing sanitized JSON from LLM: {str(e)}\nOriginal content: {raw_response.content[:500]}..."
+                logger.error(err_message)
+                raise
             
             # Convert Pydantic model to our internal format
             commits_with_classifications = []
-            for commit_data in classification_result["commits"]:
+            for commit_data in classification_result.commits:
                 commit_dict = {
-                    "commit_hash": commit_data["commit_hash"],
-                    "commit_message": commit_data["commit_message"],
+                    "commit_hash": commit_data.commit_hash,
+                    "commit_message": commit_data.commit_message,
                     "classifications": []
                 }
                 
-                for classification in commit_data["classifications"]:
+                for classification in commit_data.classifications:
                     commit_dict["classifications"].append({
-                        "file": classification["file"],
-                        "type": classification["type"],
-                        "scope": classification["scope"],
-                        "nature": classification["nature"],
-                        "volume": classification["volume"],
-                        "reasoning": classification["reasoning"],
-                        "patch": classification["patch"]
+                        "file": classification.file,
+                        "type": classification.type,
+                        "scope": classification.scope,
+                        "nature": classification.nature,
+                        "volume": classification.volume,
+                        "reasoning": classification.reasoning,
+                        "patch": classification.patch
                     })
                 
                 commits_with_classifications.append(commit_dict)
