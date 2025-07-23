@@ -102,12 +102,10 @@ Traceability Links:
 
 **YOUR TASK: CODE CHANGE CLASSIFICATION**
 
-You are a software development analyst working within the Docureco system. 
-1. Analyze the GitHub PR data and classify each file changed in the given commit.
-2. Use commit messages to understand the overall purpose of the changes.
-3. The body message of the PR data might not contain the given commit because all commits are processed in parallel.
+You are a software development analyst working within the Docureco system. Analyze the GitHub PR data and classify each file changed in each commit.
+Use commit messages to understand the overall purpose of the changes.
 
-For the given commit commit, include:
+For each commit, include:
 - commit_hash: The SHA hash of the commit
 - commit_message: The commit message
 - classifications: Array of file classifications for this commit
@@ -119,17 +117,16 @@ For each file classification, determine:
 - nature: Nature of change (`New Feature`, `Feature Enhancement`, `Bug Fix`, `Security Fix`, `Refactoring`, `Performance Optimization`, `Code Style/Formatting`, `Technical Debt Reduction`, `Readability Improvement`, `Error Handling Improvement`, `Dependency Management`, `Build Process Improvement`, `Tooling Configuration`, `API Change`, `External System Integration`, `Documentation Update`, `UI/UX Adjustment`, `Static Content Update`, `Code Deprecation/Removal`, `Revert`, `Merge Conflict Resolution`, `License Update`, `Experimental`, `Chore`, `Other`)
 - volume: Volume of change (`Trivial`, `Small`, `Medium`, `Large`, `Very Large`) based on total lines changed
 - reasoning: Brief explanation of the classification
-
-DO NOT include the `patch` field in your response. It will be added manually later.
+- patch: The patch of the change (you can copy the patch from the PR data)
 
 The response will be automatically structured."""
     
     @staticmethod
     def individual_code_classification_human_prompt(pr_data: Dict[str, Any]) -> str:
         """Human prompt for batch code classification"""
-        return f"""Analyze this GitHub PR data and classify each file changed in this commit:
+        return f"""Analyze this GitHub PR data and classify each file changed in each commit:
 
-{json.dumps(pr_data, indent=2)}"""
+{pr_data}"""
     
     # Step 2: Code Change Grouping Prompts
     @staticmethod
