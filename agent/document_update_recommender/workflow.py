@@ -1294,8 +1294,7 @@ class DocumentUpdateRecommenderWorkflow:
             system_message = prompts.individual_code_classification_system_prompt()
             human_prompt = prompts.individual_code_classification_human_prompt(mock_pr_data)
 
-            # Use generate_raw_response to handle potential JSON errors
-            raw_response = await self.llm_client.generate_raw_response(
+            raw_response = await self.llm_client.generate_response(
                 prompt=human_prompt,
                 system_message=system_message + "\n" + output_parser.get_format_instructions(),
                 temperature=0.1,
