@@ -126,7 +126,7 @@ The response will be automatically structured."""
         """Human prompt for batch code classification"""
         return f"""Analyze this GitHub PR data and classify each file changed in each commit:
 
-{pr_data}"""
+{json.dumps(pr_data, indent=2)}"""
     
     # Step 2: Code Change Grouping Prompts
     @staticmethod
