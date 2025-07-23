@@ -685,8 +685,8 @@ class DocumentUpdateRecommenderWorkflow:
             return True
         
         # For Standard_Impact, check minimum thresholds
-        likelihood_threshold = likelihood in ["Very Likely", "Likely", "Possibly"]
-        severity_threshold = severity in ["Fundamental", "Major", "Moderate", "Minor"]
+        likelihood_threshold = likelihood in ["Very Likely", "Likely"]
+        severity_threshold = severity in ["Fundamental", "Major", "Moderate"]
         
         return likelihood_threshold and severity_threshold
     
@@ -1370,8 +1370,8 @@ class DocumentUpdateRecommenderWorkflow:
                 continue
             
             # For Standard_Impact, check minimum thresholds
-            likelihood_meets_threshold = likelihood in ["Very Likely", "Likely", "Possibly"]
-            severity_meets_threshold = severity in ["Fundamental", "Major", "Moderate", "Minor"]
+            likelihood_meets_threshold = likelihood in ["Very Likely", "Likely"]
+            severity_meets_threshold = severity in ["Fundamental", "Major", "Moderate"]
             
             if likelihood_meets_threshold and severity_meets_threshold:
                 filtered_findings.append(finding)
@@ -1380,7 +1380,7 @@ class DocumentUpdateRecommenderWorkflow:
     
     async def _query_existing_suggestions(self, repository: str, pr_number: int) -> List[Dict[str, Any]]:
         """
-        Query existing documentation suggestions for the PR by fetching previous agent comments.
+        Query existing documentation suggestions for the PR by fetching previous agent reviews.
         This prevents posting duplicate recommendations.
         """
         try:
@@ -1398,34 +1398,35 @@ class DocumentUpdateRecommenderWorkflow:
             }
             
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # Get all comments on the PR
-                comments_response = await client.get(
-                    f"https://api.github.com/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
+                # Get all reviews on the PR, as recommendations are posted as reviews
+                reviews_response = await client.get(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
                     headers=headers
                 )
-                comments_response.raise_for_status()
-                comments_data = comments_response.json()
+                reviews_response.raise_for_status()
+                reviews_data = reviews_response.json()
                 
-                # Filter for comments made by the bot/agent (GitHub Actions bot)
-                bot_comments = []
-                for comment in comments_data:
-                    # Check if comment is from GitHub Actions bot or contains our agent signature
-                    user_login = comment.get("user", {}).get("login", "")
-                    comment_body = comment.get("body", "")
+                # Filter for reviews made by the bot/agent (GitHub Actions bot)
+                bot_reviews = []
+                for review in reviews_data:
+                    # Check if the review is from our agent
+                    user_login = review.get("user", {}).get("login", "")
+                    review_body = review.get("body", "")
                     
-                    # Look for our agent's signature or GitHub Actions bot
+                    # Look for our agent's signature or the GitHub Actions bot username
                     if (user_login == "github-actions[bot]" or 
-                        "Docureco Agent" in comment_body or
-                        "Documentation Update Recommendation" in comment_body):
+                        "Docureco Agent" in review_body):
                         
-                        bot_comments.append({
-                            "id": comment.get("id"),
-                            "body": comment_body,
-                            "created_at": comment.get("created_at"),
-                            "updated_at": comment.get("updated_at")
+                        # Use 'submitted_at' as reviews don't have a separate 'updated_at'
+                        bot_reviews.append({
+                            "id": review.get("id"),
+                            "body": review_body,
+                            "created_at": review.get("submitted_at"),
+                            "updated_at": review.get("submitted_at")
                         })
-                        
-                return bot_comments
+                
+                logger.info(f"Found {len(bot_reviews)} existing review comments from the agent.")
+                return bot_reviews
                 
         except Exception as e:
             logger.error(f"Error fetching existing suggestions: {str(e)}")
