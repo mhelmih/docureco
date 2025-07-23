@@ -102,10 +102,12 @@ Traceability Links:
 
 **YOUR TASK: CODE CHANGE CLASSIFICATION**
 
-You are a software development analyst working within the Docureco system. Analyze the GitHub PR data and classify each file changed in each commit.
-Use commit messages to understand the overall purpose of the changes.
+You are a software development analyst working within the Docureco system. 
+1. Analyze the GitHub PR data and classify each file changed in the given commit.
+2. Use commit messages to understand the overall purpose of the changes.
+3. The body message of the PR data might not contain the given commit because all commits are processed in parallel.
 
-For each commit, include:
+For the given commit commit, include:
 - commit_hash: The SHA hash of the commit
 - commit_message: The commit message
 - classifications: Array of file classifications for this commit
@@ -125,7 +127,7 @@ The response will be automatically structured."""
     @staticmethod
     def individual_code_classification_human_prompt(pr_data: Dict[str, Any]) -> str:
         """Human prompt for batch code classification"""
-        return f"""Analyze this GitHub PR data and classify each file changed in each commit:
+        return f"""Analyze this GitHub PR data and classify each file changed in this commit:
 
 {json.dumps(pr_data, indent=2)}"""
     

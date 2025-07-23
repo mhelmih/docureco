@@ -1303,36 +1303,36 @@ class DocumentUpdateRecommenderWorkflow:
 
             classification_result = response.content
 
-            if not classification_result.commits:
+            if not classification_result["commits"]:
                 logger.warning(f"No classification returned for commit {commit_data.get('sha')}")
                 return None
 
             # Extract the single classified commit
-            single_classified_commit = classification_result.commits[0]
+            single_classified_commit = classification_result["commits"][0]
 
             # Manually add the patch to each classification
             # Create a lookup for patches by filename
             patch_lookup = {file_data['filename']: file_data.get('patch', '') 
                             for file_data in commit_data.get('files', [])}
             
-            for classification in single_classified_commit.classifications:
-                classification.patch = patch_lookup.get(classification.file, '')
+            for classification in single_classified_commit["classifications"]:
+                classification["patch"] = patch_lookup.get(classification["file"], '')
 
             # Convert Pydantic model to our internal dict format
             commit_dict = {
-                "commit_hash": single_classified_commit.commit_hash,
-                "commit_message": single_classified_commit.commit_message,
+                "commit_hash": single_classified_commit["commit_hash"],
+                "commit_message": single_classified_commit["commit_message"],
                 "classifications": [
                     {
-                        "file": c.file,
-                        "type": c.type,
-                        "scope": c.scope,
-                        "nature": c.nature,
-                        "volume": c.volume,
-                        "reasoning": c.reasoning,
-                        "patch": c.patch,
+                        "file": c["file"],
+                        "type": c["type"],
+                        "scope": c["scope"],
+                        "nature": c["nature"],
+                        "volume": c["volume"],
+                        "reasoning": c["reasoning"],
+                        "patch": c["patch"],
                     }
-                    for c in single_classified_commit.classifications
+                    for c in single_classified_commit["classifications"]
                 ],
             }
             return commit_dict
