@@ -90,7 +90,7 @@ class DocurecoLLMClient:
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
             request_timeout=self.config.request_timeout,
-            extra_body=extra_body
+            # extra_body=extra_body
             # Note: top_p, frequency_penalty, presence_penalty are NOT supported by Grok
         )
     
