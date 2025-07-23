@@ -1248,8 +1248,7 @@ class DocumentUpdateRecommenderWorkflow:
     
     async def _llm_classify_individual_changes(self, pr_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Classify individual code changes by passing the entire PR data directly to the LLM.
-        Returns classifications organized by commit.
+        Classify individual code changes by processing each commit in parallel.
         
         Args:
             pr_data: Complete PR event data with all commits and file changes
@@ -1258,60 +1257,88 @@ class DocumentUpdateRecommenderWorkflow:
             List of commits with their classifications
         """
         try:
-            # Create output parser for JSON format
-            output_parser = JsonOutputParser(pydantic_object=BatchClassificationOutput)
-
-            # Get prompts
-            system_message = prompts.individual_code_classification_system_prompt()
-            human_prompt = prompts.individual_code_classification_human_prompt(pr_data)
-
-            # Generate JSON response
-            raw_response = await self.llm_client.generate_response(
-                prompt=human_prompt,
-                system_message=system_message + "\n" + output_parser.get_format_instructions(),
-                output_format="text",
-                temperature=0.1  # Low temperature for consistent extraction
-            )
-
-            # Sanitize the response to fix invalid escape sequences
-            sanitized_response_content = raw_response.content.replace("\\'", "'")
-
-            # Manually parse the sanitized response
-            try:
-                classification_result = output_parser.parse(sanitized_response_content)
-            except Exception as e:
-                err_message = f"Step 2.1: Error parsing sanitized JSON from LLM: {str(e)}\nOriginal content: {raw_response.content[:500]}..."
-                logger.error(err_message)
-                raise
+            commits = pr_data.get("commit_info", {}).get("commits", [])
             
-            # Convert Pydantic model to our internal format
-            commits_with_classifications = []
-            for commit_data in classification_result.commits:
-                commit_dict = {
-                    "commit_hash": commit_data.commit_hash,
-                    "commit_message": commit_data.commit_message,
-                    "classifications": []
-                }
-                
-                for classification in commit_data.classifications:
-                    commit_dict["classifications"].append({
-                        "file": classification.file,
-                        "type": classification.type,
-                        "scope": classification.scope,
-                        "nature": classification.nature,
-                        "volume": classification.volume,
-                        "reasoning": classification.reasoning,
-                        "patch": classification.patch
-                    })
-                
-                commits_with_classifications.append(commit_dict)
+            # Create a list of async tasks, one for each commit
+            tasks = [self._llm_classify_commit_in_parallel(commit, pr_data) for commit in commits]
+            
+            # Run all classification tasks in parallel
+            results = await asyncio.gather(*tasks)
+            
+            # Filter out any None results from failed classifications
+            commits_with_classifications = [res for res in results if res]
             
             return commits_with_classifications
             
         except Exception as e:
-            err_message = f"Step 2.1: Error in _llm_classify_individual_changes: {str(e)}"
+            err_message = f"Step 2.1: Error in parallel classification dispatcher: {str(e)}"
             logger.error(err_message)
             raise
+
+    async def _llm_classify_commit_in_parallel(self, commit_data: Dict[str, Any], original_pr_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Helper function to classify changes for a single commit.
+        It wraps the single commit in a structure that matches the existing prompt's expectation.
+        """
+        try:
+            # Create a mock PR data object containing only this single commit
+            # This allows us to reuse the existing prompt without changes
+            mock_pr_data = {
+                **original_pr_data,
+                "commit_info": {
+                    "commits": [commit_data]
+                }
+            }
+
+            output_parser = JsonOutputParser(pydantic_object=BatchClassificationOutput)
+            system_message = prompts.individual_code_classification_system_prompt()
+            human_prompt = prompts.individual_code_classification_human_prompt(mock_pr_data)
+
+            # Use generate_raw_response to handle potential JSON errors
+            raw_response = await self.llm_client.generate_raw_response(
+                prompt=human_prompt,
+                system_message=system_message + "\n" + output_parser.get_format_instructions(),
+                temperature=0.1,
+            )
+
+            sanitized_response_content = raw_response.content.replace("\\'", "'")
+            
+            try:
+                # The output is a BatchClassificationOutput, but with only one commit
+                classification_result = output_parser.parse(sanitized_response_content)
+            except Exception as e:
+                logger.error(f"Failed to parse classification for commit {commit_data.get('sha')}: {e}")
+                return None
+
+            if not classification_result.commits:
+                logger.warning(f"No classification returned for commit {commit_data.get('sha')}")
+                return None
+
+            # Extract the single classified commit
+            single_classified_commit = classification_result.commits[0]
+
+            # Convert Pydantic model to our internal dict format
+            commit_dict = {
+                "commit_hash": single_classified_commit.commit_hash,
+                "commit_message": single_classified_commit.commit_message,
+                "classifications": [
+                    {
+                        "file": c.file,
+                        "type": c.type,
+                        "scope": c.scope,
+                        "nature": c.nature,
+                        "volume": c.volume,
+                        "reasoning": c.reasoning,
+                        "patch": c.patch,
+                    }
+                    for c in single_classified_commit.classifications
+                ],
+            }
+            return commit_dict
+
+        except Exception as e:
+            logger.error(f"Error classifying commit {commit_data.get('sha')}: {str(e)}")
+            return None
     
     async def _llm_group_classified_changes(self, commits_with_classifications: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
