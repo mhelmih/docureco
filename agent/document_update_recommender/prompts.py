@@ -323,6 +323,7 @@ The suggested documentation content should be:
 - If there are document sections (descriptions, tables, any diagrams images (with markdown format `![Diagram Name](diagram-name.png)` for example `![Use Case Diagram](diagram-use-case.png)`) that is described textually, traceability matrix inside the document, etc.) that may be affected by the code changes but they are not mentioned in the findings, you can still recommend updating them with the medium or low priority.
 - Please aware for the diagram images inside the document marked with markdown format `![Diagram Name](diagram-name.png)` (for example `![Use Case Diagram](diagram-use-case.png)`). Every images inside the document are already described textually, so if there are changes needed for the diagram even though it is not mentioned in the findings, please create a recommendation to update the diagram inside the "What to Update" and suggest a change to the textual description of the diagram inside the "Suggested Content".
 - Make sure to give a ready-to-use copy-paste-able content for the "Suggested Content" field so that the developer can easily copy and paste the content to the document without thinking too much and in the correct format.
+- If there are NO FINDINGS RELEVANT TO THE DOCUMENT YOU ARE GIVEN even though there are other findings and change sets, DO NOT GENERATE ANY RECOMMENDATIONS.
 
 **SPECIAL CASE: TRACEABILITY ANOMALIES**
 - DO NOT recommend updating documentation content, except for addition mapped findings.
