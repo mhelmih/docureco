@@ -1,0 +1,15 @@
+name: Test Network Connection to Grok API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test Network Connection to Grok API
+        run: |
+          curl -v -X POST https://api.x.ai/v1/chat/completions \
+          -H "Authorization: Bearer ${{ secrets.GROK_API_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{"messages": [{"role": "user", "content": "Test"}], "model": "grok-3-mini"}'
