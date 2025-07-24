@@ -313,8 +313,8 @@ The suggested documentation content should be:
 - The number of recommendations does not need to be the same as the number of relevant findings. If there are many small recommendations in one section (or tabes, diagrams, etc.) per document, please think again, it may be a sign that the recommendations need to be grouped into a single recommendation.
 - DO NOT recommend updating the same section (or tables, diagrams, etc.) multiple times in one document.
 - If there are multiple design elements or requirements with the same type in different sections (or tables) that are affected by the same code changes with the same recommendations content, KEEP GENERATE THE SUGGESTED CONTENT FOR DESIGN ELEMENTS. For example, there are changes needed for class A, B, C, and D to add 2-3 more attributes (the suggestion contents might be the same or just slightly different for each class). DO NOT JUST PRODUCE SUGGESTION CONTENT FOR ONLY 1 CLASS. PRODUCE SUGGESTIONS FOR ALL CLASSES. But, if those design elements are located in the same section (or table), you MUST group them into a single recommendation.
+- If there are NO FINDINGS RELEVANT TO THE DOCUMENT YOU ARE GIVEN even though there are other findings and might be relevant change sets, DO NOT GENERATE ANY RECOMMENDATIONS. FINDINGS ARE THE ONLY THING THAT MATTERS. CHANGE SETS ARE JUST FOR CONTEXT.
 - NEVER USE the auto-generated IDs (the affected element IDs) of the design elements and requirements that are not mentioned inside the document both across all fields (overview, what to update, suggested content, etc.). Use the IDs from the document (or reference_id in the findings) if available.
-- The target document path is specified at the document group level in the summary, not in individual recommendations.
 - For every modifications type of finding, analyze first before modifying the current document content. Be careful of what is being modified since it could leads to unecessary updates to design elements or requirements.
    - New feature doesn't necessarily mean that design elements or requirements need to be updated. It could be creating a new section, new design elements, new requirements, etc.
    - Deletion of feature doesn't necessarily mean that the design elements or requirements need to be updated. It could be deleting the whole section, design elements, requirements, etc.
@@ -323,7 +323,6 @@ The suggested documentation content should be:
 - If there are document sections (descriptions, tables, any diagrams images (with markdown format `![Diagram Name](diagram-name.png)` for example `![Use Case Diagram](diagram-use-case.png)`) that is described textually, traceability matrix inside the document, etc.) that may be affected by the code changes but they are not mentioned in the findings, you can still recommend updating them with the medium or low priority.
 - Please aware for the diagram images inside the document marked with markdown format `![Diagram Name](diagram-name.png)` (for example `![Use Case Diagram](diagram-use-case.png)`). Every images inside the document are already described textually, so if there are changes needed for the diagram even though it is not mentioned in the findings, please create a recommendation to update the diagram inside the "What to Update" and suggest a change to the textual description of the diagram inside the "Suggested Content".
 - Make sure to give a ready-to-use copy-paste-able content for the "Suggested Content" field so that the developer can easily copy and paste the content to the document without thinking too much and in the correct format.
-- If there are NO FINDINGS RELEVANT TO THE DOCUMENT YOU ARE GIVEN even though there are other findings and change sets, DO NOT GENERATE ANY RECOMMENDATIONS.
 
 **SPECIAL CASE: TRACEABILITY ANOMALIES**
 - DO NOT recommend updating documentation content, except for addition mapped findings.
@@ -468,7 +467,7 @@ Document: {doc_path}
 **Current Documentation Content:**
 {docs_summary}
 
-Generate recommendations for the target document with summaries and detailed recommendations."""
+Generate recommendations for the target document with summaries and detailed recommendations. Remember, if there are no relevant findings to the document you are given, DO NOT GENERATE ANY RECOMMENDATIONS."""
 
     @staticmethod
     def suggestion_filtering_system_prompt() -> str:

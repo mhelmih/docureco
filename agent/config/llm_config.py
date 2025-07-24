@@ -15,13 +15,14 @@ class LLMProvider(str, Enum):
     """Supported LLM providers"""
     GROK = "grok"
     OPENAI = "openai"  # Fallback for development/testing
+    GEMINI = "gemini"
 
 class LLMConfig(BaseModel):
     """LLM Configuration model"""
     model_config = {"protected_namespaces": ()}
     
     provider: LLMProvider = Field(default=LLMProvider.GROK)
-    llm_model: str = Field(default="grok-4")
+    llm_model: str = Field(default="grok-3-mini")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
@@ -46,6 +47,7 @@ def get_llm_config() -> LLMConfig:
     # Check for API keys to auto-detect provider
     grok_api_key = os.getenv("GROK_API_KEY")
     openai_api_key = os.getenv("OPENAI_API_KEY")
+    gemini_api_key = os.getenv("GOOGLE_API_KEY")
     
     # Auto-detect provider based on available keys and key format
     provider_env = os.getenv("DOCURECO_LLM_PROVIDER", "").lower()
@@ -54,6 +56,8 @@ def get_llm_config() -> LLMConfig:
         provider = LLMProvider.OPENAI
     elif provider_env == "grok":
         provider = LLMProvider.GROK
+    elif provider_env == "gemini":
+        provider = LLMProvider.GEMINI
     elif grok_api_key and grok_api_key.startswith("xai-"):
         # Auto-detect Grok/xAI based on key format
         provider = LLMProvider.GROK
@@ -62,6 +66,9 @@ def get_llm_config() -> LLMConfig:
         # Auto-detect OpenAI based on key format
         provider = LLMProvider.OPENAI
         logger.info(f"Auto-detected OpenAI provider based on key format")
+    elif gemini_api_key:
+        provider = LLMProvider.GEMINI
+        logger.info(f"Auto-detected Gemini provider based on GOOGLE_API_KEY")
     else:
         # Default to Grok as specified in requirements
         provider = LLMProvider.GROK
@@ -74,7 +81,7 @@ def get_llm_config() -> LLMConfig:
         
         config = LLMConfig(
             provider=provider,
-            llm_model=os.getenv("DOCURECO_LLM_MODEL", "grok-4"),
+            llm_model=os.getenv("DOCURECO_LLM_MODEL", "grok-3-mini"),
             api_key=grok_api_key,
             base_url=grok_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
@@ -82,6 +89,18 @@ def get_llm_config() -> LLMConfig:
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
             request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "300")),
             reasoning_effort=os.getenv("DOCURECO_LLM_REASONING_EFFORT", "high")
+        )
+    elif provider == LLMProvider.GEMINI:
+        # Gemini configuration
+        config = LLMConfig(
+            provider=provider,
+            llm_model=os.getenv("DOCURECO_LLM_MODEL", "gemini-1.5-flash"),
+            api_key=gemini_api_key,
+            base_url=None,  # Not used by Gemini in this setup
+            temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
+            max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
+            max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
+            request_timeout=int(os.getenv("DOCURECO_LLM_TIMEOUT", "300")),
         )
     else:
         # OpenAI fallback configuration
