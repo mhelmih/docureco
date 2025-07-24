@@ -133,8 +133,7 @@ class DocurecoLLMClient:
             temperature=temperature,
             max_tokens=self.config.max_tokens,
             max_retries=self.config.max_retries,
-            request_timeout=self.config.request_timeout,
-            convert_system_message_to_human=True
+            timeout=self.config.request_timeout
         )
 
     async def generate_response(
