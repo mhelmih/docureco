@@ -92,10 +92,12 @@ def get_llm_config() -> LLMConfig:
         )
     elif provider == LLMProvider.GEMINI:
         # Gemini configuration
+        gemini_base_url = os.getenv("GOOGLE_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai/"
         config = LLMConfig(
             provider=provider,
             llm_model=os.getenv("DOCURECO_LLM_MODEL", "gemini-2.5-flash"),
             api_key=gemini_api_key,
+            base_url=gemini_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
             max_tokens=int(os.getenv("DOCURECO_LLM_MAX_TOKENS", "200000")),
             max_retries=int(os.getenv("DOCURECO_LLM_MAX_RETRIES", "3")),
