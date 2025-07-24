@@ -516,6 +516,7 @@ class DocumentUpdateRecommenderWorkflow:
                     finding = {
                         "finding_type": finding_type,
                         "affected_element_id": file_path,
+                        "affected_element_reference_id": file_path,
                         "affected_element_name": file_path,
                         "affected_element_description": file_path,
                         "affected_element_type": "CodeComponent",
@@ -652,7 +653,7 @@ class DocumentUpdateRecommenderWorkflow:
                 finding_dict = {
                     "finding_type": assessed_finding["finding_type"],
                     "affected_element_id": assessed_finding["affected_element_id"],
-                    "affected_element_reference_id": assessed_finding["affected_element_reference_id"],
+                    "affected_element_reference_id": assessed_finding.get("affected_element_reference_id"),
                     "affected_element_name": assessed_finding["affected_element_name"],
                     "affected_element_description": assessed_finding["affected_element_description"],
                     "affected_element_type": assessed_finding["affected_element_type"],
