@@ -21,7 +21,7 @@ class LLMConfig(BaseModel):
     model_config = {"protected_namespaces": ()}
     
     provider: LLMProvider = Field(default=LLMProvider.GROK)
-    llm_model: str = Field(default="grok-3-mini")
+    llm_model: str = Field(default="grok-4")
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
@@ -74,7 +74,7 @@ def get_llm_config() -> LLMConfig:
         
         config = LLMConfig(
             provider=provider,
-            llm_model=os.getenv("DOCURECO_LLM_MODEL", "grok-3-mini"),
+            llm_model=os.getenv("DOCURECO_LLM_MODEL", "grok-4"),
             api_key=grok_api_key,
             base_url=grok_base_url,
             temperature=float(os.getenv("DOCURECO_LLM_TEMPERATURE", "0.1")),
