@@ -12,4 +12,4 @@ jobs:
           curl -v -X POST https://api.x.ai/v1/chat/completions \
           -H "Authorization: Bearer ${{ secrets.GROK_API_KEY }}" \
           -H "Content-Type: application/json" \
-          -d '{"messages": [{"role": "user", "content": "Test"}], "model": "grok-3-mini"}'
+          -d '{"messages": [{"role": "user", "content": "Test"}], "model": "grok-3-mini", "reasoning_effort": "high"}'
