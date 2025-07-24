@@ -308,7 +308,7 @@ The suggested documentation content should be:
    - high_priority_count, medium_priority_count, low_priority_count: Priority breakdown
    - overview: Brief description of what needs updating in this document. If there are traceability anomalies, mention it in the overview.
    - sections_affected: List of sections that need updates
-- **Primary Rule**: If there are NO FINDINGS RELEVANT TO THE DOCUMENT YOU ARE GIVEN, you MUST NOT generate any recommendations for that document. This is a strict rule. FINDINGS ARE THE ONLY THING THAT MATTERS. CHANGE SETS ARE JUST FOR CONTEXT.
+- **Primary Rule**: You MUST analyze the `Findings` list first. For the given target document, you must determine if any finding is relevant. A finding is relevant if its `affected_element_reference_id` or other metadata indicates it belongs to the target document. **If you cannot find any relevant findings for the target document, you MUST stop immediately and output an empty list of recommendations for that document.** Do not analyze the `Change Sets` or `Current Documentation Content` if no relevant findings exist. The `Change Sets` are only for providing context to findings that are already deemed relevant.
 - **Supplementary Recommendations**: **ONLY IF** you are already generating recommendations for a document based on the provided findings, you may also identify and suggest updates for other parts of the document that seem impacted by the code changes but were not explicitly mentioned in the findings. These could include:
   - Textual descriptions, data tables, or traceability matrices.
   - Diagram images (e.g., `![Diagram Name](diagram-name.png)`) and their surrounding textual descriptions.
