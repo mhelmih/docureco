@@ -26,3 +26,4 @@ env/
 
 # Parsed PDF
 parsed-pdf/
+venv

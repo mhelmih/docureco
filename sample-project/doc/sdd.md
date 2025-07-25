@@ -112,11 +112,14 @@ This section provides a detailed breakdown of each class based on class diagram 
 | `set_bookStatus(bookStatus)` | public         | Sets a new reading status for the book.      |
 | `set_totalPages(totalPages)` | public         | Sets a new page count for the book.          |
 | `__eq__(value)`              | public         | Compares two Book objects for equality.      |
+| `get_isFavorite()`           | public         | Returns the favorite status of the book.     |
+| `set_isFavorite(isFavorite)` | public         | Sets the favorite status of the book.        |
 | **Attribute Name**           | **Visibility** | **Type**                                     |
 | `_bookId`                    | private        | Integer                                      |
 | `_bookTitle`                 | private        | String                                       |
 | `_bookStatus`                | private        | String                                       |
 | `_totalPages`                | private        | Integer                                      |
+| `_isFavorite`                | private        | Boolean                                      |
 
 #### 4.1.2 Class: Note
 
@@ -170,19 +173,21 @@ This section provides a detailed breakdown of each class based on class diagram 
 
 **Class Name**: `BookCollection`
 
-| Operation Name       | Visibility     | Description                                      |
-| :------------------- | :------------- | :----------------------------------------------- |
-| `set_db(db_path)`    | public         | Sets up the database connection.                 |
-| `get_by_id(book_id)` | public         | Retrieves a single `Book` object by its ID.      |
-| `insert(book)`       | public         | Inserts a new book record into the database.     |
-| `update_book(book)`  | public         | Updates an existing book record in the database. |
-| `get_book_count()`   | public         | Returns the total number of books.               |
-| `get_all()`          | public         | Retrieves a list of all book records.            |
-| `clear_all()`        | public         | Deletes all book records from the database.      |
-| `delete_by_id(id)`   | public         | Deletes a book record by its ID.                 |
-| **Attribute Name**   | **Visibility** | **Type**                                         |
-| `_conn`              | private        | sqlite3.Connection                               |
-| `_cursor`            | private        | sqlite3.Cursor                                   |
+| Operation Name                                 | Visibility     | Description                                                                 |
+| :--------------------------------------------- | :------------- | :-------------------------------------------------------------------------- |
+| `set_db(db_path)`                              | public         | Sets up the database connection.                                            |
+| `get_by_id(book_id)`                           | public         | Retrieves a single `Book` object by its ID.                                 |
+| `get_book_count()`                             | public         | Returns the total number of books.                                          |
+| `get_all()`                                    | public         | Retrieves a list of all book records.                                       |
+| `clear_all()`                                  | public         | Deletes all book records from the database.                                 |
+| `delete_by_id(id)`                             | public         | Deletes a book record by its ID.                                            |
+| `insert(book)`                                 | public         | Inserts a new book record into the database, including favorite status.     |
+| `update_book(book)`                            | public         | Updates an existing book record in the database, including favorite status. |
+| `update_favorite_status(book_id, is_favorite)` | public         | Updates the favorite status of a book in the database.                      |
+| `get_favorites()`                              | public         | Retrieves a list of favorite book records.                                  |
+| **Attribute Name**                             | **Visibility** | **Type**                                                                    |
+| `_conn`                                        | private        | sqlite3.Connection                                                          |
+| `_cursor`                                      | private        | sqlite3.Cursor                                                              |
 
 #### 4.2.2 Class: NoteCollection
 
@@ -244,19 +249,20 @@ _Note: For UI classes, methods often correspond to building UI components or han
 
 **Class Name**: `ReadBuddy`
 
-| Operation Name             | Visibility     | Description                                              |
-| :------------------------- | :------------- | :------------------------------------------------------- |
-| `build()`                  | public         | Constructs the main application UI.                      |
-| `add_clicked(e)`           | public         | Event handler for when the 'add book' button is clicked. |
-| `book_status_change(book)` | public         | Callback function to handle a change in a book's status. |
-| `book_delete(book)`        | public         | Callback function to handle the deletion of a book.      |
-| `tabs_changed(e)`          | public         | Event handler for when the filter tabs are changed.      |
-| `update()`                 | public         | Refreshes the main view.                                 |
-| **Attribute Name**         | **Visibility** | **Type**                                                 |
-| `new_book`                 | private        | ft.TextButton                                            |
-| `book_collection_display`  | private        | BookCollectionDisplay                                    |
-| `filter`                   | private        | ft.Tabs                                                  |
-| `items_left`               | private        | ft.Text                                                  |
+| Operation Name               | Visibility     | Description                                                      |
+| :--------------------------- | :------------- | :--------------------------------------------------------------- |
+| `build()`                    | public         | Constructs the main application UI.                              |
+| `add_clicked(e)`             | public         | Event handler for when the 'add book' button is clicked.         |
+| `book_status_change(book)`   | public         | Callback function to handle a change in a book's status.         |
+| `book_delete(book)`          | public         | Callback function to handle the deletion of a book.              |
+| `tabs_changed(e)`            | public         | Event handler for when the filter tabs are changed.              |
+| `update()`                   | public         | Refreshes the main view.                                         |
+| `book_favorite_change(book)` | public         | Callback function to handle changes in a book's favorite status. |
+| **Attribute Name**           | **Visibility** | **Type**                                                         |
+| `new_book`                   | private        | ft.TextButton                                                    |
+| `book_collection_display`    | private        | BookCollectionDisplay                                            |
+| `filter`                     | private        | ft.Tabs                                                          |
+| `items_left`                 | private        | ft.Text                                                          |
 
 #### 4.3.3 Class: BookDisplay
 
@@ -270,6 +276,7 @@ _Note: For UI classes, methods often correspond to building UI components or han
 | `delete_clicked(e)`       | public         | Event handler for when the delete button is clicked.          |
 | `detail_clicked(e)`       | public         | Event handler for when the user clicks to see book details.   |
 | `close_detail_clicked(e)` | public         | Event handler for when the user closes the detail view.       |
+| `favorite_clicked(e)`     | public         | Event handler for when the favorite button is clicked.        |
 | **Attribute Name**        | **Visibility** | **Type**                                                      |
 | `book`                    | private        | Book                                                          |
 | `title_display`           | private        | ft.Row                                                        |
@@ -279,11 +286,11 @@ _Note: For UI classes, methods often correspond to building UI components or han
 
 #### 4.3.4 Other Boundary Classes
 
-- **BookCollectionDisplay**: Builds the application icon and the main list of books.
-- **BookDetail**: Manages the detailed view of a book, including logic for uploading a book cover.
+- **BookDetail**: Manages the detailed view of a book, including data retrieval, updates, and favorite status toggling.
+- **BookCollectionDisplay**: Builds the UI for displaying the collection of books, including favorite filtering and icons.
+- **AddBook**: Displays the form for adding a new book, including favorite status initialization, and handles input validation and saving.
 - **NoteDisplay**: Builds the UI to display all notes for a specific book and handles add/delete events.
 - **EditNoteForm**: A view/function to display the form for editing an existing note.
-- **AddBook**: A view/function to display the form for adding a new book.
 - **RecordReadingProgress**: A view/function to display the form for updating reading progress.
 
 ---
@@ -299,12 +306,13 @@ The software will use a local SQLite database with the following tables to persi
 - **Description:** Stores the primary information for each book.
 - **Primary Key:** `book_id`
 
-| Field Name   | Data Type | Constraints                |
-| :----------- | :-------- | :------------------------- |
-| `book_id`    | INTEGER   | PRIMARY KEY, AUTOINCREMENT |
-| `title`      | TEXT      | NOT NULL                   |
-| `page_count` | INTEGER   | NOT NULL                   |
-| `status`     | TEXT      | NOT NULL                   |
+| Field Name    | Data Type | Constraints                |
+| :------------ | :-------- | :------------------------- |
+| `book_id`     | INTEGER   | PRIMARY KEY, AUTOINCREMENT |
+| `title`       | TEXT      | NOT NULL                   |
+| `page_count`  | INTEGER   | NOT NULL                   |
+| `status`      | TEXT      | NOT NULL                   |
+| `is_favorite` | INTEGER   | DEFAULT 0                  |
 
 **Table 2: ReadingProgress**
 
