@@ -464,10 +464,10 @@ Document: {doc_path}
 **Findings:**
 {chr(10).join(findings_summary)}
 
-**Related Change Sets (analyze these to understand what was implemented):**
+**Related Change Sets (for more context):**
 {chr(10).join(change_sets_summary)}
 
-**Current Documentation Content:**
+**Current Documentation Content (for more context):**
 {docs_summary}
 
 Generate recommendations for the target document with summaries and detailed recommendations. Remember, if there are no relevant findings to the document you are given, DO NOT GENERATE ANY RECOMMENDATIONS."""

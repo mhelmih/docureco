@@ -613,17 +613,12 @@ class DocumentUpdateRecommenderWorkflow:
         
         return all_findings
 
-    async def _llm_assess_likelihood_and_severity(self, findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Assess likelihood and severity for each finding using LLM, considering existing documentation updates.
-        
-        Likelihood values: Very Likely, Likely, Possibly, Unlikely
-        Severity values: None, Trivial, Minor, Moderate, Major, Fundamental
-        """
+    async def _assess_findings_batch(self, findings_batch: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Helper to assess a single batch of findings."""
         try:
             # Create structured assessment for LLM including documentation changes
             assessment_context = {
-                "findings": findings,
+                "findings": findings_batch,
                 "logical_change_sets": logical_change_sets,
                 "documentation_changes": documentation_changes
             }
@@ -644,12 +639,12 @@ class DocumentUpdateRecommenderWorkflow:
             )
             
             # Parse the structured response
-            assessed_findings = response.content["assessed_findings"]
+            assessed_findings_models = response.content["assessed_findings"]
             
-            # Convert Pydantic models back to dictionaries and filter
-            filtered_findings = []
-            for assessed_finding in assessed_findings:
-                # Convert to dict format
+            # Convert Pydantic models back to dictionaries
+            assessed_findings_dicts = []
+            for assessed_finding in assessed_findings_models:
+                # The response from the LLM client is already a dict
                 finding_dict = {
                     "finding_type": assessed_finding["finding_type"],
                     "affected_element_id": assessed_finding["affected_element_id"],
@@ -664,15 +659,54 @@ class DocumentUpdateRecommenderWorkflow:
                     "severity": assessed_finding["severity"],
                     "reasoning": assessed_finding["reasoning"]
                 }
-                
-                # Apply filtering based on minimum criteria
+                assessed_findings_dicts.append(finding_dict)
+            
+            return assessed_findings_dicts
+            
+        except Exception as e:
+            logger.error(f"Error assessing a batch of findings: {str(e)}")
+            # Return an empty list for this batch on error to not fail the whole process
+            return []
+
+    async def _llm_assess_likelihood_and_severity(self, findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Assess likelihood and severity for each finding using LLM in parallel batches.
+        """
+        if not findings:
+            return []
+            
+        # Define batch size
+        batch_size = 10
+        
+        # Create batches of findings
+        finding_batches = [findings[i:i + batch_size] for i in range(0, len(findings), batch_size)]
+        
+        logger.info(f"Assessing {len(findings)} findings in {len(finding_batches)} parallel batches.")
+        
+        # Create async tasks for each batch
+        tasks = []
+        for batch in finding_batches:
+            task = self._assess_findings_batch(batch, logical_change_sets, documentation_changes)
+            tasks.append(task)
+            
+        try:
+            # Run all assessment tasks in parallel
+            list_of_results = await asyncio.gather(*tasks)
+            
+            # Flatten the list of lists into a single list of assessed findings
+            all_assessed_findings = [finding for sublist in list_of_results for finding in sublist]
+            
+            # Filter the final list based on minimum criteria
+            filtered_findings = []
+            for finding_dict in all_assessed_findings:
                 if self._meets_minimum_criteria(finding_dict):
                     filtered_findings.append(finding_dict)
             
+            logger.info(f"Completed assessment. Got {len(all_assessed_findings)} results, filtered down to {len(filtered_findings)} findings.")
             return filtered_findings
             
         except Exception as e:
-            error_msg = f"Step 3: Error in likelihood/severity assessment: {str(e)}"
+            error_msg = f"Step 3: Error in parallel likelihood/severity assessment: {str(e)}"
             raise ValueError(error_msg)
     
     def _meets_minimum_criteria(self, finding: Dict[str, Any]) -> bool:
