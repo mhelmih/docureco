@@ -12,10 +12,6 @@ on:
       commit_sha:
         description: 'Commit SHA to analyze'
         required: true
-      agent_branch:
-        description: 'The branch of the agent code to use for manual runs'
-        required: false
-        default: 'dev'
 
 env:
   # LLM Configuration
@@ -57,8 +53,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        ref: ${{ github.event.inputs.agent_branch }}
     
     - name: Set up Python
       uses: actions/setup-python@v4
