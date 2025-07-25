@@ -1276,7 +1276,13 @@ class DocumentUpdateRecommenderWorkflow:
 
             classification_result = response.content
             
-            # Convert Pydantic model to our internal format
+            # Create a lookup map for patches from the original PR data
+            patch_lookup = {}
+            for commit in pr_data.get("commit_info", {}).get("commits", []):
+                for file_change in commit.get("files", []):
+                    patch_lookup[(commit["sha"], file_change["filename"])] = file_change.get("patch", "")
+            
+            # Convert Pydantic model to our internal format and add the patch back
             commits_with_classifications = []
             for commit_data in classification_result["commits"]:
                 commit_dict = {
@@ -1286,14 +1292,20 @@ class DocumentUpdateRecommenderWorkflow:
                 }
                 
                 for classification in commit_data["classifications"]:
+                    commit_hash = commit_data["commit_hash"]
+                    file_path = classification["file"]
+                    
+                    # Add the patch from the lookup map
+                    patch = patch_lookup.get((commit_hash, file_path), "")
+                    
                     commit_dict["classifications"].append({
-                        "file": classification["file"],
+                        "file": file_path,
                         "type": classification["type"],
                         "scope": classification["scope"],
                         "nature": classification["nature"],
                         "volume": classification["volume"],
                         "reasoning": classification["reasoning"],
-                        "patch": classification["patch"]
+                        "patch": patch
                     })
                 
                 commits_with_classifications.append(commit_dict)
@@ -1338,13 +1350,45 @@ class DocumentUpdateRecommenderWorkflow:
             # Parse the JSON response into Pydantic model
             grouping_result = response.content
             
-            # Convert Pydantic model output to our internal format
+            # Create a lookup map for patches from the original classifications using a composite key
+            patch_lookup = {}
+            for commit in commits_with_classifications:
+                for classification in commit.get("classifications", []):
+                    # Create a unique composite key from the classification details
+                    composite_key = (
+                        classification["file"],
+                        classification["type"],
+                        classification["scope"],
+                        classification["nature"],
+                        classification["volume"],
+                        classification["reasoning"]
+                    )
+                    patch_lookup[composite_key] = classification.get("patch", "")
+
+            # Convert Pydantic model output to our internal format and add the patch back
             logical_change_sets = []
-            for change_set in grouping_result["logical_change_sets"]:
+            for change_set_data in grouping_result["logical_change_sets"]:
+                # The 'changes' here are Pydantic models, so we convert them to dicts
+                changes_with_patch = []
+                for change in change_set_data["changes"]:
+                    change_dict = change.dict()
+                    
+                    # Recreate the same composite key to find the correct patch
+                    composite_key = (
+                        change_dict["file"],
+                        change_dict["type"],
+                        change_dict["scope"],
+                        change_dict["nature"],
+                        change_dict["volume"],
+                        change_dict["reasoning"]
+                    )
+                    change_dict["patch"] = patch_lookup.get(composite_key, "")
+                    changes_with_patch.append(change_dict)
+                
                 logical_change_sets.append({
-                    "name": change_set["name"],
-                    "description": change_set["description"],
-                    "changes": change_set["changes"]
+                    "name": change_set_data["name"],
+                    "description": change_set_data["description"],
+                    "changes": changes_with_patch
                 })
             
             return logical_change_sets
