@@ -9,6 +9,8 @@ import sys
 import os
 from typing import Dict, Any, List, Optional, Tuple
 import subprocess
+import httpx
+import base64
 
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -53,35 +55,37 @@ class BaselineMapUpdaterWorkflow:
         
         # Define the nodes based on the user's specified flow
         workflow.add_node("fetch_changed_files_content", self._fetch_changed_files_content)
-        # workflow.add_node("identify_changed_design_elements", self._identify_changed_design_elements)
-        # workflow.add_node("identify_changed_requirements", self._identify_changed_requirements)
-        # workflow.add_node("update_design_to_design_mapping", self._update_design_to_design_mapping)
-        # workflow.add_node("update_requirements_to_design_mapping", self._update_requirements_to_design_mapping)
-        # workflow.add_node("map_new_code_to_design", self._map_new_code_to_design)
-        # workflow.add_node("save_baseline_map_update", self._save_baseline_map_update)
+        workflow.add_node("identify_changed_design_elements", self._identify_changed_design_elements)
+        workflow.add_node("identify_changed_requirements", self._identify_changed_requirements)
+        workflow.add_node("update_design_to_design_mapping", self._update_design_to_design_mapping)
+        workflow.add_node("update_requirements_to_design_mapping", self._update_requirements_to_design_mapping)
+        workflow.add_node("map_new_code_to_design", self._map_new_code_to_design)
+        workflow.add_node("save_baseline_map_update", self._save_baseline_map_update)
 
-        # workflow.add_conditional_edges(
-        #     "fetch_changed_files_content",
-        #     lambda state: "identify_changed_design_elements" if not state.get("error") else "end",
-        #     {"identify_changed_design_elements": "identify_changed_design_elements", "end": END}
-        # )
+        workflow.set_entry_point("fetch_changed_files_content")
         
-        # # Linear flow for the rest of the mapping process
-        # workflow.add_edge("identify_changed_design_elements", "identify_changed_requirements")
-        # workflow.add_edge("identify_changed_requirements", "update_design_to_design_mapping")
-        # workflow.add_edge("update_design_to_design_mapping", "update_requirements_to_design_mapping")
-        # workflow.add_edge("update_requirements_to_design_mapping", "map_new_code_to_design")
-        # workflow.add_edge("map_new_code_to_design", "save_baseline_map_update")
-        # workflow.add_edge("save_baseline_map_update", END)
+        workflow.add_conditional_edges(
+            "fetch_changed_files_content",
+            lambda state: "identify_changed_design_elements" if not state.get("error") else END,
+            {"identify_changed_design_elements": "identify_changed_design_elements", "end": END}
+        )
+        
+        # Linear flow for the rest of the mapping process
+        workflow.add_edge("identify_changed_design_elements", "identify_changed_requirements")
+        workflow.add_edge("identify_changed_requirements", "update_design_to_design_mapping")
+        workflow.add_edge("update_design_to_design_mapping", "update_requirements_to_design_mapping")
+        workflow.add_edge("update_requirements_to_design_mapping", "map_new_code_to_design")
+        workflow.add_edge("map_new_code_to_design", "save_baseline_map_update")
+        workflow.add_edge("save_baseline_map_update", END)
         
         return workflow
 
-    async def execute(self, repository: str, branch: str, file_changes: List[Dict[str, Any]]) -> BaselineMapUpdaterState:
+    async def execute(self, repository: str, branch: str, commit_sha: str) -> BaselineMapUpdaterState:
         """Executes the baseline map update workflow."""
         initial_state = {
             "repository": repository,
             "branch": branch,
-            "file_changes": file_changes,
+            "commit_sha": commit_sha,
             "baseline_map": None,
             "changed_srs_content": {},
             "changed_sdd_content": {},
@@ -114,86 +118,98 @@ class BaselineMapUpdaterWorkflow:
             
         return final_state
 
+    async def _get_file_content_from_api(self, client: httpx.AsyncClient, url: str) -> Optional[str]:
+        """Helper to fetch and decode file content from GitHub API."""
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+            content_base64 = response.json().get("content", "")
+            if content_base64:
+                return base64.b64decode(content_base64).decode('utf-8')
+            return ""
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Failed to fetch content from {url}: {e.response.status_code} - {e.response.text}")
+            return None
+        except (base64.binascii.Error, UnicodeDecodeError) as e:
+            logger.error(f"Failed to decode content from {url}: {e}")
+            return None
+
     async def _fetch_changed_files_content(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         """
-        Fetches the content of changed files from the latest merge commit.
-        This implementation uses git commands to get the real changes.
+        Fetches the content of changed files from the specified commit using the GitHub API.
         """
-        logger.info("Fetching changed files content from the last commit...")
+        logger.info(f"Fetching changed files content for commit {state['commit_sha']}...")
         state["current_step"] = "fetching_files"
+        
+        repo = state["repository"]
+        commit_sha = state["commit_sha"]
+        github_token = os.getenv("GITHUB_TOKEN")
+        
+        if not github_token:
+            state["error"] = "GITHUB_TOKEN environment variable not set."
+            logger.error(state["error"])
+            return state
+
+        headers = {"Authorization": f"token {github_token}"}
+        commit_url = f"https://api.github.com/repos/{repo}/commits/{commit_sha}"
 
         try:
-            # Get the list of changed files from the last commit compared to its first parent
-            git_diff_cmd = "git diff --name-status HEAD^ HEAD"
-            # In a real CI environment, you might need to fetch more history `git fetch --depth=2`
-            result = subprocess.run(git_diff_cmd, capture_output=True, text=True, shell=True, check=True)
-            changed_files_raw = result.stdout.strip().split('\n')
+            async with httpx.AsyncClient(headers=headers, timeout=60.0) as client:
+                commit_response = await client.get(commit_url)
+                commit_response.raise_for_status()
+                commit_data = commit_response.json()
 
-            if not changed_files_raw or not changed_files_raw[0]:
-                logger.info("No file changes detected in the last commit. Terminating workflow.")
-                state["error"] = "No file changes detected."
-                return state
-
-            sdd_patterns = ["sdd.md", "design.md"]
-            srs_patterns = ["srs.md", "requirements.md"]
-
-            for file_info in changed_files_raw:
-                status, file_path = file_info.split('\t')
-                change_data = {"change_type": None, "old_content": "", "new_content": ""}
-
-                if status == 'A': # Added
-                    change_data["change_type"] = "addition"
-                    new_content_raw = subprocess.run(f"git show HEAD:'{file_path}'", capture_output=True, text=True, shell=True)
-                    if new_content_raw.returncode == 0:
-                        change_data["new_content"] = new_content_raw.stdout
+                parent_sha = commit_data["parents"][0]["sha"] if commit_data.get("parents") else None
                 
-                elif status == 'D': # Deleted
-                    change_data["change_type"] = "deletion"
-                    old_content_raw = subprocess.run(f"git show HEAD^:'{file_path}'", capture_output=True, text=True, shell=True)
-                    if old_content_raw.returncode == 0:
-                        change_data["old_content"] = old_content_raw.stdout
-
-                elif status == 'M': # Modified
-                    change_data["change_type"] = "modification"
-                    old_content_raw = subprocess.run(f"git show HEAD^:'{file_path}'", capture_output=True, text=True, shell=True)
-                    if old_content_raw.returncode == 0:
-                        change_data["old_content"] = old_content_raw.stdout
-                    new_content_raw = subprocess.run(f"git show HEAD:'{file_path}'", capture_output=True, text=True, shell=True)
-                    if new_content_raw.returncode == 0:
-                        change_data["new_content"] = new_content_raw.stdout
-                
-                elif status == 'R': # Renamed
-                    change_data["change_type"] = "renamed"
-                    old_content_raw = subprocess.run(f"git show HEAD^:'{file_path}'", capture_output=True, text=True, shell=True)
-                    if old_content_raw.returncode == 0:
-                        change_data["old_content"] = old_content_raw.stdout
-                    new_content_raw = subprocess.run(f"git show HEAD:'{file_path}'", capture_output=True, text=True, shell=True)
-                    if new_content_raw.returncode == 0:
-                        change_data["new_content"] = new_content_raw.stdout
-                
-                else: # Renamed, copied, etc.
-                    logger.info(f"Skipping unhandled change status '{status}' for file {file_path}")
-                    continue
-                
-                # Categorize the file
-                if any(p in file_path for p in sdd_patterns):
-                    state["changed_sdd_content"][file_path] = change_data
-                elif any(p in file_path for p in srs_patterns):
-                    state["changed_srs_content"][file_path] = change_data
+                if not parent_sha:
+                    logger.info("No parent commit found. This might be the first commit. Analyzing all files.")
+                    changed_files = commit_data.get("files", [])
                 else:
-                    state["changed_code_files"][file_path] = change_data
+                    compare_url = f"https://api.github.com/repos/{repo}/compare/{parent_sha}...{commit_sha}"
+                    compare_response = await client.get(compare_url)
+                    compare_response.raise_for_status()
+                    changed_files = compare_response.json().get("files", [])
+
+                if not changed_files:
+                    logger.info("No file changes detected in the commit. Terminating workflow.")
+                    state["error"] = "No file changes detected."
+                    return state
+
+                sdd_patterns = ["sdd.md", "design.md"]
+                srs_patterns = ["srs.md", "requirements.md"]
+
+                for file_info in changed_files:
+                    status = file_info["status"]
+                    file_path = file_info["filename"]
+                    
+                    change_data = {"change_type": status, "old_content": "", "new_content": ""}
+
+                    if status in ["added", "modified"]:
+                        new_content_url = file_info["contents_url"]
+                        change_data["new_content"] = await self._get_file_content_from_api(client, new_content_url)
+                    
+                    if parent_sha and status in ["modified", "deleted"]:
+                        old_content_url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={parent_sha}"
+                        change_data["old_content"] = await self._get_file_content_from_api(client, old_content_url)
+
+                    if any(p in file_path for p in sdd_patterns):
+                        state["changed_sdd_content"][file_path] = change_data
+                    elif any(p in file_path for p in srs_patterns):
+                        state["changed_srs_content"][file_path] = change_data
+                    else:
+                        state["changed_code_files"][file_path] = change_data
                 
-                logger.info(f"CHANGED SDD CONTENT: {state['changed_sdd_content']}")
-                logger.info(f"CHANGED SRS CONTENT: {state['changed_srs_content']}")
-                logger.info(f"CHANGED CODE FILES: {state['changed_code_files']}")
+                logger.info(f"Changed SDD content: {state['changed_sdd_content']}")
+                logger.info(f"Changed SRS content: {state['changed_srs_content']}")
+                logger.info(f"Changed code files: {state['changed_code_files']}")
+                
+                if not state["changed_sdd_content"] and not state["changed_srs_content"]:
+                    logger.info("No changes found in SRS or SDD files. Workflow will terminate.")
+                    state["error"] = "No documentation files changed."
 
-            if not state["changed_sdd_content"] and not state["changed_srs_content"]:
-                logger.info("No changes found in SRS or SDD files. Workflow will terminate.")
-                state["error"] = "No documentation files changed."
-
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to run git command: {e.stderr}")
-            state["error"] = "Git command failed."
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Failed to fetch commit data from GitHub API: {e.response.status_code} - {e.response.text}")
+            state["error"] = "GitHub API request failed."
         except Exception as e:
             logger.error(f"An unexpected error occurred while fetching changed files: {e}")
             state["error"] = "Unexpected error during file fetching."
@@ -203,35 +219,28 @@ class BaselineMapUpdaterWorkflow:
     async def _identify_changed_design_elements(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         """3. Identify changed design elements in SDD."""
         logger.info("Identifying changed design elements from changed SDD files.")
-        # This is a simplified analysis. A real one would be more complex.
-        # For now, we'll imagine a prompt that can identify new, updated, and deleted elements.
-        # The logic for deletion and updates will be handled in the save step for simplicity here.
         logger.info("Skipping detailed SDD analysis in this version.")
         return state
 
     async def _identify_changed_requirements(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         """4. Identify changed requirements in SRS."""
         logger.info("Identifying changed requirements from changed SRS files.")
-        # Similar to design elements, this is a placeholder for a more complex analysis.
         logger.info("Skipping detailed SRS analysis in this version.")
         return state
 
     async def _update_design_to_design_mapping(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         """5. Update design-to-design mappings based on changed elements."""
         logger.info("Updating design-to-design mappings.")
-        # Placeholder for D2D mapping logic
         return state
 
     async def _update_requirements_to_design_mapping(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         """6. Update requirements-to-design mappings based on changed requirements."""
         logger.info("Updating requirements-to-design mappings.")
-        # Placeholder for R2D mapping logic
         return state
 
     async def _map_new_code_to_design(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         """7. Map newly added code files to all design elements."""
         logger.info("Mapping new code files to design elements.")
-        # Placeholder for C2D mapping for new files
         return state
 
     async def _save_baseline_map_update(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
@@ -239,13 +248,6 @@ class BaselineMapUpdaterWorkflow:
         logger.info("Applying all changes and saving the updated baseline map.")
         
         baseline_map: BaselineMapModel = state["baseline_map"]
-
-        # Handle deletions first
-        # Remove elements associated with deleted documents
-        # This requires knowing which document an element belongs to. We'll simulate with path matching.
-        
-        # A more robust implementation needs to be added here to handle CRUD operations correctly
-        # based on the outputs from the analysis steps.
         
         success = await self.baseline_map_repo.save_baseline_map(baseline_map)
         if not success:
@@ -253,6 +255,7 @@ class BaselineMapUpdaterWorkflow:
             logger.error(state["error"])
         else:
             logger.info("Successfully saved the updated baseline map.")
+            state["current_step"] = "completed"
             
         return state
 
