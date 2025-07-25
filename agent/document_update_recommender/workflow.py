@@ -516,6 +516,7 @@ class DocumentUpdateRecommenderWorkflow:
                     finding = {
                         "finding_type": finding_type,
                         "affected_element_id": file_path,
+                        "affected_element_reference_id": file_path,
                         "affected_element_name": file_path,
                         "affected_element_description": file_path,
                         "affected_element_type": "CodeComponent",
@@ -612,17 +613,12 @@ class DocumentUpdateRecommenderWorkflow:
         
         return all_findings
 
-    async def _llm_assess_likelihood_and_severity(self, findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Assess likelihood and severity for each finding using LLM, considering existing documentation updates.
-        
-        Likelihood values: Very Likely, Likely, Possibly, Unlikely
-        Severity values: None, Trivial, Minor, Moderate, Major, Fundamental
-        """
+    async def _assess_findings_batch(self, findings_batch: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Helper to assess a single batch of findings."""
         try:
             # Create structured assessment for LLM including documentation changes
             assessment_context = {
-                "findings": findings,
+                "findings": findings_batch,
                 "logical_change_sets": logical_change_sets,
                 "documentation_changes": documentation_changes
             }
@@ -643,16 +639,16 @@ class DocumentUpdateRecommenderWorkflow:
             )
             
             # Parse the structured response
-            assessed_findings = response.content["assessed_findings"]
+            assessed_findings_models = response.content["assessed_findings"]
             
-            # Convert Pydantic models back to dictionaries and filter
-            filtered_findings = []
-            for assessed_finding in assessed_findings:
-                # Convert to dict format
+            # Convert Pydantic models back to dictionaries
+            assessed_findings_dicts = []
+            for assessed_finding in assessed_findings_models:
+                # The response from the LLM client is already a dict
                 finding_dict = {
                     "finding_type": assessed_finding["finding_type"],
                     "affected_element_id": assessed_finding["affected_element_id"],
-                    "affected_element_reference_id": assessed_finding["affected_element_reference_id"],
+                    "affected_element_reference_id": assessed_finding.get("affected_element_reference_id"),
                     "affected_element_name": assessed_finding["affected_element_name"],
                     "affected_element_description": assessed_finding["affected_element_description"],
                     "affected_element_type": assessed_finding["affected_element_type"],
@@ -663,15 +659,54 @@ class DocumentUpdateRecommenderWorkflow:
                     "severity": assessed_finding["severity"],
                     "reasoning": assessed_finding["reasoning"]
                 }
-                
-                # Apply filtering based on minimum criteria
+                assessed_findings_dicts.append(finding_dict)
+            
+            return assessed_findings_dicts
+            
+        except Exception as e:
+            logger.error(f"Error assessing a batch of findings: {str(e)}")
+            # Return an empty list for this batch on error to not fail the whole process
+            return []
+
+    async def _llm_assess_likelihood_and_severity(self, findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]], documentation_changes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Assess likelihood and severity for each finding using LLM in parallel batches.
+        """
+        if not findings:
+            return []
+            
+        # Define batch size
+        batch_size = 10
+        
+        # Create batches of findings
+        finding_batches = [findings[i:i + batch_size] for i in range(0, len(findings), batch_size)]
+        
+        logger.info(f"Assessing {len(findings)} findings in {len(finding_batches)} parallel batches.")
+        
+        # Create async tasks for each batch
+        tasks = []
+        for batch in finding_batches:
+            task = self._assess_findings_batch(batch, logical_change_sets, documentation_changes)
+            tasks.append(task)
+            
+        try:
+            # Run all assessment tasks in parallel
+            list_of_results = await asyncio.gather(*tasks)
+            
+            # Flatten the list of lists into a single list of assessed findings
+            all_assessed_findings = [finding for sublist in list_of_results for finding in sublist]
+            
+            # Filter the final list based on minimum criteria
+            filtered_findings = []
+            for finding_dict in all_assessed_findings:
                 if self._meets_minimum_criteria(finding_dict):
                     filtered_findings.append(finding_dict)
             
+            logger.info(f"Completed assessment. Got {len(all_assessed_findings)} results, filtered down to {len(filtered_findings)} findings.")
             return filtered_findings
             
         except Exception as e:
-            error_msg = f"Step 3: Error in likelihood/severity assessment: {str(e)}"
+            error_msg = f"Step 3: Error in parallel likelihood/severity assessment: {str(e)}"
             raise ValueError(error_msg)
     
     def _meets_minimum_criteria(self, finding: Dict[str, Any]) -> bool:
@@ -685,8 +720,8 @@ class DocumentUpdateRecommenderWorkflow:
             return True
         
         # For Standard_Impact, check minimum thresholds
-        likelihood_threshold = likelihood in ["Very Likely", "Likely", "Possibly"]
-        severity_threshold = severity in ["Fundamental", "Major", "Moderate", "Minor"]
+        likelihood_threshold = likelihood in ["Very Likely", "Likely"]
+        severity_threshold = severity in ["Fundamental", "Major", "Moderate"]
         
         return likelihood_threshold and severity_threshold
     
@@ -695,21 +730,24 @@ class DocumentUpdateRecommenderWorkflow:
         Step 4: Generate and Post Recommendations
         
         Implements:
-        - Filter High-Priority Findings
-        - Query Existing Suggestions
-        - Findings Iteration & Suggestion Generation
-        - Filter Against Existing & Post Details
-        - Manage Check Status
+        - Filter High-Priority Findings and separate anomalies
+        - Handle anomalies with a manual, templated review
+        - Use LLM to generate suggestions for standard findings
+        - Post LLM-generated recommendations
         """
         logger.info("Step 4: Generating and posting documentation recommendations")
         
         try:
             # 4.1 Filter High-Priority Findings
             logger.info("Step 4.1: Filtering high-priority findings")
-            filtered_findings = await self._filter_high_priority_findings(
+            prioritized_findings = await self._filter_high_priority_findings(
                 state.prioritized_finding_list
             )
-            state.filtered_high_priority_findings = filtered_findings
+            state.filtered_high_priority_findings = prioritized_findings
+
+            # Separate anomaly findings from standard findings
+            anomaly_findings = [f for f in prioritized_findings if f.get("finding_type") == "Traceability_Anomaly"]
+            standard_findings = [f for f in prioritized_findings if f.get("finding_type") != "Traceability_Anomaly"]
             
             # 4.2 Query Existing Suggestions
             logger.info("Step 4.2: Fetching existing suggestions")
@@ -719,63 +757,80 @@ class DocumentUpdateRecommenderWorkflow:
             )
             state.existing_suggestions = existing_suggestions
             
-            # 4.3 Use Current Documentation Context from state
-            logger.info("Step 4.3: Using current documentation context from state")
-            current_docs = {}
-            
-            # Extract SRS and SDD content from state.document_content
-            srs_content = state.document_content.get("srs_content", {})
-            sdd_content = state.document_content.get("sdd_content", {})
-            
-            # Add all SRS files to current docs
-            for file_path, content in srs_content.items():
-                current_docs[file_path] = {
-                    "document_type": "SRS",
-                    "content": content
-                }
-            
-            # Add all SDD files to current docs  
-            for file_path, content in sdd_content.items():
-                current_docs[file_path] = {
-                    "document_type": "SDD", 
-                    "content": content
-                }
-            
-            # 4.4 Findings Iteration & Suggestion Generation
-            logger.info("Step 4.4: Generating suggestions")
-            generated_suggestions = await self._llm_generate_suggestions(
-                filtered_findings,
-                current_docs,
-                state.logical_change_sets
-            )
-            state.generated_suggestions = generated_suggestions
-            
-            # 4.5 Filter Against Existing & Post Details
-            logger.info("Step 4.5: Filtering and posting suggestions")
-            head_sha = state.pr_event_data.get("pull_request", {}).get("head", {}).get("sha")
-            if not head_sha:
-                raise ValueError("Could not determine head SHA for status update.")
+            # Handle anomaly findings manually
+            if anomaly_findings:
+                logger.info(f"Handling {len(anomaly_findings)} traceability anomaly finding(s) manually.")
+                await self._post_anomaly_review(
+                    anomaly_findings,
+                    state.repository,
+                    state.pr_number,
+                    existing_suggestions,
+                    state.baseline_map
+                )
 
-            final_recommendations = await self._llm_filter_and_post_suggestions(
-                generated_suggestions,
-                existing_suggestions,
-                state.repository,
-                state.pr_number,
-                state.baseline_map,
-                head_sha
-            )
-            
-            state.recommendations = final_recommendations
-            
+            # Handle standard findings with LLM
+            final_recommendations = []
+            generated_suggestions = []
+
+            if standard_findings:
+                logger.info(f"Processing {len(standard_findings)} standard finding(s) with LLM.")
+                
+                # 4.3 Use Current Documentation Context from state
+                logger.info("Step 4.3: Using current documentation context from state")
+                current_docs = {}
+                srs_content = state.document_content.get("srs_content", {})
+                sdd_content = state.document_content.get("sdd_content", {})
+                for file_path, content in srs_content.items():
+                    current_docs[file_path] = {"document_type": "SRS", "content": content}
+                for file_path, content in sdd_content.items():
+                    current_docs[file_path] = {"document_type": "SDD", "content": content}
+                
+                # 4.4 Findings Iteration & Suggestion Generation
+                logger.info("Step 4.4: Generating suggestions")
+                generated_suggestions = await self._llm_generate_suggestions(
+                    standard_findings,
+                    current_docs,
+                    state.logical_change_sets
+                )
+                state.generated_suggestions = generated_suggestions
+                
+                # 4.5 Filter Against Existing & Post Details
+                logger.info("Step 4.5: Filtering and posting suggestions")
+                head_sha = state.pr_event_data.get("pull_request", {}).get("head", {}).get("sha")
+                if not head_sha:
+                    raise ValueError("Could not determine head SHA for status update.")
+
+                final_recommendations = await self._llm_filter_and_post_suggestions(
+                    generated_suggestions,
+                    existing_suggestions,
+                    state.repository,
+                    state.pr_number,
+                    state.baseline_map,
+                    head_sha
+                )
+                state.recommendations = final_recommendations
+            else:
+                logger.info("No standard findings to generate LLM recommendations for.")
+                # If there are no standard findings, we might still need to update the CI status
+                head_sha = state.pr_event_data.get("pull_request", {}).get("head", {}).get("sha")
+                if not head_sha:
+                    raise ValueError("Could not determine head SHA for status update.")
+                
+                # Update CI/CD status based on whether there were anomalies
+                critical_generated_count = len(anomaly_findings)
+                await self._update_ci_cd_status(state.repository, head_sha, critical_generated_count, 0)
+
             # Update processing statistics
             state.processing_stats.update({
-                "high_priority_findings": len(filtered_findings),
+                "high_priority_findings": len(prioritized_findings),
+                "anomaly_findings": len(anomaly_findings),
+                "standard_findings_for_llm": len(standard_findings),
                 "existing_suggestions": len(existing_suggestions),
                 "generated_suggestions": len(generated_suggestions),
                 "final_recommendations": len(final_recommendations)
             })
             
-            logger.info(f"Step 4: Successfully generated {len(final_recommendations)} final recommendations")
+            logger.info(f"Step 4: Successfully processed {len(standard_findings)} standard findings and {len(anomaly_findings)} anomalies.")
             
         except Exception as e:
             error_msg = f"Step 4: Error generating recommendations: {str(e)}"
@@ -1248,7 +1303,8 @@ class DocumentUpdateRecommenderWorkflow:
     
     async def _llm_classify_individual_changes(self, pr_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Classify individual code changes by processing each commit in parallel.
+        Classify individual code changes by passing the entire PR data directly to the LLM.
+        Returns classifications organized by commit.
         
         Args:
             pr_data: Complete PR event data with all commits and file changes
@@ -1257,89 +1313,63 @@ class DocumentUpdateRecommenderWorkflow:
             List of commits with their classifications
         """
         try:
-            commits = pr_data.get("commit_info", {}).get("commits", [])
+            # Create output parser for JSON format
+            output_parser = JsonOutputParser(pydantic_object=BatchClassificationOutput)
+
+            # Get prompts
+            system_message = prompts.individual_code_classification_system_prompt()
+            human_prompt = prompts.individual_code_classification_human_prompt(pr_data)
+
+            # Generate JSON response
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt,
+                system_message=system_message + "\n" + output_parser.get_format_instructions(),
+                output_format="json",  # Use text so we can parse into Pydantic model
+                temperature=0.1  # Low temperature for consistent extraction
+            )
+
+            classification_result = response.content
             
-            # Create a list of async tasks, one for each commit
-            tasks = [self._llm_classify_commit_in_parallel(commit, pr_data) for commit in commits]
+            # Create a lookup map for patches from the original PR data
+            patch_lookup = {}
+            for commit in pr_data.get("commit_info", {}).get("commits", []):
+                for file_change in commit.get("files", []):
+                    patch_lookup[(commit["sha"], file_change["filename"])] = file_change.get("patch", "")
             
-            # Run all classification tasks in parallel
-            results = await asyncio.gather(*tasks)
-            
-            # Filter out any None results from failed classifications
-            commits_with_classifications = [res for res in results if res]
+            # Convert Pydantic model to our internal format and add the patch back
+            commits_with_classifications = []
+            for commit_data in classification_result["commits"]:
+                commit_dict = {
+                    "commit_hash": commit_data["commit_hash"],
+                    "commit_message": commit_data["commit_message"],
+                    "classifications": []
+                }
+                
+                for classification in commit_data["classifications"]:
+                    commit_hash = commit_data["commit_hash"]
+                    file_path = classification["file"]
+                    
+                    # Add the patch from the lookup map
+                    patch = patch_lookup.get((commit_hash, file_path), "")
+                    
+                    commit_dict["classifications"].append({
+                        "file": file_path,
+                        "type": classification["type"],
+                        "scope": classification["scope"],
+                        "nature": classification["nature"],
+                        "volume": classification["volume"],
+                        "reasoning": classification["reasoning"],
+                        "patch": patch
+                    })
+                
+                commits_with_classifications.append(commit_dict)
             
             return commits_with_classifications
             
         except Exception as e:
-            err_message = f"Step 2.1: Error in parallel classification dispatcher: {str(e)}"
+            err_message = f"Step 2.1: Error in _llm_classify_individual_changes: {str(e)}"
             logger.error(err_message)
             raise
-
-    async def _llm_classify_commit_in_parallel(self, commit_data: Dict[str, Any], original_pr_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Helper function to classify changes for a single commit.
-        It wraps the single commit in a structure that matches the existing prompt's expectation.
-        """
-        try:
-            # Create a mock PR data object containing only this single commit
-            # This allows us to reuse the existing prompt without changes
-            mock_pr_data = {
-                **original_pr_data,
-                "commit_info": {
-                    "commits": [commit_data]
-                }
-            }
-
-            output_parser = JsonOutputParser(pydantic_object=BatchClassificationOutput)
-            system_message = prompts.individual_code_classification_system_prompt()
-            human_prompt = prompts.individual_code_classification_human_prompt(mock_pr_data)
-
-            response = await self.llm_client.generate_response(
-                prompt=human_prompt,
-                system_message=system_message + "\n" + output_parser.get_format_instructions(),
-                output_format="json",
-                temperature=0.1,
-            )
-
-            classification_result = response.content
-
-            if not classification_result["commits"]:
-                logger.warning(f"No classification returned for commit {commit_data.get('sha')}")
-                return None
-
-            # Extract the single classified commit
-            single_classified_commit = classification_result["commits"][0]
-
-            # Manually add the patch to each classification
-            # Create a lookup for patches by filename
-            patch_lookup = {file_data['filename']: file_data.get('patch', '') 
-                            for file_data in commit_data.get('files', [])}
-            
-            for classification in single_classified_commit["classifications"]:
-                classification["patch"] = patch_lookup.get(classification["file"], '')
-
-            # Convert Pydantic model to our internal dict format
-            commit_dict = {
-                "commit_hash": single_classified_commit["commit_hash"],
-                "commit_message": single_classified_commit["commit_message"],
-                "classifications": [
-                    {
-                        "file": c["file"],
-                        "type": c["type"],
-                        "scope": c["scope"],
-                        "nature": c["nature"],
-                        "volume": c["volume"],
-                        "reasoning": c["reasoning"],
-                        "patch": c["patch"],
-                    }
-                    for c in single_classified_commit["classifications"]
-                ],
-            }
-            return commit_dict
-
-        except Exception as e:
-            logger.error(f"Error classifying commit {commit_data.get('sha')}: {str(e)}")
-            return None
     
     async def _llm_group_classified_changes(self, commits_with_classifications: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -1374,13 +1404,43 @@ class DocumentUpdateRecommenderWorkflow:
             # Parse the JSON response into Pydantic model
             grouping_result = response.content
             
-            # Convert Pydantic model output to our internal format
+            # Create a lookup map for patches from the original classifications using a composite key
+            patch_lookup = {}
+            for commit in commits_with_classifications:
+                for classification in commit.get("classifications", []):
+                    # Create a unique composite key from the classification details
+                    composite_key = (
+                        classification["file"],
+                        classification["type"],
+                        classification["scope"],
+                        classification["nature"],
+                        classification["volume"],
+                        classification["reasoning"]
+                    )
+                    patch_lookup[composite_key] = classification.get("patch", "")
+
             logical_change_sets = []
-            for change_set in grouping_result["logical_change_sets"]:
+            for change_set_data in grouping_result["logical_change_sets"]:
+                changes_with_patch = []
+                for change in change_set_data["changes"]:
+                    change_dict = change
+                    
+                    # Recreate the same composite key to find the correct patch
+                    composite_key = (
+                        change_dict["file"],
+                        change_dict["type"],
+                        change_dict["scope"],
+                        change_dict["nature"],
+                        change_dict["volume"],
+                        change_dict["reasoning"]
+                    )
+                    change_dict["patch"] = patch_lookup.get(composite_key, "")
+                    changes_with_patch.append(change_dict)
+                
                 logical_change_sets.append({
-                    "name": change_set["name"],
-                    "description": change_set["description"],
-                    "changes": change_set["changes"]
+                    "name": change_set_data["name"],
+                    "description": change_set_data["description"],
+                    "changes": changes_with_patch
                 })
             
             return logical_change_sets
@@ -1407,8 +1467,8 @@ class DocumentUpdateRecommenderWorkflow:
                 continue
             
             # For Standard_Impact, check minimum thresholds
-            likelihood_meets_threshold = likelihood in ["Very Likely", "Likely", "Possibly"]
-            severity_meets_threshold = severity in ["Fundamental", "Major", "Moderate", "Minor"]
+            likelihood_meets_threshold = likelihood in ["Very Likely", "Likely"]
+            severity_meets_threshold = severity in ["Fundamental", "Major", "Moderate"]
             
             if likelihood_meets_threshold and severity_meets_threshold:
                 filtered_findings.append(finding)
@@ -1417,7 +1477,7 @@ class DocumentUpdateRecommenderWorkflow:
     
     async def _query_existing_suggestions(self, repository: str, pr_number: int) -> List[Dict[str, Any]]:
         """
-        Query existing documentation suggestions for the PR by fetching previous agent comments.
+        Query existing documentation suggestions for the PR by fetching previous agent reviews.
         This prevents posting duplicate recommendations.
         """
         try:
@@ -1435,34 +1495,35 @@ class DocumentUpdateRecommenderWorkflow:
             }
             
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # Get all comments on the PR
-                comments_response = await client.get(
-                    f"https://api.github.com/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
+                # Get all reviews on the PR, as recommendations are posted as reviews
+                reviews_response = await client.get(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
                     headers=headers
                 )
-                comments_response.raise_for_status()
-                comments_data = comments_response.json()
+                reviews_response.raise_for_status()
+                reviews_data = reviews_response.json()
                 
-                # Filter for comments made by the bot/agent (GitHub Actions bot)
-                bot_comments = []
-                for comment in comments_data:
-                    # Check if comment is from GitHub Actions bot or contains our agent signature
-                    user_login = comment.get("user", {}).get("login", "")
-                    comment_body = comment.get("body", "")
+                # Filter for reviews made by the bot/agent (GitHub Actions bot)
+                bot_reviews = []
+                for review in reviews_data:
+                    # Check if the review is from our agent
+                    user_login = review.get("user", {}).get("login", "")
+                    review_body = review.get("body", "")
                     
-                    # Look for our agent's signature or GitHub Actions bot
+                    # Look for our agent's signature or the GitHub Actions bot username
                     if (user_login == "github-actions[bot]" or 
-                        "Docureco Agent" in comment_body or
-                        "Documentation Update Recommendation" in comment_body):
+                        "Docureco Agent" in review_body):
                         
-                        bot_comments.append({
-                            "id": comment.get("id"),
-                            "body": comment_body,
-                            "created_at": comment.get("created_at"),
-                            "updated_at": comment.get("updated_at")
+                        # Use 'submitted_at' as reviews don't have a separate 'updated_at'
+                        bot_reviews.append({
+                            "id": review.get("id"),
+                            "body": review_body,
+                            "created_at": review.get("submitted_at"),
+                            "updated_at": review.get("submitted_at")
                         })
-                        
-                return bot_comments
+                
+                logger.info(f"Found {len(bot_reviews)} existing review comments from the agent.")
+                return bot_reviews
                 
         except Exception as e:
             logger.error(f"Error fetching existing suggestions: {str(e)}")
@@ -1477,16 +1538,51 @@ class DocumentUpdateRecommenderWorkflow:
             if not filtered_findings or not current_docs:
                 return []
 
-            # Create a list of async tasks, one for each document
+            # Create a lookup map from document path to relevant findings
+            doc_to_findings_map: Dict[str, List[Dict[str, Any]]] = {doc_path: [] for doc_path in current_docs}
+            
+            # Separate documentation gaps, as they are relevant to all documents
+            doc_gap_findings = [f for f in filtered_findings if f.get("finding_type") == "Documentation_Gap"]
+            other_findings = [f for f in filtered_findings if f.get("finding_type") != "Documentation_Gap"]
+
+            # Add documentation gaps to all documents
+            for doc_path in doc_to_findings_map:
+                doc_to_findings_map[doc_path].extend(doc_gap_findings)
+
+            # Distribute other findings to the relevant document based on affected_element_id
+            for finding in other_findings:
+                affected_id = finding.get("affected_element_id", "")
+                if not affected_id:
+                    continue
+                
+                # Use regex to extract the file path from the ID (e.g., "REQ-path/to/doc.md-001")
+                match = re.match(r'^(?:REQ|DE)-(.+)-\d{3}$', affected_id)
+                if match:
+                    file_path_from_id = match.group(1)
+                    
+                    # Check if this extracted path corresponds to a known document
+                    if file_path_from_id in doc_to_findings_map:
+                        doc_to_findings_map[file_path_from_id].append(finding)
+
+            # Create a list of async tasks, one for each document that has relevant findings
             tasks = []
-            for doc_path, doc_info in current_docs.items():
+            for doc_path, relevant_findings in doc_to_findings_map.items():
+                if not relevant_findings:
+                    logger.info(f"No relevant findings for document {doc_path}, skipping task creation.")
+                    continue
+
+                doc_info = current_docs[doc_path]
                 task = self._generate_suggestions_for_document(
                     doc_path,
                     doc_info,
-                    filtered_findings,
+                    relevant_findings, # Pass only the filtered list
                     logical_change_sets
                 )
                 tasks.append(task)
+            
+            if not tasks:
+                logger.info("No documents with relevant findings to generate suggestions for.")
+                return []
             
             # Run all tasks in parallel
             document_group_results = await asyncio.gather(*tasks)
@@ -1504,14 +1600,15 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error in parallel suggestion generation: {str(e)}")
             return []
 
-    async def _generate_suggestions_for_document(self, doc_path: str, doc_info: Dict[str, Any], all_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    async def _generate_suggestions_for_document(self, doc_path: str, doc_info: Dict[str, Any], relevant_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
         """Helper function to generate suggestions for a single document."""
         try:
+            # The filtering is now done in the calling function, `_llm_generate_suggestions`
             output_parser = JsonOutputParser(pydantic_object=RecommendationGenerationOutput)
             
             system_message = prompts.recommendation_generation_system_prompt()
             human_prompt = prompts.recommendation_generation_human_prompt(
-                all_findings, doc_path, doc_info, logical_change_sets
+                relevant_findings, doc_path, doc_info, logical_change_sets
             )
             
             response = await self.llm_client.generate_response(
@@ -1752,32 +1849,11 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Create detailed breakdown by document group
         group_details = []
-        traceability_map_section = ""
         suggestion_counter = 1
         
         for group in document_groups:
             summary = group.get('summary', {})
             recommendations = group.get('recommendations', [])
-            
-            if not recommendations:
-                # Handle traceability anomaly case
-                affected_files = summary.get('traceability_anomaly_affected_files', [])
-                how_to_fix = summary.get('how_to_fix_traceability_anomaly', '')
-                
-                if affected_files:
-                    group_text = f"""
-# 🤖 Docureco Agent - 🔴 Traceability Anomaly Detected
-
-**📁 Affected Files**: {', '.join([f'`{file}`' for file in affected_files])}
-
-**💭 Issue**: {summary.get('overview', 'Traceability anomaly detected')}
-
-**🛠️ How to Fix**: {how_to_fix}
-"""
-                    group_details.append(group_text)
-                continue
-            
-            # Regular document recommendations
             target_document = summary.get('target_document', 'Unknown')
             group_text = f"""# 🤖 Docureco Agent - 📄 `{target_document}` Recommendations ({len(recommendations)} total)
 
@@ -1810,13 +1886,7 @@ class DocumentUpdateRecommenderWorkflow:
                 ]
                 
                 group_text += "\n\n---\n\n" + "\n\n".join(suggestion_parts)
-                suggestion_counter += 1
-            
-            # Add traceability map for context
-            affected_files = summary.get('traceability_anomaly_affected_files', [])
-            how_to_fix = summary.get('how_to_fix_traceability_anomaly', '')
-            if len(affected_files) > 0:
-                traceability_map_section = self._format_baseline_map_for_comment(baseline_map, affected_files, how_to_fix)            
+                suggestion_counter += 1       
             
             group_details.append(group_text)
         
@@ -1829,11 +1899,86 @@ class DocumentUpdateRecommenderWorkflow:
 - **Total Suggestions**: {total_suggestions}
 - **High Priority**: {high_priority}
 - **Medium/Low Priority**: {total_suggestions - high_priority}
-
-{traceability_map_section}
-
 ---
 *This review was generated automatically by Docureco Agent based on code changes in this PR*"""
+
+    async def _post_anomaly_review(self, anomaly_findings: List[Dict[str, Any]], repository: str, pr_number: int, existing_suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> bool:
+        """
+        Posts a separate, templated PR review for traceability anomaly findings.
+        This process is manual and does not involve the LLM.
+        """
+        logger.info("Creating a dedicated review for traceability anomalies.")
+
+        # Check if a similar comment already exists to avoid spam
+        for review in existing_suggestions:
+            if "Traceability Anomaly Detected" in review.get("body", ""):
+                logger.info("An existing traceability anomaly review was found. Skipping posting a new one.")
+                return False
+
+        # Extract affected files from the anomaly findings
+        affected_files = sorted(list(set([
+            finding.get("affected_element_reference_id") 
+            for finding in anomaly_findings 
+            if finding.get("affected_element_reference_id")
+        ])))
+
+        # Create the templated review body
+        review_body = f"""# 🤖 Docureco Agent - 🔴 Traceability Anomaly Detected
+
+A traceability anomaly means there is a mismatch between the code files and the documentation map (the baseline map). This is **not** an issue with the documentation files (like `sdd.md` or `srs.md`) themselves, but with the map that connects them to the code.
+
+**📁 Affected Files with Anomalies:**
+"""
+        for file in affected_files:
+            review_body += f"- `{file}`\n"
+
+        review_body += """
+**🛠️ How to Fix**
+To resolve this, the baseline map needs to be regenerated. This will re-scan the repository and fix the broken links.
+
+**Please re-run the `Docureco Agent: Baseline Map` GitHub Action on the `main` branch to regenerate the map.**
+
+<details>
+<summary>Why this happens</summary>
+Traceability anomalies can occur when:
+- Files are moved or renamed without the change being tracked correctly.
+- The baseline map is outdated due to recent merges that were not processed.
+- There are manual changes to the repository structure that the system did not anticipate.
+</details>
+"""
+        # Add the formatted baseline map for context
+        review_body += "\n\n" + self._format_baseline_map_for_comment(baseline_map, affected_files, "")
+
+        # Post the review to GitHub
+        try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                logger.error("GITHUB_TOKEN not found, cannot create review")
+                return False
+            
+            owner, repo_name = repository.split("/")
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+            
+            review_data = {
+                "body": review_body,
+                "event": "REQUEST_CHANGES"  # Anomalies should block changes
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
+                    headers=headers,
+                    json=review_data
+                )
+                response.raise_for_status()
+                logger.info(f"Successfully posted traceability anomaly review to PR #{pr_number}.")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to post traceability anomaly review: {str(e)}")
+            return False
 
     def _format_baseline_map_for_comment(self, baseline_map: Optional[BaselineMapModel], affected_files: List[str], how_to_fix: str) -> str:
         """Format baseline map into a collapsible markdown block for GitHub comments"""

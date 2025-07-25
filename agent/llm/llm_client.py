@@ -1,6 +1,6 @@
 """
 LLM Client for Docureco Agent
-Provides unified interface for Grok 3 and OpenAI models using LangChain
+Provides unified interface for Grok 3, Gemini, and OpenAI models using LangChain
 """
 
 import logging
@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
 from langchain_xai import ChatXAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from ..config.llm_config import LLMConfig, LLMProvider, get_llm_config
 
@@ -29,7 +30,7 @@ class LLMResponse:
 class DocurecoLLMClient:
     """
     Unified LLM client for Docureco Agent
-    Supports Grok 3 Mini Reasoning (High) as primary model with OpenAI fallback
+    Supports Grok 3 Mini Reasoning (High) as primary model with OpenAI and Gemini fallback
     """
     
     def __init__(self, config: Optional[LLMConfig] = None):
@@ -52,6 +53,8 @@ class DocurecoLLMClient:
         """
         if self.config.provider == LLMProvider.GROK:
             return self._initialize_grok(temperature)
+        elif self.config.provider == LLMProvider.GEMINI:
+            return self._initialize_gemini(temperature)
         else:
             return self._initialize_openai(temperature)
     
@@ -114,6 +117,36 @@ class DocurecoLLMClient:
             request_timeout=self.config.request_timeout
         )
     
+    def _initialize_gemini(self, temperature: float = 0.1) -> ChatGoogleGenerativeAI:
+        """
+        Initialize Gemini model
+        
+        Returns:
+            ChatGoogleGenerativeAI: Configured Gemini model
+        """
+        if not self.config.api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable is required for Gemini")
+        
+        # return ChatGoogleGenerativeAI(
+        #     model=self.config.llm_model,
+        #     google_api_key=self.config.api_key,
+        #     temperature=temperature,
+        #     max_tokens=self.config.max_tokens,
+        #     max_retries=self.config.max_retries,
+        #     timeout=self.config.request_timeout
+        # )
+        
+        return ChatOpenAI(
+            model=self.config.llm_model,
+            api_key=self.config.api_key,
+            base_url=self.config.base_url,
+            reasoning_effort="high",
+            temperature=temperature,
+            max_tokens=self.config.max_tokens,
+            max_retries=self.config.max_retries,
+            request_timeout=self.config.request_timeout
+        )
+
     async def generate_response(
         self,
         prompt: str,
