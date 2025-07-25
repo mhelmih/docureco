@@ -1365,13 +1365,11 @@ class DocumentUpdateRecommenderWorkflow:
                     )
                     patch_lookup[composite_key] = classification.get("patch", "")
 
-            # Convert Pydantic model output to our internal format and add the patch back
             logical_change_sets = []
             for change_set_data in grouping_result["logical_change_sets"]:
-                # The 'changes' here are Pydantic models, so we convert them to dicts
                 changes_with_patch = []
                 for change in change_set_data["changes"]:
-                    change_dict = change.dict()
+                    change_dict = change
                     
                     # Recreate the same composite key to find the correct patch
                     composite_key = (
