@@ -1,30 +1,34 @@
-name: 'Docureco Agent: Update Baseline Map'
+name: 'Docureco Agent: Update Baseline Map on Merge'
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      repository:
-        description: 'Repository name (owner/repo)'
-        required: true
-        default: 'mhelmih/docureco'
       branch:
         description: 'Branch name to analyze'
         required: true
         default: 'main'
-      since:
-        description: 'Update since commit hash or date (optional)'
-        required: false
-        default: ''
-  schedule:
-    # Run weekly on Sundays at 3 AM UTC to keep baseline maps current
-    - cron: '0 3 * * 0'
 
 env:
   # LLM Configuration
   GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
   GROK_BASE_URL: ${{ secrets.GROK_BASE_URL }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  GOOGLE_BASE_URL: ${{ vars.GOOGLE_BASE_URL }}
   
+  DOCURECO_LLM_PROVIDER: ${{ vars.DOCURECO_LLM_PROVIDER }}
+  DOCURECO_LLM_MODEL: ${{ vars.DOCURECO_LLM_MODEL }}
+  DOCURECO_LLM_TEMPERATURE: ${{ vars.DOCURECO_LLM_TEMPERATURE }}
+  DOCURECO_LLM_MAX_TOKENS: ${{ vars.DOCURECO_LLM_MAX_TOKENS }}
+  DOCURECO_LLM_MAX_RETRIES: ${{ vars.DOCURECO_LLM_MAX_RETRIES }}
+  DOCURECO_LLM_TIMEOUT: ${{ vars.DOCURECO_LLM_TIMEOUT }}
+
+  MAX_CONCURRENT_OPERATIONS: ${{ vars.MAX_CONCURRENT_OPERATIONS }}
+
   # LangSmith Configuration
   LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
   
@@ -35,6 +39,9 @@ env:
   
   # GitHub Configuration
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  # Logging
+  LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
 
 jobs:
   update-baseline-map:
@@ -43,6 +50,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        # Fetch depth 2 to allow git diff between HEAD and its parent
+        fetch-depth: 2
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -54,7 +64,7 @@ jobs:
     - name: Set up Node.js (for Repomix)
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
     
     - name: Install Repomix
       run: |
@@ -74,56 +84,25 @@ jobs:
         pip install --upgrade pip
         pip install -r agent/requirements.txt
     
-    - name: Determine update parameters
-      id: params
-      run: |
-        if [ "${{ github.event_name }}" = "schedule" ]; then
-          echo "mode=scheduled" >> $GITHUB_OUTPUT
-          echo "repository=${{ github.repository }}" >> $GITHUB_OUTPUT
-          echo "branch=main" >> $GITHUB_OUTPUT
-          echo "since=1 week ago" >> $GITHUB_OUTPUT
-        else
-          echo "mode=manual" >> $GITHUB_OUTPUT
-          echo "repository=${{ github.event.inputs.repository }}" >> $GITHUB_OUTPUT
-          echo "branch=${{ github.event.inputs.branch }}" >> $GITHUB_OUTPUT
-          echo "since=${{ github.event.inputs.since }}" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Validate inputs (manual trigger only)
-      if: github.event_name == 'workflow_dispatch'
-      run: |
-        echo "Repository: ${{ github.event.inputs.repository }}"
-        echo "Branch: ${{ github.event.inputs.branch }}"
-        echo "Since: ${{ github.event.inputs.since }}"
-        
-        # Validate repository format
-        if [[ ! "${{ github.event.inputs.repository }}" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]; then
-          echo "Error: Repository must be in format 'owner/repo'"
-          exit 1
-        fi
-    
     - name: Update baseline traceability map
       env:
         LOG_LEVEL: 'INFO'
       run: |
-        if [ -n "${{ steps.params.outputs.since }}" ]; then
-          python -m agent baseline-map-updater \
-            ${{ steps.params.outputs.repository }} \
-            --branch ${{ steps.params.outputs.branch }} \
-            --since "${{ steps.params.outputs.since }}" \
-            --log-level INFO
-        else
-          python -m agent baseline-map-updater \
-            ${{ steps.params.outputs.repository }} \
-            --branch ${{ steps.params.outputs.branch }} \
-            --log-level INFO
-        fi
+        python -m agent baseline-map-updater \
+          --repository ${{ github.repository }} \
+          --branch ${{ github.ref_name }}
+
+    - name: Sanitize artifact name
+      run: |
+        repo_name="${{ github.repository }}"
+        branch_name="${{ github.ref_name }}"
+        echo "ARTIFACT_NAME=baseline-map-update-${repo_name//\//_}-${branch_name//\//_}" >> $GITHUB_ENV
     
     - name: Upload update artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: baseline-map-update-${{ github.run_id }}
+        name: ${{ env.ARTIFACT_NAME }}
         path: |
           agent/logs/
           agent/output/
@@ -136,24 +115,21 @@ jobs:
         echo "## 🔄 Baseline Map Update Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        if [ "${{ github.event_name }}" = "schedule" ]; then
-          echo "**Trigger:** Scheduled (Weekly)" >> $GITHUB_STEP_SUMMARY
-          echo "**Repository:** \`${{ steps.params.outputs.repository }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ steps.params.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ github.event_name }}" = "push" ]; then
+          echo "**Trigger:** Push to \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
         else
           echo "**Trigger:** Manual" >> $GITHUB_STEP_SUMMARY
-          echo "**Repository:** \`${{ github.event.inputs.repository }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ github.event.inputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Since:** \`${{ github.event.inputs.since || 'Not specified' }}\`" >> $GITHUB_STEP_SUMMARY
         fi
-        
+
+        echo "**Repository:** \`${{ github.repository }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔗 Workflow Details" >> $GITHUB_STEP_SUMMARY
-        echo "- Started by: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Committer: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
         echo "- Workflow: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
         echo "- Run ID: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📚 About Baseline Map Updates" >> $GITHUB_STEP_SUMMARY
-        echo "Baseline map updates analyze repository changes and update traceability" >> $GITHUB_STEP_SUMMARY
-        echo "relationships between requirements, design elements, and code components." >> $GITHUB_STEP_SUMMARY 
+        echo "This workflow analyzes the latest commit to update traceability" >> $GITHUB_STEP_SUMMARY
+        echo "relationships between requirements, design, and code." >> $GITHUB_STEP_SUMMARY 
