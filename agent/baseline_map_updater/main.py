@@ -9,7 +9,7 @@ import asyncio
 import subprocess
 from .workflow import BaselineMapUpdaterWorkflow
 
-def main():
+async def main():
     """
     Initializes and runs the baseline map updater workflow.
     It now relies on the latest git commit to fetch file changes.
@@ -22,29 +22,25 @@ def main():
     
     workflow = BaselineMapUpdaterWorkflow()
     
-    async def run_workflow():
-        # The 'file_changes' argument is now unused as the workflow fetches them directly
-        final_state = await workflow.execute(
-            repository=args.repository,
-            branch=args.branch,
-            commit_sha=args.commit_sha
-        )
-        print("\n--- Workflow Final State ---")
-        if final_state.get("baseline_map"):
-            # Avoid printing the whole map object for brevity
-            map_summary = {
-                "repository": final_state["baseline_map"].repository,
-                "branch": final_state["baseline_map"].branch,
-                "requirements": len(final_state["baseline_map"].requirements),
-                "design_elements": len(final_state["baseline_map"].design_elements),
-                "code_components": len(final_state["baseline_map"].code_components),
-                "traceability_links": len(final_state["baseline_map"].traceability_links),
-            }
-            final_state["baseline_map"] = map_summary
-        print(final_state)
-        print("--------------------------")
-
-    asyncio.run(run_workflow())
+    final_state = await workflow.execute(
+        repository=args.repository,
+        branch=args.branch,
+        commit_sha=args.commit_sha
+    )
+    print("\n--- Workflow Final State ---")
+    if final_state.get("baseline_map"):
+        # Avoid printing the whole map object for brevity
+        map_summary = {
+            "repository": final_state["baseline_map"].repository,
+            "branch": final_state["baseline_map"].branch,
+            "requirements": len(final_state["baseline_map"].requirements),
+            "design_elements": len(final_state["baseline_map"].design_elements),
+            "code_components": len(final_state["baseline_map"].code_components),
+            "traceability_links": len(final_state["baseline_map"].traceability_links),
+        }
+        final_state["baseline_map"] = map_summary
+    print(final_state)
+    print("--------------------------")
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 

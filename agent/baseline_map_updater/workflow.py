@@ -125,7 +125,11 @@ class BaselineMapUpdaterWorkflow:
             response.raise_for_status()
             content_base64 = response.json().get("content", "")
             if content_base64:
-                return base64.b64decode(content_base64).decode('utf-8')
+                try:
+                    return base64.b64decode(content_base64).decode('utf-8')
+                except UnicodeDecodeError:
+                    logger.warning(f"Could not decode file content from {url} as UTF-8. Treating as binary.")
+                    return "[binary content]"
             return ""
         except httpx.HTTPStatusError as e:
             logger.error(f"Failed to fetch content from {url}: {e.response.status_code} - {e.response.text}")
