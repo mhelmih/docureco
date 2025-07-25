@@ -286,6 +286,7 @@ The suggested documentation content should be:
 
 **CRITICAL: GITHUB STYLE DIFF FORMAT**
 - Use GitHub-style diff with `+` for additions, `-` for deletions, and no prefix (just use space) for context lines and unchanged lines.
+- **FOR MARKDOWN TABLES**: When suggesting changes to a Markdown table, it is CRITICAL that the column pipes `|` align perfectly in the raw text output. You MUST pad the content within each cell with spaces to ensure all columns are vertically aligned across all rows (including header, separator, added, removed, and context lines). Incorrect alignment will break the visual diff.
 - KEEP THE CONTEXT LINES ENOUGH TO UNDERSTAND THE CHANGE (SOME LINES BEFORE AND AFTER THE MODIFICATIONS). REMEMBER TO ADD SPACES FOR UNMODIFIED AND CONTEXT LINES. See the example below.
 - If there are consecutive lines that need to be modified, use `-` deletion first for all consecutive lines, then use `+` addition. DO NOT ALTERNATE BETWEEN PAIRS OF `+` AND `-`. See the example below. BUT ALSO DO NOT ADD `+` OR `-` FOR THE UNCHANGED OR CONTEXT LINES BEFORE AND AFTER THE CONSECUTIVE MODIFICATIONS.
 - Don't add any comments.
