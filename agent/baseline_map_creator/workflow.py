@@ -539,7 +539,7 @@ class BaselineMapCreatorWorkflow:
             # Process design elements
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
-                    id=f"DE-{elem_counter:03d}",
+                    id=f"DE-SDD-{elem_counter:03d}",
                     reference_id=elem_data['reference_id'],
                     name=elem_data['name'],
                     description=elem_data['description'],
@@ -693,7 +693,7 @@ class BaselineMapCreatorWorkflow:
             # Process additional design elements found in SRS
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
-                    id=f"DE-{elem_counter:03d}",
+                    id=f"DE-SRS-{elem_counter:03d}",
                     reference_id=elem_data['reference_id'],
                     name=elem_data['name'],
                     description=elem_data['description'],
