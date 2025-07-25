@@ -527,7 +527,6 @@ class BaselineMapCreatorWorkflow:
         
         design_elements = []
         sdd_traceability_matrix = []
-        elem_counter = 1
         
         for file_path, content in state["sdd_content"].items():
             if not content.strip():
@@ -537,9 +536,10 @@ class BaselineMapCreatorWorkflow:
             extraction_result = await self._llm_extract_design_elements_with_matrix(content, file_path)
             
             # Process design elements
+            elem_counter = 1
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
-                    id=f"DE-SDD-{elem_counter:03d}",
+                    id=f"DE-{file_path}-{elem_counter:03d}",
                     reference_id=elem_data['reference_id'],
                     name=elem_data['name'],
                     description=elem_data['description'],
@@ -664,8 +664,6 @@ class BaselineMapCreatorWorkflow:
         
         requirements = []
         additional_design_elements = []
-        req_counter = 1
-        elem_counter = len(state["design_elements"]) + 1  # Continue numbering from existing design elements
         
         for file_path, content in state["srs_content"].items():
             if not content.strip():
@@ -677,9 +675,10 @@ class BaselineMapCreatorWorkflow:
             )
             
             # Process requirements
+            req_counter = 1
             for req_data in extraction_result['requirements']:
                 requirement = RequirementModel(
-                    id=f"REQ-{req_counter:03d}",
+                    id=f"REQ-{file_path}-{req_counter:03d}",
                     reference_id=req_data['reference_id'],
                     title=req_data['title'],
                     description=req_data['description'],
@@ -691,9 +690,10 @@ class BaselineMapCreatorWorkflow:
                 req_counter += 1
         
             # Process additional design elements found in SRS
+            elem_counter = 1 
             for elem_data in extraction_result['design_elements']:
                 design_element = DesignElementModel(
-                    id=f"DE-SRS-{elem_counter:03d}",
+                    id=f"DE-{file_path}-{elem_counter:03d}",
                     reference_id=elem_data['reference_id'],
                     name=elem_data['name'],
                     description=elem_data['description'],

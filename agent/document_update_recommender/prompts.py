@@ -233,7 +233,9 @@ The response will be automatically structured."""
 
 **YOUR TASK: RECOMMENDATION GENERATION**
 
-You are an expert technical writer working within the Docureco system, generating specific documentation update recommendations based on code changes and impact analysis.
+You are an expert technical writer working within the Docureco system, generating specific documentation update recommendations based on current documentation content, code changes, and impact analysis. Your primary goal is to provide **precise, copy-paste-ready** documentation changes.
+
+**CRITICAL: Your recommendations MUST be based *only* on the provided "Current Documentation Content". Do NOT invent new content or make assumptions beyond what is explicitly provided. Your "Suggested Content" must be a direct modification of the existing text.**
 
 **CRITICAL: Understanding Finding Types and Required Actions**
 Each finding requires different types of actions based on its type:
@@ -252,21 +254,11 @@ Each finding requires different types of actions based on its type:
 - Focus: Remove or update documentation that no longer applies
 - Example: "Remove documentation for the deprecated bookmark feature"
 
-4. Traceability_Anomaly: Issues with the baseline map/traceability relationships
-- Action: INVESTIGATE and UPDATE the traceability map, NOT the documentation
-- Focus: Fix mapping issues, review baseline map accuracy
-- Anomaly Types:
-  - "addition mapped": New code exists but is already in baseline map. Treat this as a standard impact.
-  - "deletion unmapped": Deleted code wasn't in baseline map  
-  - "modification unmapped": Modified code isn't tracked in baseline map
-  - "rename unmapped": Renamed files not properly tracked
-- Example: "Update baseline map to establish proper traceability links"
-
 Your task is to generate detailed, actionable documentation update recommendations that are:
 - Specific: Clear about what needs to be updated
 - Actionable: Provide concrete ready-to-use content (copy-paste-able for developers)
 - Contextual: Based on the actual code changes and their impact
-- Appropriate: Match the action to the finding type (especially for anomalies)
+- Appropriate: Match the action to the finding type
 
 **CRITICAL: Generate BOTH Recommendations AND Documentation Content**
 For each finding, generate:
@@ -285,7 +277,7 @@ The suggested documentation content should be:
 - Relevant: Match IDs and names of the design elements and requirements with the ones in the document.
 
 **CRITICAL: GITHUB STYLE DIFF FORMAT**
-- Use GitHub-style diff with `+` for additions, `-` for deletions, and no prefix (just use space) for context lines and unchanged lines.
+- Use GitHub-style diff with `+` for additions, `-` for deletions, and a space ` ` for context lines/unchanged lines.
 - **FOR MARKDOWN TABLES**: When suggesting changes to a Markdown table, it is CRITICAL that the column pipes `|` align perfectly in the raw text output. You MUST pad the content within each cell with spaces to ensure all columns are vertically aligned across all rows (including header, separator, added, removed, and context lines). Incorrect alignment will break the visual diff.
 - KEEP THE CONTEXT LINES ENOUGH TO UNDERSTAND THE CHANGE (SOME LINES BEFORE AND AFTER THE MODIFICATIONS). REMEMBER TO ADD SPACES FOR UNMODIFIED AND CONTEXT LINES. See the example below.
 - If there are consecutive lines that need to be modified, use `-` deletion first for all consecutive lines, then use `+` addition. DO NOT ALTERNATE BETWEEN PAIRS OF `+` AND `-`. See the example below. BUT ALSO DO NOT ADD `+` OR `-` FOR THE UNCHANGED OR CONTEXT LINES BEFORE AND AFTER THE CONSECUTIVE MODIFICATIONS.
@@ -308,14 +300,13 @@ The suggested documentation content should be:
    - target_document: Document path
    - total_recommendations: Count of recommendations for this document
    - high_priority_count, medium_priority_count, low_priority_count: Priority breakdown
-   - overview: Brief description of what needs updating in this document. If there are traceability anomalies, mention it in the overview.
+   - overview: Brief description of what needs updating in this document.
    - sections_affected: List of sections that need updates
-- **Primary Rule**: You MUST analyze the `Findings` list first. For the given target document, you must determine if any finding is relevant. A finding is relevant if its `affected_element_reference_id` or other metadata indicates it belongs to the target document. **If you cannot find any relevant findings for the target document, you MUST stop immediately and output an empty list of recommendations for that document.** Do not analyze the `Change Sets` or `Current Documentation Content` if no relevant findings exist. The `Change Sets` are only for providing context to findings that are already deemed relevant.
+- **Primary Rule**: All `Findings` provided to you have been pre-filtered and are **guaranteed to be relevant** to the target document. Your task is to process all of them to generate specific and actionable recommendations. The `Change Sets` are provided for additional context.
 - **Supplementary Recommendations**: **ONLY IF** you are already generating recommendations for a document based on the provided findings, you may also identify and suggest updates for other parts of the document that seem impacted by the code changes but were not explicitly mentioned in the findings. These could include:
   - Textual descriptions, data tables, or traceability matrices.
   - Diagram images (e.g., `![Diagram Name](diagram-name.png)`) and their surrounding textual descriptions.
   - Any supplementary recommendations must have their priority set to **MEDIUM** or **LOW**.
-- You DO NOT HAVE TO use all findings. Just use findings that are related to the document you are given.
 - If you find that two or more findings are related to the same section (or tables, diagrams, etc.), GROUP THEM INTO A SINGLE RECOMMENDATION. Make sure you produce MINIMUM THE EQUAL NUMBER OF RECOMMENDATIONS AS THE NUMBER OF SECTIONS AFFECTED.
 - The number of recommendations does not need to be the same as the number of relevant findings. If there are many small recommendations in one section (or tabes, diagrams, etc.) per document, please think again, it may be a sign that the recommendations need to be grouped into a single recommendation.
 - DO NOT recommend updating the same section (or tables, diagrams, etc.) multiple times in one document.
@@ -325,72 +316,7 @@ The suggested documentation content should be:
    - New feature doesn't necessarily mean that design elements or requirements need to be updated. It could be creating a new section, new design elements, new requirements, etc.
    - Deletion of feature doesn't necessarily mean that the design elements or requirements need to be updated. It could be deleting the whole section, design elements, requirements, etc.
    - If requirements are impacted by the code changes, update the requirements appropriately. DO NOT modify the requirements statement too far from the original statement. If there are descriptions for the requirements, you can use them to update the requirement details rather than modifying the whole requirements statement. Or maybe you can just create a new requirement instead of modifying many existing ones if it is big enough to be a new requirement.
-- If there are traceability anomalies, mention it in the overview.
 - Make sure to give a ready-to-use copy-paste-able content for the "Suggested Content" field so that the developer can easily copy and paste the content to the document without thinking too much and in the correct format.
-
-**SPECIAL CASE: TRACEABILITY ANOMALIES**
-- DO NOT recommend updating documentation content, except for addition mapped findings.
-- DO recommend updating the baseline map/traceability matrix
-- Focus on fixing the mapping relationships, not the docs themselves
-- Suggest reviewing the baseline map for accuracy
-- If all findings are traceability anomalies, merge them into a single summary recommendation.
-- The summary must include:
-  - traceability_anomaly_affected_files: List of all files with anomalies
-  - overview: "The following files are not mapped in the baseline map due to a traceability anomaly. The cause is unknown and may require a full baseline map recreation."
-  - how_to_fix_traceability_anomaly: "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
-- The recommendations array must be empty.
-
-**SPECIAL CASE: MIXED FINDINGS**
-- If there are both traceability anomalies and other findings (documentation gaps, standard impacts, outdated documentation, etc):
-  - The summary (overview field) must still include the rerun workflow recommendation as above.
-  - The recommendations array should contain only the document-focused recommendations for the non-anomaly findings.
-
-**EXAMPLE OUTPUT (ALL ANOMALIES):**
-```json
-{
-  "document_groups": [
-    {
-      "summary": {
-        "target_document": null,
-        "total_recommendations": 0,
-        "high_priority_count": 0,
-        "medium_priority_count": 0,
-        "low_priority_count": 0,
-        "overview": "The following files are not mapped in the baseline map due to a traceability anomaly. The cause is unknown and may require a full baseline map recreation.",
-        "sections_affected": [],
-        "traceability_anomaly_affected_files": [
-          "sample-project/src/book/book.py",
-          "sample-project/src/book/book_collection.py"
-        ],
-        "how_to_fix_traceability_anomaly": "Please re-run the Docureco Agent: Baseline Map GitHub Action to regenerate the map and restore traceability."
-      },
-      "recommendations": []
-    }
-  ]
-}
-```
-
-**EXAMPLE OUTPUT (MIXED):**
-```json
-{
-  "document_groups": [
-    {
-      "summary": {
-        "target_document": "...",
-        ...other fields...
-        "overview": "...",
-        "sections_affected": ["...", "..."],
-        "traceability_anomaly_affected_files": ["...", "..."],
-        "how_to_fix_traceability_anomaly": "..."
-      },
-      "recommendations": [
-        { /* doc-focused recommendation 1 */ },
-        { /* doc-focused recommendation 2 */ }
-      ]
-    }
-  ]
-}
-```
 
 You will also be provided with the Logical Change Sets and the current documentation content for more context.
 The response will be automatically structured with detailed recommendations and complete documentation snippets."""
@@ -401,15 +327,6 @@ The response will be automatically structured with detailed recommendations and 
         
         findings_summary = []
         for i, finding in enumerate(findings_with_actions):
-            # Add extra context for anomalies
-            anomaly_details = ""
-            if finding.get('finding_type') == 'Traceability_Anomaly':
-                anomaly_type = finding.get('anomaly_type', 'unknown')
-                if anomaly_type != 'addition mapped':
-                  anomaly_details = f"\n  ⚠️ ANOMALY TYPE: {anomaly_type} - This requires baseline map updates, NOT documentation updates!"
-                else:
-                  anomaly_details = f"\n  ⚠️ ANOMALY TYPE: {anomaly_type} - Treat this as a standard impact (modification of existing design elements or requirements)."
-            
             findings_summary.append(f"""
 Finding {i+1}:
 - Finding Type: {finding.get('finding_type', 'unknown')}
@@ -423,7 +340,7 @@ Finding {i+1}:
 - Likelihood: {finding.get('likelihood', 'unknown')}
 - Severity: {finding.get('severity', 'unknown')}
 - Reasoning: {finding.get('reasoning', 'unknown')}
-- Recommended Action: {finding.get('recommended_action', 'unknown')}{anomaly_details}
+- Recommended Action: {finding.get('recommended_action', 'unknown')}
 """)
         
         change_sets_summary = []
@@ -459,19 +376,25 @@ Change Set {i+1}: {change_set.get('name', 'Unknown')}
         docs_summary = f"""
 Document: {doc_path}
 - Document Type: {doc_info.get('document_type', 'N/A')}
-- Content: {doc_info.get('content', 'N/A')}"""
+- Content: 
+```
+{doc_info.get('content', 'N/A')}
+```
+"""
         
-        return f"""Generate specific documentation update recommendations with COMPLETE documentation content snippets for the following findings:
+        return f"""Generate specific documentation update recommendations with COMPLETE documentation content snippets for the following findings.
+**CRITICAL REMINDER: Your "Suggested Content" MUST be a direct modification of the "Current Documentation Content" provided below. Do not add any information that is not present in the original document. Use the provided content as the single source of truth.**
+
 **Findings:**
 {chr(10).join(findings_summary)}
+
+**Current Documentation Content (Source of Truth):**
+{docs_summary}
 
 **Related Change Sets (for more context):**
 {chr(10).join(change_sets_summary)}
 
-**Current Documentation Content (for more context):**
-{docs_summary}
-
-Generate recommendations for the target document with summaries and detailed recommendations. Remember, if there are no relevant findings to the document you are given, DO NOT GENERATE ANY RECOMMENDATIONS."""
+Generate recommendations for the target document with summaries and detailed recommendations based on the provided context."""
 
     @staticmethod
     def suggestion_filtering_system_prompt() -> str:

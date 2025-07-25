@@ -730,21 +730,24 @@ class DocumentUpdateRecommenderWorkflow:
         Step 4: Generate and Post Recommendations
         
         Implements:
-        - Filter High-Priority Findings
-        - Query Existing Suggestions
-        - Findings Iteration & Suggestion Generation
-        - Filter Against Existing & Post Details
-        - Manage Check Status
+        - Filter High-Priority Findings and separate anomalies
+        - Handle anomalies with a manual, templated review
+        - Use LLM to generate suggestions for standard findings
+        - Post LLM-generated recommendations
         """
         logger.info("Step 4: Generating and posting documentation recommendations")
         
         try:
             # 4.1 Filter High-Priority Findings
             logger.info("Step 4.1: Filtering high-priority findings")
-            filtered_findings = await self._filter_high_priority_findings(
+            prioritized_findings = await self._filter_high_priority_findings(
                 state.prioritized_finding_list
             )
-            state.filtered_high_priority_findings = filtered_findings
+            state.filtered_high_priority_findings = prioritized_findings
+
+            # Separate anomaly findings from standard findings
+            anomaly_findings = [f for f in prioritized_findings if f.get("finding_type") == "Traceability_Anomaly"]
+            standard_findings = [f for f in prioritized_findings if f.get("finding_type") != "Traceability_Anomaly"]
             
             # 4.2 Query Existing Suggestions
             logger.info("Step 4.2: Fetching existing suggestions")
@@ -754,63 +757,80 @@ class DocumentUpdateRecommenderWorkflow:
             )
             state.existing_suggestions = existing_suggestions
             
-            # 4.3 Use Current Documentation Context from state
-            logger.info("Step 4.3: Using current documentation context from state")
-            current_docs = {}
-            
-            # Extract SRS and SDD content from state.document_content
-            srs_content = state.document_content.get("srs_content", {})
-            sdd_content = state.document_content.get("sdd_content", {})
-            
-            # Add all SRS files to current docs
-            for file_path, content in srs_content.items():
-                current_docs[file_path] = {
-                    "document_type": "SRS",
-                    "content": content
-                }
-            
-            # Add all SDD files to current docs  
-            for file_path, content in sdd_content.items():
-                current_docs[file_path] = {
-                    "document_type": "SDD", 
-                    "content": content
-                }
-            
-            # 4.4 Findings Iteration & Suggestion Generation
-            logger.info("Step 4.4: Generating suggestions")
-            generated_suggestions = await self._llm_generate_suggestions(
-                filtered_findings,
-                current_docs,
-                state.logical_change_sets
-            )
-            state.generated_suggestions = generated_suggestions
-            
-            # 4.5 Filter Against Existing & Post Details
-            logger.info("Step 4.5: Filtering and posting suggestions")
-            head_sha = state.pr_event_data.get("pull_request", {}).get("head", {}).get("sha")
-            if not head_sha:
-                raise ValueError("Could not determine head SHA for status update.")
+            # Handle anomaly findings manually
+            if anomaly_findings:
+                logger.info(f"Handling {len(anomaly_findings)} traceability anomaly finding(s) manually.")
+                await self._post_anomaly_review(
+                    anomaly_findings,
+                    state.repository,
+                    state.pr_number,
+                    existing_suggestions,
+                    state.baseline_map
+                )
 
-            final_recommendations = await self._llm_filter_and_post_suggestions(
-                generated_suggestions,
-                existing_suggestions,
-                state.repository,
-                state.pr_number,
-                state.baseline_map,
-                head_sha
-            )
-            
-            state.recommendations = final_recommendations
-            
+            # Handle standard findings with LLM
+            final_recommendations = []
+            generated_suggestions = []
+
+            if standard_findings:
+                logger.info(f"Processing {len(standard_findings)} standard finding(s) with LLM.")
+                
+                # 4.3 Use Current Documentation Context from state
+                logger.info("Step 4.3: Using current documentation context from state")
+                current_docs = {}
+                srs_content = state.document_content.get("srs_content", {})
+                sdd_content = state.document_content.get("sdd_content", {})
+                for file_path, content in srs_content.items():
+                    current_docs[file_path] = {"document_type": "SRS", "content": content}
+                for file_path, content in sdd_content.items():
+                    current_docs[file_path] = {"document_type": "SDD", "content": content}
+                
+                # 4.4 Findings Iteration & Suggestion Generation
+                logger.info("Step 4.4: Generating suggestions")
+                generated_suggestions = await self._llm_generate_suggestions(
+                    standard_findings,
+                    current_docs,
+                    state.logical_change_sets
+                )
+                state.generated_suggestions = generated_suggestions
+                
+                # 4.5 Filter Against Existing & Post Details
+                logger.info("Step 4.5: Filtering and posting suggestions")
+                head_sha = state.pr_event_data.get("pull_request", {}).get("head", {}).get("sha")
+                if not head_sha:
+                    raise ValueError("Could not determine head SHA for status update.")
+
+                final_recommendations = await self._llm_filter_and_post_suggestions(
+                    generated_suggestions,
+                    existing_suggestions,
+                    state.repository,
+                    state.pr_number,
+                    state.baseline_map,
+                    head_sha
+                )
+                state.recommendations = final_recommendations
+            else:
+                logger.info("No standard findings to generate LLM recommendations for.")
+                # If there are no standard findings, we might still need to update the CI status
+                head_sha = state.pr_event_data.get("pull_request", {}).get("head", {}).get("sha")
+                if not head_sha:
+                    raise ValueError("Could not determine head SHA for status update.")
+                
+                # Update CI/CD status based on whether there were anomalies
+                critical_generated_count = len(anomaly_findings)
+                await self._update_ci_cd_status(state.repository, head_sha, critical_generated_count, 0)
+
             # Update processing statistics
             state.processing_stats.update({
-                "high_priority_findings": len(filtered_findings),
+                "high_priority_findings": len(prioritized_findings),
+                "anomaly_findings": len(anomaly_findings),
+                "standard_findings_for_llm": len(standard_findings),
                 "existing_suggestions": len(existing_suggestions),
                 "generated_suggestions": len(generated_suggestions),
                 "final_recommendations": len(final_recommendations)
             })
             
-            logger.info(f"Step 4: Successfully generated {len(final_recommendations)} final recommendations")
+            logger.info(f"Step 4: Successfully processed {len(standard_findings)} standard findings and {len(anomaly_findings)} anomalies.")
             
         except Exception as e:
             error_msg = f"Step 4: Error generating recommendations: {str(e)}"
@@ -1518,16 +1538,51 @@ class DocumentUpdateRecommenderWorkflow:
             if not filtered_findings or not current_docs:
                 return []
 
-            # Create a list of async tasks, one for each document
+            # Create a lookup map from document path to relevant findings
+            doc_to_findings_map: Dict[str, List[Dict[str, Any]]] = {doc_path: [] for doc_path in current_docs}
+            
+            # Separate documentation gaps, as they are relevant to all documents
+            doc_gap_findings = [f for f in filtered_findings if f.get("finding_type") == "Documentation_Gap"]
+            other_findings = [f for f in filtered_findings if f.get("finding_type") != "Documentation_Gap"]
+
+            # Add documentation gaps to all documents
+            for doc_path in doc_to_findings_map:
+                doc_to_findings_map[doc_path].extend(doc_gap_findings)
+
+            # Distribute other findings to the relevant document based on affected_element_id
+            for finding in other_findings:
+                affected_id = finding.get("affected_element_id", "")
+                if not affected_id:
+                    continue
+                
+                # Use regex to extract the file path from the ID (e.g., "REQ-path/to/doc.md-001")
+                match = re.match(r'^(?:REQ|DE)-(.+)-\d{3}$', affected_id)
+                if match:
+                    file_path_from_id = match.group(1)
+                    
+                    # Check if this extracted path corresponds to a known document
+                    if file_path_from_id in doc_to_findings_map:
+                        doc_to_findings_map[file_path_from_id].append(finding)
+
+            # Create a list of async tasks, one for each document that has relevant findings
             tasks = []
-            for doc_path, doc_info in current_docs.items():
+            for doc_path, relevant_findings in doc_to_findings_map.items():
+                if not relevant_findings:
+                    logger.info(f"No relevant findings for document {doc_path}, skipping task creation.")
+                    continue
+
+                doc_info = current_docs[doc_path]
                 task = self._generate_suggestions_for_document(
                     doc_path,
                     doc_info,
-                    filtered_findings,
+                    relevant_findings, # Pass only the filtered list
                     logical_change_sets
                 )
                 tasks.append(task)
+            
+            if not tasks:
+                logger.info("No documents with relevant findings to generate suggestions for.")
+                return []
             
             # Run all tasks in parallel
             document_group_results = await asyncio.gather(*tasks)
@@ -1545,14 +1600,15 @@ class DocumentUpdateRecommenderWorkflow:
             logger.error(f"Error in parallel suggestion generation: {str(e)}")
             return []
 
-    async def _generate_suggestions_for_document(self, doc_path: str, doc_info: Dict[str, Any], all_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    async def _generate_suggestions_for_document(self, doc_path: str, doc_info: Dict[str, Any], relevant_findings: List[Dict[str, Any]], logical_change_sets: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
         """Helper function to generate suggestions for a single document."""
         try:
+            # The filtering is now done in the calling function, `_llm_generate_suggestions`
             output_parser = JsonOutputParser(pydantic_object=RecommendationGenerationOutput)
             
             system_message = prompts.recommendation_generation_system_prompt()
             human_prompt = prompts.recommendation_generation_human_prompt(
-                all_findings, doc_path, doc_info, logical_change_sets
+                relevant_findings, doc_path, doc_info, logical_change_sets
             )
             
             response = await self.llm_client.generate_response(
@@ -1793,32 +1849,11 @@ class DocumentUpdateRecommenderWorkflow:
         
         # Create detailed breakdown by document group
         group_details = []
-        traceability_map_section = ""
         suggestion_counter = 1
         
         for group in document_groups:
             summary = group.get('summary', {})
             recommendations = group.get('recommendations', [])
-            
-            if not recommendations:
-                # Handle traceability anomaly case
-                affected_files = summary.get('traceability_anomaly_affected_files', [])
-                how_to_fix = summary.get('how_to_fix_traceability_anomaly', '')
-                
-                if affected_files:
-                    group_text = f"""
-# 🤖 Docureco Agent - 🔴 Traceability Anomaly Detected
-
-**📁 Affected Files**: {', '.join([f'`{file}`' for file in affected_files])}
-
-**💭 Issue**: {summary.get('overview', 'Traceability anomaly detected')}
-
-**🛠️ How to Fix**: {how_to_fix}
-"""
-                    group_details.append(group_text)
-                continue
-            
-            # Regular document recommendations
             target_document = summary.get('target_document', 'Unknown')
             group_text = f"""# 🤖 Docureco Agent - 📄 `{target_document}` Recommendations ({len(recommendations)} total)
 
@@ -1851,13 +1886,7 @@ class DocumentUpdateRecommenderWorkflow:
                 ]
                 
                 group_text += "\n\n---\n\n" + "\n\n".join(suggestion_parts)
-                suggestion_counter += 1
-            
-            # Add traceability map for context
-            affected_files = summary.get('traceability_anomaly_affected_files', [])
-            how_to_fix = summary.get('how_to_fix_traceability_anomaly', '')
-            if len(affected_files) > 0:
-                traceability_map_section = self._format_baseline_map_for_comment(baseline_map, affected_files, how_to_fix)            
+                suggestion_counter += 1       
             
             group_details.append(group_text)
         
@@ -1870,11 +1899,86 @@ class DocumentUpdateRecommenderWorkflow:
 - **Total Suggestions**: {total_suggestions}
 - **High Priority**: {high_priority}
 - **Medium/Low Priority**: {total_suggestions - high_priority}
-
-{traceability_map_section}
-
 ---
 *This review was generated automatically by Docureco Agent based on code changes in this PR*"""
+
+    async def _post_anomaly_review(self, anomaly_findings: List[Dict[str, Any]], repository: str, pr_number: int, existing_suggestions: List[Dict[str, Any]], baseline_map: Optional[BaselineMapModel]) -> bool:
+        """
+        Posts a separate, templated PR review for traceability anomaly findings.
+        This process is manual and does not involve the LLM.
+        """
+        logger.info("Creating a dedicated review for traceability anomalies.")
+
+        # Check if a similar comment already exists to avoid spam
+        for review in existing_suggestions:
+            if "Traceability Anomaly Detected" in review.get("body", ""):
+                logger.info("An existing traceability anomaly review was found. Skipping posting a new one.")
+                return False
+
+        # Extract affected files from the anomaly findings
+        affected_files = sorted(list(set([
+            finding.get("affected_element_reference_id") 
+            for finding in anomaly_findings 
+            if finding.get("affected_element_reference_id")
+        ])))
+
+        # Create the templated review body
+        review_body = f"""# 🤖 Docureco Agent - 🔴 Traceability Anomaly Detected
+
+A traceability anomaly means there is a mismatch between the code files and the documentation map (the baseline map). This is **not** an issue with the documentation files (like `sdd.md` or `srs.md`) themselves, but with the map that connects them to the code.
+
+**📁 Affected Files with Anomalies:**
+"""
+        for file in affected_files:
+            review_body += f"- `{file}`\n"
+
+        review_body += """
+**🛠️ How to Fix**
+To resolve this, the baseline map needs to be regenerated. This will re-scan the repository and fix the broken links.
+
+**Please re-run the `Docureco Agent: Baseline Map` GitHub Action on the `main` branch to regenerate the map.**
+
+<details>
+<summary>Why this happens</summary>
+Traceability anomalies can occur when:
+- Files are moved or renamed without the change being tracked correctly.
+- The baseline map is outdated due to recent merges that were not processed.
+- There are manual changes to the repository structure that the system did not anticipate.
+</details>
+"""
+        # Add the formatted baseline map for context
+        review_body += "\n\n" + self._format_baseline_map_for_comment(baseline_map, affected_files, "")
+
+        # Post the review to GitHub
+        try:
+            github_token = os.getenv("GITHUB_TOKEN")
+            if not github_token:
+                logger.error("GITHUB_TOKEN not found, cannot create review")
+                return False
+            
+            owner, repo_name = repository.split("/")
+            headers = {
+                "Authorization": f"token {github_token}",
+                "Accept": "application/vnd.github.v3+json",
+            }
+            
+            review_data = {
+                "body": review_body,
+                "event": "REQUEST_CHANGES"  # Anomalies should block changes
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.github.com/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews",
+                    headers=headers,
+                    json=review_data
+                )
+                response.raise_for_status()
+                logger.info(f"Successfully posted traceability anomaly review to PR #{pr_number}.")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to post traceability anomaly review: {str(e)}")
+            return False
 
     def _format_baseline_map_for_comment(self, baseline_map: Optional[BaselineMapModel], affected_files: List[str], how_to_fix: str) -> str:
         """Format baseline map into a collapsible markdown block for GitHub comments"""
