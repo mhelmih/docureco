@@ -30,6 +30,9 @@ async def main():
     parser.add_argument("--repository", type=str, required=True, help="Repository name (e.g., 'owner/repo')")
     parser.add_argument("--branch", type=str, default="main", help="Branch name")
     parser.add_argument("--commit_sha", type=str, required=True, help="The SHA of the commit to analyze")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], 
+                        help="Logging level (default: INFO)")
+    
     args = parser.parse_args()
     
     # Setup logging
