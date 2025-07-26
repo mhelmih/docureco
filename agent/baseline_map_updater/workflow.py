@@ -222,9 +222,9 @@ class BaselineMapUpdaterWorkflow:
 
         for result in results:
             if result:
-                state["new_design_elements"].extend(result.added)
-                state["modified_design_elements"].extend(result.modified)
-                state["deleted_design_elements"].extend(result.deleted)
+                state["new_design_elements"].extend(result["added"])
+                state["modified_design_elements"].extend(result["modified"])
+                state["deleted_design_elements"].extend(result["deleted"])
 
         logger.info(f"Analysis complete. Found {len(state['new_design_elements'])} new, {len(state['modified_design_elements'])} modified, and {len(state['deleted_design_elements'])} deleted elements.")
         return state
