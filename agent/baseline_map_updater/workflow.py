@@ -285,7 +285,7 @@ class BaselineMapUpdaterWorkflow:
 
                 for added_el in llm_analysis_result["added"]:
                     if added_el["reference_id"] in existing_element_ids:
-                        logger.warning(f"LLM suggested adding element '{added_el["reference_id"]}' which already exists. Treating as modification.")
+                        logger.warning(f"LLM suggested adding element `{added_el['reference_id']}` which already exists. Treating as modification.")
                         all_modified_elements.append({"reference_id": added_el["reference_id"], "changes": added_el})
                     else:
                         all_new_elements.append(added_el)
@@ -295,14 +295,14 @@ class BaselineMapUpdaterWorkflow:
                     if modified_el["reference_id"] in existing_element_ids:
                         all_modified_elements.append(modified_el)
                     else:
-                        logger.warning(f"LLM suggested modifying element '{modified_el["reference_id"]}' which does not exist. Ignoring.")
+                        logger.warning(f"LLM suggested modifying element `{modified_el['reference_id']}` which does not exist. Ignoring.")
 
                 for deleted_el in llm_analysis_result["deleted"]:
                     if deleted_el["reference_id"] in existing_element_ids:
                         all_deleted_elements.append(deleted_el)
                         existing_element_ids.remove(deleted_el["reference_id"])
                     else:
-                        logger.warning(f"LLM suggested deleting element '{deleted_el["reference_id"]}' which does not exist. Ignoring.")
+                        logger.warning(f"LLM suggested deleting element `{deleted_el['reference_id']}` which does not exist. Ignoring.")
 
             except Exception as e:
                 logger.error(f"Failed to analyze design element changes for {file_path}: {e}")
