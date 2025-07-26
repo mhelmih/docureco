@@ -12,6 +12,7 @@ import subprocess
 import httpx
 import base64
 import difflib
+import re
 from langchain_core.output_parsers import JsonOutputParser
 
 # Add parent directories to path for absolute imports
@@ -240,8 +241,6 @@ class BaselineMapUpdaterWorkflow:
         if not changed_sdds:
             logger.info("No changed SDD files to analyze.")
             return state
-
-        existing_element_ids = {de.reference_id for de in state["baseline_map"].design_elements}
         
         all_new_elements, all_modified_elements, all_deleted_elements = [], [], []
 
@@ -255,6 +254,19 @@ class BaselineMapUpdaterWorkflow:
             if not new_content and not old_content:
                 continue
 
+            # Filter baseline elements to only those relevant to the current file using regex on the ID
+            relevant_existing_elements = []
+            for de in state["baseline_map"].design_elements:
+                # Extracts the file path from IDs like 'DE-path/to/doc.md-001'
+                match = re.match(r'^(?:REQ|DE)-(.+)-\d{3}$', de.id)
+                if match:
+                    file_path_from_id = match.group(1)
+                    if file_path_from_id == file_path:
+                        relevant_existing_elements.append(de.dict())
+
+            # Create a lookup set of IDs for the relevant elements for reconciliation
+            relevant_existing_ids = {el['reference_id'] for el in relevant_existing_elements}
+
             diff_text = ''.join(difflib.unified_diff(
                 old_content.splitlines(keepends=True),
                 new_content.splitlines(keepends=True),
@@ -265,7 +277,8 @@ class BaselineMapUpdaterWorkflow:
             human_prompt = design_element_analysis_human_prompt(
                 new_content=new_content,
                 diff_text=diff_text,
-                file_path=file_path
+                file_path=file_path,
+                relevant_existing_elements=relevant_existing_elements
             )
             
             try:
@@ -279,23 +292,23 @@ class BaselineMapUpdaterWorkflow:
                 llm_analysis_result = response.content
 
                 for added_el in llm_analysis_result["added"]:
-                    if added_el["reference_id"] in existing_element_ids:
+                    if added_el["reference_id"] in relevant_existing_ids:
                         logger.warning(f"LLM suggested adding element `{added_el['reference_id']}` which already exists. Treating as modification.")
                         all_modified_elements.append({"reference_id": added_el["reference_id"], "changes": added_el})
                     else:
                         all_new_elements.append(added_el)
-                        existing_element_ids.add(added_el["reference_id"])
+                        relevant_existing_ids.add(added_el["reference_id"]) # Add to set to avoid duplicates within same analysis
                 
                 for modified_el in llm_analysis_result["modified"]:
-                    if modified_el["reference_id"] in existing_element_ids:
+                    if modified_el["reference_id"] in relevant_existing_ids:
                         all_modified_elements.append(modified_el)
                     else:
                         logger.warning(f"LLM suggested modifying element `{modified_el['reference_id']}` which does not exist. Ignoring.")
 
                 for deleted_el in llm_analysis_result["deleted"]:
-                    if deleted_el["reference_id"] in existing_element_ids:
+                    if deleted_el["reference_id"] in relevant_existing_ids:
                         all_deleted_elements.append(deleted_el)
-                        existing_element_ids.remove(deleted_el["reference_id"])
+                        relevant_existing_ids.remove(deleted_el["reference_id"]) # Remove from set
                     else:
                         logger.warning(f"LLM suggested deleting element `{deleted_el['reference_id']}` which does not exist. Ignoring.")
 

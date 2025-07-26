@@ -2,6 +2,7 @@
 Prompts for Baseline Map Updater workflow
 """
 
+import json
 from typing import List, Dict, Any
 
 def design_element_analysis_system_prompt() -> str:
@@ -38,13 +39,31 @@ The response will be automatically structured with the required fields.
 def design_element_analysis_human_prompt(
     new_content: str,
     diff_text: str,
-    file_path: str
+    file_path: str,
+    relevant_existing_elements: List[Dict[str, Any]]
 ) -> str:
     """
     Creates the human-facing prompt containing the data for the LLM to analyze.
     """
+    # Format the list of existing elements for clear presentation in the prompt
+    if relevant_existing_elements:
+        existing_elements_str = json.dumps(relevant_existing_elements, indent=2)
+    else:
+        existing_elements_str = "None (this appears to be a new document or had no mapped elements)."
+
     return f"""
 Please analyze the following documentation changes for the file `{file_path}`.
+
+**Context:**
+Here is a JSON array of all design elements that **previously existed in this specific document**. Use this as your primary reference.
+- An element is **MODIFIED** if its `reference_id` is in this list, but its other attributes (like name or description) have changed in the "New Content".
+- An element is **ADDED** if it appears in the "New Content" but its `reference_id` is **NOT** in this list.
+- An element is **DELETED** if its `reference_id` is in this list but it no longer appears in the "New Content".
+
+**Existing Elements in `{file_path}`:**
+```json
+{existing_elements_str}
+```
 
 ---
 **New Content (Final Version):**
@@ -58,7 +77,7 @@ Please analyze the following documentation changes for the file `{file_path}`.
 ```
 ---
 
-Based on the instructions provided in the system prompt, generate the JSON object describing the changes.
+Based on the instructions provided in the system prompt and the detailed context above, generate the JSON object describing the changes.
 """
 
 __all__ = ["design_element_analysis_system_prompt", "design_element_analysis_human_prompt"] 
