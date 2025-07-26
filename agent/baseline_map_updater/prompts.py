@@ -5,10 +5,9 @@ Prompts for Baseline Map Updater workflow
 import json
 from typing import List, Dict, Any
 
-def design_element_analysis_system_prompt() -> str:
+def raw_change_identification_system_prompt() -> str:
     """
-    Creates the system prompt for the design element change analysis task.
-    This prompt instructs the LLM on its role, the task, and the output format.
+    System prompt for the first pass: identify all potential changes in a flat list.
     """
     return """
 You are a meticulous software engineering analyst specializing in documentation version control. Your task is to analyze a new version of a software design document (SDD) alongside a "diff" that highlights the changes from the old version.
@@ -19,10 +18,7 @@ Based on this information, you must identify every design element that was **ADD
 1.  Review the **New Content** to understand the final state of the document.
 2.  Use the **Unified Diff** as a guide to understand what was changed. Lines starting with `+` are additions, and lines starting with `-` are deletions.
 3.  Identify all design elements that were added, modified, or deleted based on your analysis. Pay close attention to changes in descriptions, names, or any other attributes.
-4.  For **ADDED** elements, provide their full details: `reference_id`, `name`, `description`, `type`, and `section`.
-5.  For **MODIFIED** elements, provide their `reference_id` and a `changes` dictionary. The keys of the dictionary should be the field names that changed (e.g., "name", "description"), and the values should be the new content for those fields.
-6.  For **DELETED** elements, provide only their `reference_id`.
-7.  Ensure your response is a single, valid JSON object with three keys: `added`, `modified`, and `deleted`. Each key must hold a list of the corresponding elements, even if the list is empty.
+4.  For every elements ADDED, MODIFIED, or DELETED, provide their full details: `reference_id`, `name`, `description`, `type`, `section`, and `detected_change_type`.
 
 NOTES:
 - The SDD will be provided in the markdown format. 
@@ -36,34 +32,12 @@ NOTES:
 The response will be automatically structured with the required fields.
 """
 
-def design_element_analysis_human_prompt(
-    new_content: str,
-    diff_text: str,
-    file_path: str,
-    relevant_existing_elements: List[Dict[str, Any]]
-) -> str:
+def raw_change_identification_human_prompt(new_content: str, diff_text: str, file_path: str) -> str:
     """
-    Creates the human-facing prompt containing the data for the LLM to analyze.
+    Human-facing prompt for the first pass, containing the document data.
     """
-    # Format the list of existing elements for clear presentation in the prompt
-    if relevant_existing_elements:
-        existing_elements_str = json.dumps(relevant_existing_elements, indent=2)
-    else:
-        existing_elements_str = "None (this appears to be a new document or had no mapped elements)."
-
     return f"""
-Please analyze the following documentation changes for the file `{file_path}`.
-
-**Context:**
-Here is a JSON array of all design elements that **previously existed in this specific document**. Use this as your primary reference.
-- An element is **MODIFIED** if its `reference_id` is in this list, but its other attributes (like name or description) have changed in the "New Content".
-- An element is **ADDED** if it appears in the "New Content" but its `reference_id` is **NOT** in this list.
-- An element is **DELETED** if its `reference_id` is in this list but it no longer appears in the "New Content".
-
-**Existing Elements in `{file_path}`:**
-```json
-{existing_elements_str}
-```
+Please perform a raw change detection on the file `{file_path}`.
 
 ---
 **New Content (Final Version):**
@@ -77,7 +51,60 @@ Here is a JSON array of all design elements that **previously existed in this sp
 ```
 ---
 
-Based on the instructions provided in the system prompt and the detailed context above, generate the JSON object describing the changes.
+Generate the JSON object containing the flat list of all detected changes.
 """
 
-__all__ = ["design_element_analysis_system_prompt", "design_element_analysis_human_prompt"] 
+# --- Prompts for Pass 2: Reconciliation and Cleanup ---
+
+def reconciliation_system_prompt() -> str:
+    """
+    System prompt for the second pass: clean up and validate the raw changes.
+    """
+    return """
+You are a meticulous Quality Assurance engineer. You have received a list of 'detected changes' from a junior analyst and a 'source of truth' list of elements that previously existed. Your task is to validate, clean, and correctly categorize the detected changes.
+
+**Instructions:**
+1.  Analyze the `detected_changes` list provided by the user.
+2.  Compare each item against the `existing_elements` list, which is the source of truth.
+3.  **Crucially, correct the `detected_change_type`:**
+    - If a change is marked 'addition' but its `reference_id` **IS IN** the `existing_elements` list, it is actually a **'modification'**.
+    - If a change is marked 'modification' but its `reference_id` **IS NOT IN** the `existing_elements` list, it is actually an **'addition'**.
+4.  Format the final, validated data into a JSON object with three distinct keys: `added`, `modified`, and `deleted`.
+5.  For `modified` elements, the output should contain the `reference_id` and a `changes` dictionary detailing only the fields that were altered.
+6.  For `added` elements, include all their details.
+7.  For `deleted` elements, include only their `reference_id`.
+
+The response will be automatically structured with the required fields.
+"""
+
+def reconciliation_human_prompt(detected_changes: List[Dict[str, Any]], relevant_existing_elements: List[Dict[str, Any]]) -> str:
+    """
+    Human-facing prompt for the second pass, containing the raw data and the ground truth.
+    """
+    detected_str = json.dumps(detected_changes, indent=2)
+    existing_str = json.dumps(relevant_existing_elements, indent=2)
+
+    return f"""
+Please validate and categorize the following detected changes.
+
+---
+**Detected Changes:**
+```json
+{detected_str}
+```
+---
+**Existing Elements (Source of Truth):**
+```json
+{existing_str}
+```
+---
+
+Generate the final, clean JSON object with `added`, `modified`, and `deleted` lists.
+"""
+
+__all__ = [
+    "raw_change_identification_system_prompt", 
+    "raw_change_identification_human_prompt",
+    "reconciliation_system_prompt",
+    "reconciliation_human_prompt"
+] 

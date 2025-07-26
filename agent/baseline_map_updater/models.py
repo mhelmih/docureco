@@ -69,6 +69,20 @@ class DesignElementChangesOutput(BaseModel):
     modified: List[ModifiedDesignElement] = Field(default_factory=list, description="A list of all modified design elements.")
     deleted: List[DeletedDesignElement] = Field(default_factory=list, description="A list of all deleted design elements.")
 
+# Models for Two-Pass Analysis
+class DetectedChange(BaseModel):
+    """Represents a single, unverified change detected in the first pass."""
+    reference_id: str = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.), which may be inaccurate.")
+    name: str = Field(description="Clear, descriptive name of the design element with its type (e.g., AddBook Class).")
+    description: str = Field(description="Brief description of purpose/functionality.")
+    type: str = Field(description="Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.).")
+    section: str = Field(description="Section reference from the document where the element is defined.")
+    detected_change_type: str = Field(description="The type of change detected ('addition', 'modification', or 'deletion').")
+
+class RawChangeDetectionOutput(BaseModel):
+    """The output of the first-pass raw change detection LLM call."""
+    detected_changes: List[DetectedChange] = Field(description="A flat list of all detected, unverified changes.")
+
 
 __all__ = [
     "DesignElementOutput", 
@@ -81,5 +95,7 @@ __all__ = [
     "AddedDesignElement",
     "ModifiedDesignElement",
     "DeletedDesignElement",
-    "DesignElementChangesOutput"
+    "DesignElementChangesOutput",
+    "DetectedChange",
+    "RawChangeDetectionOutput"
 ] 
