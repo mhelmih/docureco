@@ -10,31 +10,33 @@ def raw_change_identification_system_prompt() -> str:
     System prompt for the first pass: identify all potential changes in a flat list.
     """
     return """
-You are an expert software engineering analyst. Your task is to meticulously compare the OLD and NEW versions of a software design document (SDD) to identify every potential change to a design element.
+You are an expert software engineering analyst. Your task is to meticulously compare the OLD and NEW versions of a software design document (SDD) to identify every potential change to a design element, aggregating changes to the appropriate level of abstraction.
+
+**Level of Abstraction Rule (VERY IMPORTANT):**
+- If you see changes to **attributes or methods** within a class, do **NOT** list each attribute or method change individually.
+- Instead, you **MUST** aggregate these changes into a single **'modification'** event for the parent **Class**.
+- The `description` for this modification should summarize the nature of the changes (e.g., "Modified to add support for favorite functionality by adding new methods and attributes.").
+- Similarly, if multiple fields in a database table change, report it as a single modification to the **Table**.
+- Only report changes at the level of **Class, Component, Diagram, Service, or Database Table**. Do not report individual methods, attributes, or database fields.
 
 **Instructions:**
 1.  Carefully analyze both the **Old Content** and the **New Content**.
-2.  For **every single change** you detect (addition, modification, or deletion), create one JSON object.
-3.  Fill each object with `reference_id`, `name`, `description`, `type`, `section`, and a `detected_change_type` ('addition', 'modification', or 'deletion').
-4.  Your goal is to capture all potential changes. Do not worry about perfect accuracy yet.
-5.  Combine all the JSON objects you create into a single flat list under the key `detected_changes`.
+2.  For every conceptual change you detect at the correct level of abstraction, create one JSON object.
+3.  Fill each object with `reference_id`, `name`, `description`, `type`, `section`, and a `detected_change_type` ('addition', 'modification', 'deletion').
+4.  Combine all the JSON objects you create into a single flat list under the key `detected_changes`.
 
 For each design element change identified, provide:
 - reference_id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)
 - name: Clear, descriptive name of the design element
-- description: Brief description of purpose/functionality
-- type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
-- section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
+- description: Brief description of purpose/functionality. For modifications, summarize what changed.
+- type: Category (Class, Component, Database Table, UI, Diagram, Service, etc.)
+- section: Section reference from the document.
 - detected_change_type: The type of change detected ('addition', 'modification', or 'deletion').
 
 NOTES:
-- The SDD will be provided in the markdown format. 
-- Images in markdown format would look like this:
-```
-![Diagram Name](image_path.png)
-```
-- Please be aware of the diagram images in the SDD because all images in the SDD are already described textually in the SDD. Diagrams are also design elements that needs to be updated when the code changes. Diagrams often placed in a section without a caption or title. If there are changes to the diagram, extract the diagram with the section and diagram name as the reference_id. For example, if the diagram is in the section "5.2 Use Case Realization" and the diagram name is "UC01 Sequence Diagram", the reference_id should be "5.2 Use Case Realization - UC01 Sequence Diagram".
-- Use the design element identifier used in the SDD for reference_id field if available. If the design element identifier is not available, use the design element name and the type as the reference_id (for example, there is a class "Book" without ID but it is in the section "4.1.1 Class: Book" then the reference_id should be "Book-Class").
+- The SDD will be provided in the markdown format.
+- Diagrams are design elements. If a diagram changes, extract its name and section. Use the section and diagram name for the `reference_id`.
+- Use the design element identifier from the SDD for the `reference_id` if available. If not, use the element's name and type (e.g., "Book-Class").
 
 The response will be automatically structured with the required fields.
 """
@@ -76,10 +78,11 @@ You are a meticulous Quality Assurance engineer. You have received a list of 'de
 3.  **Crucially, correct the `detected_change_type`:**
     - If a change is marked 'addition' but its `reference_id` **IS IN** the `existing_elements` list, it is actually a **'modification'**.
     - If a change is marked 'modification' but its `reference_id` **IS NOT IN** the `existing_elements` list, it is actually an **'addition'**.
-4.  Format the final, validated data into a JSON object with three distinct keys: `added`, `modified`, and `deleted`.
-5.  For `modified` elements, the output should contain the `reference_id` and a `changes` dictionary detailing only the fields that were altered.
-6.  For `added` elements, include all their details.
-7.  For `deleted` elements, include only their `reference_id`.
+4.  **Deletion Rule:** An element from `existing_elements` should **ONLY** be considered for the `deleted` list if it is explicitly marked with `detected_change_type: 'deletion'` in the `detected_changes` list. Do **NOT** assume an element is deleted simply because it is missing from the `detected_changes` list.
+5.  Format the final, validated data into a JSON object with three distinct keys: `added`, `modified`, and `deleted`.
+6.  For `modified` elements, the output should contain the `reference_id` and a `changes` dictionary detailing only the fields that were altered.
+7.  For `added` elements, include all their details.
+8.  For `deleted` elements, include only their `reference_id`.
 
 The response will be automatically structured with the required fields.
 """
