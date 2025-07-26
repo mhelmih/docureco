@@ -191,7 +191,14 @@ class BaselineMapUpdaterWorkflow:
             if not detected_changes: return None
 
             # Pass 2: Reconciliation
-            relevant_elements = [de for de in baseline_elements if re.match(r'^(?:REQ|DE)-' + re.escape(file_path), de['reference_id'])]
+            relevant_elements = []
+            for de in baseline_elements:
+                match = re.match(r'^(?:REQ|DE)-(.+)-\d{3}$', de['id'])
+                if match:
+                    file_path_from_id = match.group(1)
+                    if file_path_from_id == file_path:
+                        relevant_elements.append(de)
+
             recon_parser = JsonOutputParser(pydantic_object=DesignElementChangesOutput)
             recon_system_prompt = reconciliation_system_prompt()
             recon_human_prompt = reconciliation_human_prompt(detected_changes, relevant_elements)
@@ -200,7 +207,7 @@ class BaselineMapUpdaterWorkflow:
                 prompt=recon_human_prompt,
                 system_message=recon_system_prompt + "\n" + recon_parser.get_format_instructions(),
                 output_format="json", 
-                temperature=0.0
+                temperature=0.1
             )
             return reconciliation_result.content
         except Exception as e:
