@@ -20,6 +20,14 @@ Based on this information, you must identify every design element that was **ADD
 3.  Identify all design elements that were added, modified, or deleted based on your analysis. Pay close attention to changes in descriptions, names, or any other attributes.
 4.  For every elements ADDED, MODIFIED, or DELETED, provide their full details: `reference_id`, `name`, `description`, `type`, `section`, and `detected_change_type`.
 
+For each design element identified, provide:
+- reference_id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)
+- name: Clear, descriptive name of the design element
+- description: Brief description of purpose/functionality
+- type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
+- section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
+- detected_change_type: The type of change detected ('addition', 'modification', or 'deletion').
+
 NOTES:
 - The SDD will be provided in the markdown format. 
 - Images in markdown format would look like this:

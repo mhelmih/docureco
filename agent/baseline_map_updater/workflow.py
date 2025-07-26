@@ -194,7 +194,7 @@ class BaselineMapUpdaterWorkflow:
             relevant_elements = [de for de in baseline_elements if re.match(r'^(?:REQ|DE)-' + re.escape(file_path), de['reference_id'])]
             recon_parser = JsonOutputParser(pydantic_object=DesignElementChangesOutput)
             recon_system_prompt = reconciliation_system_prompt()
-            recon_human_prompt = reconciliation_human_prompt([c.dict() for c in detected_changes], relevant_elements)
+            recon_human_prompt = reconciliation_human_prompt(detected_changes, relevant_elements)
             
             reconciliation_result = await self.llm_client.generate_response(
                 prompt=recon_human_prompt,

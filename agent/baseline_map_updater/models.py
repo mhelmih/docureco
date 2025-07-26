@@ -51,7 +51,7 @@ class AddedDesignElement(BaseModel):
     reference_id: str = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.).")
     name: str = Field(description="Clear, descriptive name of the design element with its type (e.g., AddBook Class).")
     description: str = Field(description="Brief description of purpose/functionality.")
-    type: str = Field(description="Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.).")
+    Field(description="Category (Service, Class, Interface, Component, Database, UI, etc.)")
     section: str = Field(description="Section reference from the document where the element is defined.")
 
 class ModifiedDesignElement(BaseModel):
