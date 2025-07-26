@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
 class DesignElementOutput(BaseModel):
@@ -45,6 +45,30 @@ class RelationshipListOutput(BaseModel):
     """A list of relationship outputs."""
     relationships: List[RelationshipOutput] = Field(description="A list of identified relationships between elements.")
 
+# Models for Change Analysis
+class AddedDesignElement(BaseModel):
+    """Represents a design element that has been added."""
+    reference_id: str = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.).")
+    name: str = Field(description="Clear, descriptive name of the design element with its type (e.g., AddBook Class).")
+    description: str = Field(description="Brief description of purpose/functionality.")
+    type: str = Field(description="Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.).")
+    section: str = Field(description="Section reference from the document where the element is defined.")
+
+class ModifiedDesignElement(BaseModel):
+    """Represents a design element that has been modified."""
+    reference_id: str = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.) that was modified.")
+    changes: Dict[str, Any] = Field(description="A dictionary detailing the changes. Keys are the modified fields (e.g., 'name', 'description'), and values are the new content.")
+
+class DeletedDesignElement(BaseModel):
+    """Represents a design element that has been deleted."""
+    reference_id: str = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.) that was deleted.")
+
+class DesignElementChangesOutput(BaseModel):
+    """Structured output for all identified changes to design elements."""
+    added: List[AddedDesignElement] = Field(default_factory=list, description="A list of all newly added design elements.")
+    modified: List[ModifiedDesignElement] = Field(default_factory=list, description="A list of all modified design elements.")
+    deleted: List[DeletedDesignElement] = Field(default_factory=list, description="A list of all deleted design elements.")
+
 
 __all__ = [
     "DesignElementOutput", 
@@ -53,5 +77,9 @@ __all__ = [
     "RequirementOutput", 
     "RequirementsWithDesignElementsOutput", 
     "RelationshipOutput",
-    "RelationshipListOutput"
+    "RelationshipListOutput",
+    "AddedDesignElement",
+    "ModifiedDesignElement",
+    "DeletedDesignElement",
+    "DesignElementChangesOutput"
 ] 

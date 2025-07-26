@@ -11,6 +11,8 @@ from typing import Dict, Any, List, Optional, Tuple
 import subprocess
 import httpx
 import base64
+import difflib
+from langchain_core.output_parsers import JsonOutputParser
 
 # Add parent directories to path for absolute imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,13 +23,12 @@ sys.path.insert(0, root_dir)
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
-from langchain_core.output_parsers import JsonOutputParser
 
 from agent.llm.llm_client import DocurecoLLMClient, create_llm_client
 from agent.database.baseline_map_repository import BaselineMapRepository
 from agent.models.docureco_models import BaselineMapModel, DesignElementModel, RequirementModel, CodeComponentModel, TraceabilityLinkModel
-from .prompts import get_analysis_prompt_for_changes
-from .models import RelationshipListOutput
+from .prompts import design_element_analysis_system_prompt, design_element_analysis_human_prompt
+from .models import DesignElementChangesOutput
 
 logger = logging.getLogger(__name__)
 
@@ -186,15 +187,22 @@ class BaselineMapUpdaterWorkflow:
                     status = file_info["status"]
                     file_path = file_info["filename"]
                     
-                    change_data = {"change_type": status, "old_content": "", "new_content": ""}
+                    change_data = {"change_type": status, "old_content": "", "new_content": "", "patch": ""}
 
-                    if status in ["added", "modified"]:
-                        new_content_url = file_info["contents_url"]
-                        change_data["new_content"] = await self._get_file_content_from_api(client, new_content_url)
-                    
-                    if parent_sha and status in ["modified", "deleted"]:
-                        old_content_url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={parent_sha}"
-                        change_data["old_content"] = await self._get_file_content_from_api(client, old_content_url)
+                    is_doc_file = any(p in file_path for p in sdd_patterns) or any(p in file_path for p in srs_patterns)
+
+                    if is_doc_file:
+                        # For documentation, fetch full content for better contextual analysis
+                        if status in ["added", "modified"]:
+                            new_content_url = file_info["contents_url"]
+                            change_data["new_content"] = await self._get_file_content_from_api(client, new_content_url)
+                        
+                        if parent_sha and status in ["modified", "deleted"]:
+                            old_content_url = f"https://api.github.com/repos/{repo}/contents/{file_path}?ref={parent_sha}"
+                            change_data["old_content"] = await self._get_file_content_from_api(client, old_content_url)
+                    else:
+                        # For code files, just get the patch for efficiency
+                        change_data["patch"] = file_info.get("patch", "")
 
                     if any(p in file_path for p in sdd_patterns):
                         state["changed_sdd_content"][file_path] = change_data
@@ -203,9 +211,9 @@ class BaselineMapUpdaterWorkflow:
                     else:
                         state["changed_code_files"][file_path] = change_data
                 
-                logger.info(f"Changed SDD content: {state['changed_sdd_content']}")
-                logger.info(f"Changed SRS content: {state['changed_srs_content']}")
-                logger.info(f"Changed code files: {state['changed_code_files']}")
+                logger.info(f"CHANGED CODE FILES: {state['changed_code_files']}")
+                logger.info(f"CHANGED SDD CONTENT: {state['changed_sdd_content']}")
+                logger.info(f"CHANGED SRS CONTENT: {state['changed_srs_content']}")
                 
                 if not state["changed_sdd_content"] and not state["changed_srs_content"]:
                     logger.info("No changes found in SRS or SDD files. Workflow will terminate.")
@@ -221,9 +229,96 @@ class BaselineMapUpdaterWorkflow:
         return state
     
     async def _identify_changed_design_elements(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
-        """3. Identify changed design elements in SDD."""
-        logger.info("Identifying changed design elements from changed SDD files.")
-        logger.info("Skipping detailed SDD analysis in this version.")
+        """
+        Identifies added, modified, and deleted design elements by comparing
+        the new version of an SDD with a diff of the changes.
+        """
+        logger.info("Identifying changed design elements from SDD files...")
+        state["current_step"] = "identifying_design_element_changes"
+        
+        changed_sdds = state.get("changed_sdd_content", {})
+        if not changed_sdds:
+            logger.info("No changed SDD files to analyze.")
+            return state
+
+        existing_element_ids = {de.id for de in state["baseline_map"].design_elements}
+        
+        all_new_elements, all_modified_elements, all_deleted_elements = [], [], []
+
+        output_parser = JsonOutputParser(pydantic_object=DesignElementChangesOutput)
+        system_prompt = design_element_analysis_system_prompt()
+
+        for file_path, changes in changed_sdds.items():
+            old_content = changes.get("old_content", "")
+            new_content = changes.get("new_content", "")
+
+            if not new_content and not old_content:
+                continue
+
+            diff_text = '\n'.join(difflib.unified_diff(
+                old_content.splitlines(keepends=True),
+                new_content.splitlines(keepends=True),
+                fromfile=f"a/{file_path}",
+                tofile=f"b/{file_path}",
+            ))
+            
+            logger.info(f"FILE PATH: {file_path}")
+            logger.info(f"OLD CONTENT: {old_content}")
+            logger.info(f"NEW CONTENT: {new_content}")
+            logger.info(f"DIFF TEXT: {diff_text}")
+
+            human_prompt = design_element_analysis_human_prompt(
+                new_content=new_content,
+                diff_text=diff_text,
+                file_path=file_path
+            )
+            
+            try:
+                response = await self.llm_client.generate_response(
+                    prompt=human_prompt,
+                    system_message=system_prompt + "\n" + output_parser.get_format_instructions(),
+                    output_format="json",
+                    temperature=0.1
+                )
+                
+                llm_analysis_result = response.content
+
+                for added_el in llm_analysis_result["added"]:
+                    if added_el["reference_id"] in existing_element_ids:
+                        logger.warning(f"LLM suggested adding element '{added_el["reference_id"]}' which already exists. Treating as modification.")
+                        all_modified_elements.append({"reference_id": added_el["reference_id"], "changes": added_el})
+                    else:
+                        all_new_elements.append(added_el)
+                        existing_element_ids.add(added_el["reference_id"])
+                
+                for modified_el in llm_analysis_result["modified"]:
+                    if modified_el["reference_id"] in existing_element_ids:
+                        all_modified_elements.append(modified_el)
+                    else:
+                        logger.warning(f"LLM suggested modifying element '{modified_el["reference_id"]}' which does not exist. Ignoring.")
+
+                for deleted_el in llm_analysis_result["deleted"]:
+                    if deleted_el["reference_id"] in existing_element_ids:
+                        all_deleted_elements.append(deleted_el)
+                        existing_element_ids.remove(deleted_el["reference_id"])
+                    else:
+                        logger.warning(f"LLM suggested deleting element '{deleted_el["reference_id"]}' which does not exist. Ignoring.")
+
+            except Exception as e:
+                logger.error(f"Failed to analyze design element changes for {file_path}: {e}")
+                state["error"] = f"LLM analysis failed for {file_path}."
+                continue
+        
+        state["new_design_elements"] = all_new_elements
+        state["modified_design_elements"] = all_modified_elements
+        state["deleted_design_elements"] = all_deleted_elements
+        
+        logger.info(f"NEW DESIGN ELEMENTS: {all_new_elements}")
+        logger.info(f"MODIFIED DESIGN ELEMENTS: {all_modified_elements}")
+        logger.info(f"DELETED DESIGN ELEMENTS: {all_deleted_elements}")
+
+        logger.info(f"Analysis complete. Found {len(all_new_elements)} new, {len(all_modified_elements)} modified, and {len(all_deleted_elements)} deleted design elements.")
+        
         return state
 
     async def _identify_changed_requirements(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
