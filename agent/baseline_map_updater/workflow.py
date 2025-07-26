@@ -241,7 +241,7 @@ class BaselineMapUpdaterWorkflow:
             logger.info("No changed SDD files to analyze.")
             return state
 
-        existing_element_ids = {de.id for de in state["baseline_map"].design_elements}
+        existing_element_ids = {de.reference_id for de in state["baseline_map"].design_elements}
         
         all_new_elements, all_modified_elements, all_deleted_elements = [], [], []
 
@@ -255,17 +255,12 @@ class BaselineMapUpdaterWorkflow:
             if not new_content and not old_content:
                 continue
 
-            diff_text = '\n'.join(difflib.unified_diff(
+            diff_text = ''.join(difflib.unified_diff(
                 old_content.splitlines(keepends=True),
                 new_content.splitlines(keepends=True),
                 fromfile=f"a/{file_path}",
                 tofile=f"b/{file_path}",
             ))
-            
-            logger.info(f"FILE PATH: {file_path}")
-            logger.info(f"OLD CONTENT: {old_content}")
-            logger.info(f"NEW CONTENT: {new_content}")
-            logger.info(f"DIFF TEXT: {diff_text}")
 
             human_prompt = design_element_analysis_human_prompt(
                 new_content=new_content,
