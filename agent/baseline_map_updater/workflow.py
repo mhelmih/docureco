@@ -176,7 +176,7 @@ class BaselineMapUpdaterWorkflow:
             logger.info(f"Relevant elements from {file_path}: {relevant_elements}")            
             recon_parser = JsonOutputParser(pydantic_object=UnifiedChangesOutput)
             recon_system_prompt = unified_reconciliation_system_prompt()
-            recon_human_prompt = unified_reconciliation_human_prompt([c.dict() for c in detected_changes], relevant_elements)
+            recon_human_prompt = unified_reconciliation_human_prompt([c for c in detected_changes], relevant_elements)
             
             reconciliation_result = await self.llm_client.generate_response(
                 prompt=recon_human_prompt,
