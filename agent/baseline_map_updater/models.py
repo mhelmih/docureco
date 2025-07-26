@@ -39,6 +39,17 @@ class RawUnifiedChangeDetectionOutput(BaseModel):
     """The output of the first-pass raw change detection for any element type."""
     detected_changes: List[DetectedUnifiedChange] = Field(description="A flat list of all detected, unverified changes.")
 
+# --- Models for Link Creation ---
+
+class FoundLink(BaseModel):
+    """Represents a single traceability link found by the LLM."""
+    target_id: str = Field(description="The unique ID of the element that the source element traces to (e.g., 'REQ-doc/srs.md-001', 'DE-doc/sdd.md-005').")
+
+class LinkFindingOutput(BaseModel):
+    """Structured output for the link finding process for a single source element."""
+    links: List[FoundLink] = Field(description="A list of traceability links found for the source element.")
+
+
 __all__ = [
     "UnifiedElement",
     "AddedElement",
@@ -46,5 +57,7 @@ __all__ = [
     "DeletedElement",
     "UnifiedChangesOutput",
     "DetectedUnifiedChange",
-    "RawUnifiedChangeDetectionOutput"
+    "RawUnifiedChangeDetectionOutput",
+    "FoundLink",
+    "LinkFindingOutput"
 ] 

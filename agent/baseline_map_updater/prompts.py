@@ -125,9 +125,93 @@ Please validate and categorize the following detected changes.
 Generate the final, clean JSON object with `added`, `modified`, and `deleted` lists.
 """
 
+# --- Prompts for R2D/D2D Link Creation ---
+
+def document_link_creation_system_prompt() -> str:
+    """System prompt for creating traceability links between document elements (R2D, D2D)."""
+    return """
+You are a Software Engineering expert specializing in requirements and design traceability. Your task is to identify direct relationships between a given source element and a list of potential target elements from documentation.
+
+**Instructions:**
+1.  Analyze the provided `source_element`. Determine if it is a 'Requirement' or a 'DesignElement'.
+2.  Review the `potential_target_elements` list.
+3.  Identify which target elements the `source_element` **directly traces to**.
+4.  Assign the correct `relationship_type` based on the source and target types:
+    *   **Requirement → Design Element (R→D)**: Use `satisfies` or `realizes`. Default to `realizes`.
+    *   **Design Element → Design Element (D→D)**: Use `refines`, `depends_on`, or `realizes`. Default to `realizes`.
+5.  For each identified relationship, create an object with `target_id` (the `reference_id` of the target) and `relationship_type`.
+6.  Return a JSON object containing a list of these objects under the key `links`. If no links are found, return an empty list.
+
+Provide **only** the JSON object."""
+
+def document_link_creation_human_prompt(source_element: Dict[str, Any], potential_targets: List[Dict[str, Any]]) -> str:
+    """Human-facing prompt for link creation between document elements."""
+    source_str = json.dumps(source_element, indent=2)
+    targets_str = json.dumps(potential_targets, indent=2)
+    return f"""
+Please create traceability links from the source element to any relevant target document elements.
+
+---
+**Source Element (The element to trace FROM):**
+```json
+{source_str}
+```
+---
+**Potential Target Document Elements (To trace TO):**
+```json
+{targets_str}
+```
+---
+
+Generate the JSON object containing the list of links (`target_id`, `relationship_type`)."""
+
+def design_code_links_system_prompt() -> str:
+    """System prompt for creating traceability links from design elements to code components."""
+    return """
+You are an expert software architect analyzing the relationships between design elements and code components. 
+
+TASK:
+1. You will be given a list of design elements and a list of code files.
+2. Analyze and identify the code components that are related to the design elements by checking the code component names, paths, and content against the design elements names, descriptions, and types.
+3. Make sure your identified relationships are meaningful and logical based on the given context. Usually, code components implement design elements that are in the bottom of the design elements hierarchy. For example, if the traceability map shows this: DE1 -> DE2 -> DE3, then a code component usually implement DE3. But, it does not mean that code components that implement DE2 or DE1 are not valid.
+4. If no meaningful relationships exist, return an empty array.
+
+For Design Element to Code Component (D→C) relationships, use ONLY these relationship types:
+- implements: Code component implements the design element (reverse of C→D implements)
+- realizes: Code component realizes/materializes the design concept (general manifestation relationship)
+
+Selection Guidelines:
+- Use "implements" when code provides direct implementation of the design element's specification
+- Use "realizes" for general manifestation where code embodies the design concept
+- Only identify relationships that make logical sense based on the element and code component information. If you are not sure about the relationship type, use "realizes" as the default relationship type.
+
+For each relationship found, provide:
+- source_id: ID of the design element. Use the reference_id of the design element.
+- target_id: ID of the code component. Use the id of the code component.
+- relationship_type: MUST be one of: "implements", "realizes"
+
+The response will be automatically structured."""
+
+def design_code_links_human_prompt(source_element: Dict[str, Any], code_components: List[Dict[str, Any]]) -> str:
+    """Human prompt for design-to-code link analysis"""
+    return f"""
+Analyze the following design element and code components to identify meaningful relationships between them:
+
+Design Element:
+{json.dumps(source_element, indent=2)}
+
+Code Components:
+{json.dumps(code_components, indent=2)}
+
+Identify relationships between the design element and code components and return them as a JSON array."""
+
 __all__ = [
     "raw_unified_change_identification_system_prompt", 
     "raw_unified_change_identification_human_prompt",
     "unified_reconciliation_system_prompt",
-    "unified_reconciliation_human_prompt"
+    "unified_reconciliation_human_prompt",
+    "document_link_creation_system_prompt",
+    "document_link_creation_human_prompt",
+    "design_code_links_system_prompt",
+    "design_code_links_human_prompt"
 ] 
