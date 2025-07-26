@@ -186,7 +186,13 @@ class BaselineMapUpdaterWorkflow:
             detected_changes = identification_result.content.get("detected_changes", [])
             if not detected_changes: return None
 
-            relevant_elements = [el for el in baseline_elements if el.get('file_path') == file_path]
+            relevant_elements = []
+            for el in baseline_elements:
+                element_id = el.get('id', '')
+                match = re.match(r'^(?:REQ|DE)-(.+)-\d+$', element_id)
+                if match and match.group(1) == file_path:
+                    relevant_elements.append(el)
+
             recon_parser = JsonOutputParser(pydantic_object=UnifiedChangesOutput)
             recon_system_prompt = unified_reconciliation_system_prompt()
             recon_human_prompt = unified_reconciliation_human_prompt(detected_changes, relevant_elements)
@@ -226,29 +232,76 @@ class BaselineMapUpdaterWorkflow:
 
     async def _llm_find_document_links(self, source_element: Dict, all_targets: List[Dict]) -> List[TraceabilityLinkModel]:
         try:
+            # Ensure the source element has a reference_id
+            source_ref_id = source_element.get('reference_id')
+            if not source_ref_id:
+                logger.warning(f"Skipping document link creation for an element without a reference_id: {source_element.get('name', 'Unknown')}")
+                return []
+
             parser = JsonOutputParser(pydantic_object=LinkFindingOutput)
             system_prompt = document_link_creation_system_prompt()
             human_prompt = document_link_creation_human_prompt(source_element, all_targets)
-            response = await self.llm_client.generate_response(prompt=human_prompt, system_message=system_prompt + "\n" + parser.get_format_instructions(), output_format="json", temperature=0.0)
             
-            source_type = "Requirement" if source_element.get('id', '').startswith("REQ-") else "DesignElement"
-            source_ref_id = source_element.get('reference_id')
+            # The generate_response method already returns a parsed dictionary when output_format="json"
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt, 
+                system_message=system_prompt + "\n" + parser.get_format_instructions(), 
+                output_format="json", 
+                temperature=0.0
+            )
+            
+            # The content is already a dict, so we can directly initialize the Pydantic model
+            link_finding_output = LinkFindingOutput(**response.content)
 
-            return [TraceabilityLinkModel(id=f"TEMP-L", source_type=source_type, source_id=source_ref_id, target_id=link.target_id, relationship_type=link.relationship_type) for link in parser.parse(response.content).links]
+            source_type = "Requirement" if source_element.get('id', '').startswith("REQ-") else "DesignElement"
+
+            return [
+                TraceabilityLinkModel(
+                    id=f"TEMP-L", 
+                    source_type=source_type, 
+                    source_id=source_ref_id, 
+                    target_id=link.target_id, 
+                    relationship_type="traces_to"  # Assuming a default, adjust if relationship is dynamic
+                ) 
+                for link in link_finding_output.links
+            ]
         except Exception as e:
             logger.error(f"Error finding document links for element {source_element.get('reference_id')}: {e}")
             return []
 
     async def _llm_find_d2c_links(self, source_element: Dict, all_code_targets: List[Dict]) -> List[TraceabilityLinkModel]:
         try:
+            # Ensure the source element has a reference_id
+            source_ref_id = source_element.get('reference_id')
+            if not source_ref_id:
+                logger.warning(f"Skipping D2C link creation for an element without a reference_id: {source_element.get('name', 'Unknown')}")
+                return []
+
             parser = JsonOutputParser(pydantic_object=LinkFindingOutput)
             system_prompt = design_code_links_system_prompt()
             human_prompt = design_code_links_human_prompt(source_element, all_code_targets)
-            response = await self.llm_client.generate_response(prompt=human_prompt, system_message=system_prompt + "\n" + parser.get_format_instructions(), output_format="json", temperature=0.0)
 
-            source_ref_id = source_element.get('reference_id')
+            # The generate_response method already returns a parsed dictionary
+            response = await self.llm_client.generate_response(
+                prompt=human_prompt, 
+                system_message=system_prompt + "\n" + parser.get_format_instructions(), 
+                output_format="json", 
+                temperature=0.0
+            )
 
-            return [TraceabilityLinkModel(id=f"TEMP-L", source_type="DesignElement", source_id=source_ref_id, target_id=link.target_id, relationship_type=link.relationship_type) for link in parser.parse(response.content).links]
+            # Directly use the dictionary from the response
+            link_finding_output = LinkFindingOutput(**response.content)
+
+            return [
+                TraceabilityLinkModel(
+                    id=f"TEMP-L", 
+                    source_type="DesignElement", 
+                    source_id=source_ref_id, 
+                    target_id=link.target_id, 
+                    relationship_type="implements" # Assuming a default relationship
+                ) 
+                for link in link_finding_output.links
+            ]
         except Exception as e:
             logger.error(f"Error finding D2C links for element {source_element.get('reference_id')}: {e}")
             return []
