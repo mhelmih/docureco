@@ -25,7 +25,7 @@ sys.path.insert(0, root_dir)
 from langgraph.graph import StateGraph, END
 from agent.llm.llm_client import DocurecoLLMClient, create_llm_client
 from agent.database.baseline_map_repository import BaselineMapRepository
-from agent.models.docureco_models import BaselineMapModel, Requirement, DesignElement, CodeComponentModel, TraceabilityLinkModel
+from agent.models.docureco_models import BaselineMapModel, RequirementModel, DesignElementModel, CodeComponentModel, TraceabilityLinkModel
 from .prompts import (
     raw_unified_change_identification_system_prompt,
     raw_unified_change_identification_human_prompt,
@@ -389,10 +389,10 @@ class BaselineMapUpdaterWorkflow:
                 details['file_path'] = file_path
                 if el_type == "Requirement":
                     max_req += 1; details['id'] = f"REQ-{file_path}-{max_req:03d}"
-                    baseline_map.requirements.append(Requirement(**details))
+                    baseline_map.requirements.append(RequirementModel(**details))
                 else:
                     max_de += 1; details['id'] = f"DE-{file_path}-{max_de:03d}"
-                    baseline_map.design_elements.append(DesignElement(**details))
+                    baseline_map.design_elements.append(DesignElementModel(**details))
 
         deleted_code_paths = {path for path, change in changed_code.items() if change['status'] == 'deleted'}
         baseline_map.code_components = [c for c in baseline_map.code_components if c.path not in deleted_code_paths]
@@ -413,8 +413,8 @@ class BaselineMapUpdaterWorkflow:
                 max_link_id += 1; link.id = f"L-{max_link_id:04d}"
                 target_el = all_elements_map.get(link.target_id) or all_code_map.get(link.target_id)
                 if target_el:
-                    if isinstance(target_el, Requirement): link.target_type = "Requirement"
-                    elif isinstance(target_el, DesignElement): link.target_type = "DesignElement"
+                    if isinstance(target_el, RequirementModel): link.target_type = "Requirement"
+                    elif isinstance(target_el, DesignElementModel): link.target_type = "DesignElement"
                     else: link.target_type = "CodeComponent"
                 else: link.target_type = "Unresolved"
             
