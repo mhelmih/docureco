@@ -10,17 +10,16 @@ def raw_change_identification_system_prompt() -> str:
     System prompt for the first pass: identify all potential changes in a flat list.
     """
     return """
-You are a meticulous software engineering analyst specializing in documentation version control. Your task is to analyze a new version of a software design document (SDD) alongside a "diff" that highlights the changes from the old version.
-
-Based on this information, you must identify every design element that was **ADDED**, **MODIFIED**, or **DELETED**.
+You are an expert software engineering analyst. Your task is to meticulously compare the OLD and NEW versions of a software design document (SDD) to identify every potential change to a design element.
 
 **Instructions:**
-1.  Review the **New Content** to understand the final state of the document.
-2.  Use the **Unified Diff** as a guide to understand what was changed. Lines starting with `+` are additions, and lines starting with `-` are deletions.
-3.  Identify all design elements that were added, modified, or deleted based on your analysis. Pay close attention to changes in descriptions, names, or any other attributes.
-4.  For every elements ADDED, MODIFIED, or DELETED, provide their full details: `reference_id`, `name`, `description`, `type`, `section`, and `detected_change_type`.
+1.  Carefully analyze both the **Old Content** and the **New Content**.
+2.  For **every single change** you detect (addition, modification, or deletion), create one JSON object.
+3.  Fill each object with `reference_id`, `name`, `description`, `type`, `section`, and a `detected_change_type` ('addition', 'modification', or 'deletion').
+4.  Your goal is to capture all potential changes. Do not worry about perfect accuracy yet.
+5.  Combine all the JSON objects you create into a single flat list under the key `detected_changes`.
 
-For each design element identified, provide:
+For each design element change identified, provide:
 - reference_id: Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)
 - name: Clear, descriptive name of the design element
 - description: Brief description of purpose/functionality
@@ -40,22 +39,22 @@ NOTES:
 The response will be automatically structured with the required fields.
 """
 
-def raw_change_identification_human_prompt(new_content: str, diff_text: str, file_path: str) -> str:
+def raw_change_identification_human_prompt(old_content: str, new_content: str, file_path: str) -> str:
     """
-    Human-facing prompt for the first pass, containing the document data.
+    Human-facing prompt for the first pass, containing the full document versions.
     """
     return f"""
-Please perform a raw change detection on the file `{file_path}`.
+Please perform a raw change detection on the file `{file_path}` by comparing the two versions below.
 
+---
+**Old Content:**
+```markdown
+{old_content if old_content else "This document did not exist before."}
+```
 ---
 **New Content (Final Version):**
 ```markdown
 {new_content if new_content else "This document has been deleted."}
-```
----
-**Unified Diff (Summary of Changes):**
-```diff
-{diff_text if diff_text else "No changes detected or file is new."}
 ```
 ---
 
