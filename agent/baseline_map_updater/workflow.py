@@ -255,15 +255,15 @@ class BaselineMapUpdaterWorkflow:
     async def _save_baseline_map_update(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         logger.info("Applying all changes and saving the updated baseline map.")
         
-        baseline_map: BaselineMapModel = state["baseline_map"]
+        # baseline_map: BaselineMapModel = state["baseline_map"]
         
-        success = await self.baseline_map_repo.save_baseline_map(baseline_map)
-        if not success:
-            state["error"] = "Failed to save the updated baseline map."
-            logger.error(state["error"])
-        else:
-            logger.info("Successfully saved the updated baseline map.")
-            state["current_step"] = "completed"
+        # success = await self.baseline_map_repo.save_baseline_map(baseline_map)
+        # if not success:
+        #     state["error"] = "Failed to save the updated baseline map."
+        #     logger.error(state["error"])
+        # else:
+        #     logger.info("Successfully saved the updated baseline map.")
+        #     state["current_step"] = "completed"
             
         return state
 
