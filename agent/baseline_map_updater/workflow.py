@@ -175,7 +175,7 @@ class BaselineMapUpdaterWorkflow:
             if not new_content and not old_content: return None
 
             # Pass 1: Raw Identification
-            diff_text = ''.join(difflib.unified_diff(old_content.splitlines(), new_content.splitlines(), fromfile=f"a/{file_path}", tofile=f"b/{file_path}"))
+            diff_text = '\n'.join(difflib.unified_diff(old_content.splitlines(), new_content.splitlines(), fromfile=f"a/{file_path}", tofile=f"b/{file_path}"))
             raw_parser = JsonOutputParser(pydantic_object=RawChangeDetectionOutput)
             raw_system_prompt = raw_change_identification_system_prompt()
             raw_human_prompt = raw_change_identification_human_prompt(new_content, diff_text, file_path)
