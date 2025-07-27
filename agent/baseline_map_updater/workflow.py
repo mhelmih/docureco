@@ -222,9 +222,10 @@ class BaselineMapUpdaterWorkflow:
 
                 cmd = [
                     "repomix",
-                    repo_path, # Pass the local path as a positional argument
+                    repo_path,
                     "--output", output_file,
                     "--style", "xml",
+                    "--compress", # Use compression to reduce tokens
                     "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage,.github,.vscode,.env,*.json,*.md,*.txt"
                 ]
                 
@@ -387,13 +388,13 @@ class BaselineMapUpdaterWorkflow:
             logger.error(f"Error finding document links in batch: {e}")
             return []
 
-    async def _llm_find_d2c_links_batch(self, sources: List[Dict], all_code_targets: List[Dict]) -> List[TraceabilityLinkModel]:
+    async def _llm_find_d2c_links_batch(self, sources: List[Dict], all_code_targets: List[Dict], doc_links_context: List[Dict[str, Any]]) -> List[TraceabilityLinkModel]:
         if not sources:
             return []
         try:
             parser = JsonOutputParser(pydantic_object=BatchLinkFindingOutput)
             system_prompt = design_code_links_system_prompt()
-            human_prompt = design_code_links_human_prompt(sources, all_code_targets)
+            human_prompt = design_code_links_human_prompt(sources, all_code_targets, doc_links_context)
 
             response = await self.llm_client.generate_response(
                 prompt=human_prompt,
@@ -503,11 +504,19 @@ class BaselineMapUpdaterWorkflow:
             self._llm_find_document_links_batch
         )
         
-        logger.info(f"Creating D2C links for {len(design_candidates)} candidates in parallel batches...")
+        # Now, create D2C links using the newly created doc links as context
+        logger.info(f"Creating D2C links for {len(design_candidates)} candidates with document link context...")
+        
+        # Prepare the context: a simplified list of D2D link dicts
+        d2d_links_context = [
+            {"source": link.source_id, "target": link.target_id, "type": link.relationship_type}
+            for link in new_doc_links if link.source_type == "DesignElement" and link.target_type == "DesignElement"
+        ]
+
         new_d2c_links = await self._run_link_creation_in_parallel_batches(
             design_candidates, 
             all_code_targets, 
-            self._llm_find_d2c_links_batch
+            lambda sources, targets: self._llm_find_d2c_links_batch(sources, targets, d2d_links_context)
         )
         
         state['newly_created_links'] = new_doc_links + new_d2c_links
