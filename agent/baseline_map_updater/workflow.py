@@ -212,10 +212,17 @@ class BaselineMapUpdaterWorkflow:
                 repo_url = repository
             
             try:
+                # Clone the repo, checkout the commit, then scan locally
+                repo_path = os.path.join(temp_dir, "repo")
+                clone_cmd = ["git", "clone", repo_url, repo_path]
+                subprocess.run(clone_cmd, check=True, capture_output=True, text=True)
+                
+                checkout_cmd = ["git", "-C", repo_path, "checkout", commit_sha]
+                subprocess.run(checkout_cmd, check=True, capture_output=True, text=True)
+
                 cmd = [
                     "repomix",
-                    "--remote", repo_url,
-                    "--commit", commit_sha, # Use commit hash instead of branch
+                    "--repo", repo_path, # Scan the local path
                     "--output", output_file,
                     "--style", "xml",
                     "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage,.github,.vscode,.env,*.json,*.md,*.txt"
