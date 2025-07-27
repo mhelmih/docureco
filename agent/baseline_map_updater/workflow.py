@@ -14,6 +14,8 @@ import base64
 import re
 from langchain_core.output_parsers import JsonOutputParser
 from itertools import islice
+import tempfile
+import subprocess
 
 # Add parent directories to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -76,12 +78,15 @@ class BaselineMapUpdaterWorkflow:
         """Builds the LangGraph workflow with conditional routing."""
         workflow = StateGraph(BaselineMapUpdaterState)
         workflow.add_node("fetch_changed_files_content", self._fetch_changed_files_content)
+        workflow.add_node("scan_codebase", self._scan_codebase)
         workflow.add_node("analyze_document_changes", self._analyze_document_changes)
         workflow.add_node("update_traceability_mappings", self._update_traceability_mappings)
         workflow.add_node("save_baseline_map_update", self._save_baseline_map_update)
 
         workflow.set_entry_point("fetch_changed_files_content")
-        workflow.add_conditional_edges("fetch_changed_files_content", lambda s: "analyze_document_changes" if not s.get("error") else END)
+        workflow.add_conditional_edges("fetch_changed_files_content", 
+                                     lambda s: "scan_codebase" if not s.get("error") else END)
+        workflow.add_edge("scan_codebase", "analyze_document_changes")
         workflow.add_edge("analyze_document_changes", "update_traceability_mappings")
         workflow.add_edge("update_traceability_mappings", "save_baseline_map_update")
         workflow.add_edge("save_baseline_map_update", END)
@@ -160,6 +165,100 @@ class BaselineMapUpdaterWorkflow:
             state["error"] = f"GitHub API request failed: {e}"
         return state
 
+    async def _scan_codebase(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
+        """
+        Scans the entire codebase at the specified commit using repomix.
+        This is crucial for providing full context for D2C mapping.
+        """
+        logger.info(f"Scanning full codebase at commit {state['commit_sha']}...")
+        state["current_step"] = "scanning_codebase"
+        
+        try:
+            repo_data = await self._scan_repository_with_repomix(state["repository"], state["commit_sha"])
+            
+            # The structure from repomix is a list of file dicts. We need to convert it
+            # into a list of CodeComponentModel-like dicts for the linking step.
+            code_components = []
+            max_cc_id = max([int(c.id.split('-')[-1]) for c in state["baseline_map"].code_components if c.id.startswith("CC-")] or [0])
+
+            for file_info in repo_data.get("files", []):
+                max_cc_id += 1
+                code_components.append({
+                    "id": f"CC-{max_cc_id:03d}",
+                    "path": file_info["path"],
+                    "name": os.path.basename(file_info["path"]),
+                    "type": os.path.splitext(file_info["path"])[1],
+                    "content": file_info["content"]
+                })
+
+            state["full_code_scan"] = code_components
+            logger.info(f"Full codebase scan complete. Found {len(code_components)} code files.")
+        except Exception as e:
+            logger.error(f"Failed to scan codebase: {e}")
+            state["error"] = str(e)
+            
+        return state
+
+    async def _scan_repository_with_repomix(self, repository: str, commit_sha: str) -> Dict[str, Any]:
+        """
+        Scan repository at a specific commit using Repomix.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "repo_scan.xml")
+            
+            if "/" in repository and not repository.startswith("http"):
+                repo_url = f"https://github.com/{repository}.git"
+            else:
+                repo_url = repository
+            
+            try:
+                cmd = [
+                    "repomix",
+                    "--remote", repo_url,
+                    "--commit", commit_sha, # Use commit hash instead of branch
+                    "--output", output_file,
+                    "--style", "xml",
+                    "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage,.github,.vscode,.env,*.json,*.md,*.txt"
+                ]
+                
+                logger.debug(f"Running Repomix: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    raise RuntimeError(f"Repomix failed: {result.stderr}")
+                
+                with open(output_file, 'r', encoding='utf-8') as f:
+                    xml_content = f.read()
+                
+                repo_data = self._parse_repomix_xml(xml_content)
+                logger.debug(f"Repomix scan completed successfully for {repository} at commit {commit_sha}")
+                return repo_data
+                
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Repomix scan timed out after 5 minutes")
+            except Exception as e:
+                raise RuntimeError(f"Failed to scan repository with Repomix: {str(e)}")
+
+    def _parse_repomix_xml(self, xml_content: str) -> Dict[str, Any]:
+        """
+        Parse Repomix XML-like output into structured data.
+        """
+        files = []
+        try:
+            file_pattern = r'<file path="([^"]*)">\s*(.*?)\s*</file>'
+            matches = re.findall(file_pattern, xml_content, re.DOTALL)
+            
+            for file_path, file_content in matches:
+                if file_path and file_content.strip():
+                    files.append({
+                        "path": file_path,
+                        "content": file_content.strip()
+                    })
+            return {"files": files}
+        except Exception as e:
+            logger.error(f"Error parsing Repomix XML: {e}")
+            return {"files": []}
+
     async def _analyze_document_changes(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
         logger.info("Analyzing all changed documentation files...")
         
@@ -227,7 +326,7 @@ class BaselineMapUpdaterWorkflow:
         """
         all_new_links = []
         if not candidates:
-            return all_new_links
+            return
 
         # Create chunks of candidates to be processed in parallel
         candidate_chunks = list(batched(candidates, batch_size))
@@ -385,18 +484,11 @@ class BaselineMapUpdaterWorkflow:
         all_doc_targets.extend(req_candidates)
         all_doc_targets.extend(design_candidates)
         
-        # Prepare code targets, updating content for modified files and adding new files
-        code_content_map = {path: change['new_content'] for path, change in changed_code.items() if 'new_content' in change}
-        all_code_targets = [c.dict() for c in baseline_map.code_components]
-        for target in all_code_targets:
-            if target['path'] in code_content_map:
-                target['content'] = code_content_map[target['path']]
-        for path, change in changed_code.items():
-            if change['status'] == 'added':
-                all_code_targets.append({"id": f"TEMP-{path}", "path": path, "name": os.path.basename(path), "content": change.get('new_content', '')})
+        # Prepare code targets. The full scan from repomix is the single source of truth.
+        all_code_targets = state.get("full_code_scan", [])
 
         # Run Link Creation in Batches
-        logger.info(f"Creating R2D/D2D links for {len(req_candidates) + len(design_candidates)} candidates in parallel batches...")
+        logger.info(f"Creating R2D/D2C links for {len(req_candidates) + len(design_candidates)} candidates in parallel batches...")
         doc_candidates = req_candidates + design_candidates
         new_doc_links = await self._run_link_creation_in_parallel_batches(
             doc_candidates, 
@@ -446,7 +538,12 @@ class BaselineMapUpdaterWorkflow:
                 element = get_element_by_ref_id(file_path, el.reference_id)
                 if element:
                     for field, value in el.changes.items():
-                        if hasattr(element, field): setattr(element, field, value)
+                        if hasattr(element, field):
+                            final_value = value
+                            # If the change value is a dict with 'from'/'to', take the 'to' value.
+                            if isinstance(value, dict) and 'to' in value:
+                                final_value = value['to']
+                            setattr(element, field, final_value)
         
         baseline_map.requirements = [r for r in baseline_map.requirements if r.id not in deleted_doc_ids]
         baseline_map.design_elements = [d for d in baseline_map.design_elements if d.id not in deleted_doc_ids]
@@ -468,13 +565,29 @@ class BaselineMapUpdaterWorkflow:
                     max_de += 1; details['id'] = f"DE-{file_path}-{max_de:03d}"
                     baseline_map.design_elements.append(DesignElementModel(**details))
 
-        deleted_code_paths = {path for path, change in changed_code.items() if change['status'] == 'deleted'}
-        baseline_map.code_components = [c for c in baseline_map.code_components if c.path not in deleted_code_paths]
+        # Update code component inventory based on the full scan and deleted files
+        scanned_paths = {c["path"] for c in state.get("full_code_scan", [])}
+        existing_paths = {c.path for c in baseline_map.code_components}
+        
+        # 1. Delete components that are no longer in the scan
+        paths_to_delete = existing_paths - scanned_paths
+        baseline_map.code_components = [c for c in baseline_map.code_components if c.path not in paths_to_delete]
+        
+        # 2. Add new components that are in the scan but not in the baseline
+        paths_to_add = scanned_paths - existing_paths
         max_cc_id = max([int(c.id.split('-')[-1]) for c in baseline_map.code_components if c.id.startswith("CC-")] or [0])
-        for path, change in changed_code.items():
-            if change['status'] == 'added':
-                max_cc_id += 1
-                baseline_map.code_components.append(CodeComponentModel(id=f"CC-{max_cc_id:03d}", path=path, name=os.path.basename(path), type=os.path.splitext(path)[1]))
+        
+        scanned_code_map = {c["path"]: c for c in state.get("full_code_scan", [])}
+        for path in paths_to_add:
+            max_cc_id += 1
+            new_comp_data = scanned_code_map[path]
+            baseline_map.code_components.append(CodeComponentModel(
+                id=f"CC-{max_cc_id:03d}",
+                path=path,
+                name=new_comp_data.get("name", os.path.basename(path)),
+                type=new_comp_data.get("type", os.path.splitext(path)[1])
+                # Content is not stored in the baseline map model
+            ))
 
         # --- Step 2: Add the newly created links ---
         new_links: List[TraceabilityLinkModel] = state.get('newly_created_links', [])
