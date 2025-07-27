@@ -36,15 +36,15 @@ You are an expert software engineering analyst. Your task is to meticulously com
 For each design element change identified, provide this inside the `full_element_data` field:
 - name: Clear, descriptive name of the design element
 - description: Brief description of purpose/functionality. For modifications, summarize what changed.
-- type: Category (Class, Component, Database Table, UI, Diagram, Service, etc.)
-- section: Section reference from the document.
+- type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
+- section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
 
 For each requirement change identified, provide this inside the `full_element_data` field:
-- title: Clear, descriptive name of the requirement
-- description: Brief description of purpose/functionality. For modifications, summarize what changed.
-- type: Category (Functional, Non-Functional, User, System, etc.)
+- title: Clear, concise title of the requirement
+- description: Detailed description of what is required. For modifications, summarize what changed.
+- type: Category (Functional, Non-Functional, Business, User, System, etc.)
 - priority: Importance level (High, Medium, Low)
-- section: Section reference from the document.
+- section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
 
 NOTES:
 - All documentations will be provided in the markdown format.
@@ -133,26 +133,45 @@ def document_link_creation_system_prompt() -> str:
 You are a Software Engineering expert specializing in requirements and design traceability. Your task is to identify direct relationships between a given source element and a list of potential target elements from documentation.
 
 **Instructions:**
-1.  Analyze the provided `source_element`. Determine if it is a 'Requirement' or a 'DesignElement'.
-2.  Review the `potential_target_elements` list.
-3.  Identify which target elements the `source_element` **directly traces to**.
-4.  Assign the correct `relationship_type` based on the source and target types:
-    *   **Requirement → Design Element (R→D)**: Use `satisfies` or `realizes`. Default to `realizes`.
-    *   **Design Element → Design Element (D→D)**: Use `refines`, `depends_on`, or `realizes`. Default to `realizes`.
-5.  For each identified relationship, create an object with `target_id` (the `reference_id` of the target) and `relationship_type`.
-6.  Return a JSON object containing a list of these objects under the key `links`. If no links are found, return an empty list.
+1.  You will receive a list of `source_elements` (can be Requirements or Design Elements).
+2.  For **each** source element, review the `potential_target_elements` list to find direct traces.
+3.  Assign the correct `relationship_type` based on the source and target types:
+    *   **Requirement → Design Element (R→D)**: Use `satisfies` or `realizes`.
+    *   **Design Element → Design Element (D→D)**: Use `refines`, `depends_on`, or `realizes`.
+4.  Structure your output as a single JSON object with one key: `links_by_source`.
+5.  The value of `links_by_source` should be another dictionary where:
+    *   Each **key** is the `reference_id` of a `source_element`.
+    *   Each **value** is a list of link objects (`target_id`, `relationship_type`) found for that source. `target_id` must be the `reference_id` of the target element.
+6.  If a source element has no links, its `reference_id` should still be a key with an empty list `[]` as its value.
+
+For Requirement to Design Element (R→D) relationships, use ONLY these relationship types:
+- satisfies: Design element formally satisfies the requirement's needs (most common for D→R, but used as R→D here)
+- realizes: Design element manifests or embodies the requirement concept (general manifestation relationship)
+
+For Design Element to Design Element (D→D) relationships, use ONLY these relationship types:
+1. refines: Element A elaborates or clarifies Element B (provides more detail or specific implementation)
+2. depends_on: Element A depends on Element B to function (dependency relationships)
+3. realizes: Element A manifests or embodies Element B (general manifestation relationship)
+
+Selection Guidelines:
+- Use "satisfies" when a design element clearly satisfies a requirement's specifications
+- Use "refines" when one design element provides more detailed specification of another
+- Use "depends_on" for functional dependencies where one element requires another to operate
+- Use "realizes" for general manifestation or embodiment relationships.
+- Only identify relationships that make logical sense based on the element information and traceability matrix context. If you are not sure about the relationship type, use "realizes" as the default relationship type.
 
 Provide **only** the JSON object."""
 
-def document_link_creation_human_prompt(source_element: Dict[str, Any], potential_targets: List[Dict[str, Any]]) -> str:
-    """Human-facing prompt for link creation between document elements."""
-    source_str = json.dumps(source_element, indent=2)
+
+def document_link_creation_human_prompt(source_elements: List[Dict[str, Any]], potential_targets: List[Dict[str, Any]]) -> str:
+    """Human-facing prompt for batch link creation between document elements."""
+    source_str = json.dumps(source_elements, indent=2)
     targets_str = json.dumps(potential_targets, indent=2)
     return f"""
-Please create traceability links from the source element to any relevant target document elements.
+Please create traceability links from the source elements to any relevant target document elements.
 
 ---
-**Source Element (The element to trace FROM):**
+**Source Elements (To trace FROM):**
 ```json
 {source_str}
 ```
@@ -163,18 +182,25 @@ Please create traceability links from the source element to any relevant target 
 ```
 ---
 
-Generate the JSON object containing the list of links (`target_id`, `relationship_type`)."""
+Generate the JSON object containing the `links_by_source` dictionary."""
 
 def design_code_links_system_prompt() -> str:
     """System prompt for creating traceability links from design elements to code components."""
     return """
-You are an expert software architect analyzing the relationships between design elements and code components. 
+You are an expert software architect analyzing relationships between design elements and code. Your task is to process a batch of design elements and identify which code components implement or realize them, based on a provided list of all code files.
 
-TASK:
-1. You will be given a list of design elements and a list of code files.
-2. Analyze and identify the code components that are related to the design elements by checking the code component names, paths, and content against the design elements names, descriptions, and types.
-3. Make sure your identified relationships are meaningful and logical based on the given context. Usually, code components implement design elements that are in the bottom of the design elements hierarchy. For example, if the traceability map shows this: DE1 -> DE2 -> DE3, then a code component usually implement DE3. But, it does not mean that code components that implement DE2 or DE1 are not valid.
-4. If no meaningful relationships exist, return an empty array.
+**Instructions:**
+1.  You will receive a list of `source_design_elements`.
+2.  For **each** source element in the list, analyze its relationship with **all** `code_files`.
+3.  Identify which code components (classes, functions) are direct implementations or realizations of each design element.
+4.  For each relationship found, create a link object containing:
+    *   `target_id`: The **ID of the code component** (e.g., `CC-001`), not its path.
+    *   `relationship_type`: Use `implements` for direct implementations, or `realizes` for general connections. Default to `realizes`.
+5.  Structure your output as a single JSON object with one key: `links_by_source`.
+6.  The value of `links_by_source` should be another dictionary where:
+    *   Each **key** is the `reference_id` of a `source_design_element`.
+    *   Each **value** is a list of the link objects you found for that source element.
+7.  If a source element has no links, its `reference_id` should still be a key with an empty list `[]` as its value.
 
 For Design Element to Code Component (D→C) relationships, use ONLY these relationship types:
 - implements: Code component implements the design element (reverse of C→D implements)
@@ -185,25 +211,36 @@ Selection Guidelines:
 - Use "realizes" for general manifestation where code embodies the design concept
 - Only identify relationships that make logical sense based on the element and code component information. If you are not sure about the relationship type, use "realizes" as the default relationship type.
 
-For each relationship found, provide:
-- source_id: ID of the design element. Use the reference_id of the design element.
-- target_id: ID of the code component. Use the id of the code component.
-- relationship_type: MUST be one of: "implements", "realizes"
 
 The response will be automatically structured."""
 
-def design_code_links_human_prompt(source_element: Dict[str, Any], code_components: List[Dict[str, Any]]) -> str:
-    """Human prompt for design-to-code link analysis"""
+def design_code_links_human_prompt(source_elements: List[Dict[str, Any]], all_code_components: List[Dict[str, Any]]) -> str:
+    """Human prompt for batch design-to-code link analysis."""
+    source_str = json.dumps(source_elements, indent=2)
+    
+    code_context = [
+        {"id": c.get("id"), "path": c.get("path"), "content": c.get("content")}
+        for c in all_code_components
+    ]
+    code_str = json.dumps(code_context, indent=2)
+
     return f"""
-Analyze the following design element and code components to identify meaningful relationships between them:
+Please analyze the batch of design elements and the following code files to create traceability links.
 
-Design Element:
-{json.dumps(source_element, indent=2)}
+---
+**Source Design Elements (To trace FROM):**
+```json
+{source_str}
+```
+---
+**All Code Files (To trace TO):**
+```json
+{code_str}
+```
+---
 
-Code Components:
-{json.dumps(code_components, indent=2)}
-
-Identify relationships between the design element and code components and return them as a JSON array."""
+Generate a single JSON object containing the `links_by_source` dictionary.
+"""
 
 __all__ = [
     "raw_unified_change_identification_system_prompt", 

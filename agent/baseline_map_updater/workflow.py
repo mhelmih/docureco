@@ -39,6 +39,7 @@ from .prompts import (
 from .models import (
     UnifiedChangesOutput,
     RawUnifiedChangeDetectionOutput,
+    BatchLinkFindingOutput,
     LinkFindingOutput,
     AddedElement,
     ModifiedElement,
@@ -220,90 +221,93 @@ class BaselineMapUpdaterWorkflow:
         if deleted_count > 0:
             logger.info(f"Deleted {deleted_count} associated links.")
 
-    async def _run_link_creation_in_batches(self, candidates: List[Dict], targets: List[Dict], link_creation_coro: Coroutine, batch_size: int = 5):
-        """Generic function to run link creation tasks in parallel batches."""
+    async def _run_link_creation_in_parallel_batches(self, candidates: List[Dict], targets: List[Dict], batch_link_creation_func: Coroutine, batch_size: int = 5):
+        """
+        Runs a batch link creation function over smaller batches of candidates in parallel.
+        """
         all_new_links = []
-        for batch in batched(candidates, batch_size):
-            tasks = [link_creation_coro(c, targets) for c in batch]
-            batch_results = await asyncio.gather(*tasks)
-            for result_list in batch_results:
+        if not candidates:
+            return all_new_links
+
+        # Create chunks of candidates to be processed in parallel
+        candidate_chunks = list(batched(candidates, batch_size))
+        
+        tasks = [batch_link_creation_func(list(chunk), targets) for chunk in candidate_chunks]
+        
+        # Gather results from all parallel tasks
+        batch_results = await asyncio.gather(*tasks)
+        
+        for result_list in batch_results:
+            if result_list:
                 all_new_links.extend(result_list)
+            
         return all_new_links
 
-    async def _llm_find_document_links(self, source_element: Dict, all_targets: List[Dict]) -> List[TraceabilityLinkModel]:
+    async def _llm_find_document_links_batch(self, sources: List[Dict], all_targets: List[Dict]) -> List[TraceabilityLinkModel]:
+        if not sources:
+            return []
         try:
-            # Ensure the source element has a reference_id
-            source_ref_id = source_element.get('reference_id')
-            if not source_ref_id:
-                logger.warning(f"Skipping document link creation for an element without a reference_id: {source_element.get('name', 'Unknown')}")
-                return []
-
-            parser = JsonOutputParser(pydantic_object=LinkFindingOutput)
+            parser = JsonOutputParser(pydantic_object=BatchLinkFindingOutput)
             system_prompt = document_link_creation_system_prompt()
-            human_prompt = document_link_creation_human_prompt(source_element, all_targets)
-            
-            # The generate_response method already returns a parsed dictionary when output_format="json"
+            human_prompt = document_link_creation_human_prompt(sources, all_targets)
+
             response = await self.llm_client.generate_response(
-                prompt=human_prompt, 
-                system_message=system_prompt + "\n" + parser.get_format_instructions(), 
-                output_format="json", 
+                prompt=human_prompt,
+                system_message=system_prompt + "\n" + parser.get_format_instructions(),
+                output_format="json",
                 temperature=0.0
             )
             
-            # The content is already a dict, so we can directly initialize the Pydantic model
-            link_finding_output = LinkFindingOutput(**response.content)
-
-            source_type = "Requirement" if source_element.get('id', '').startswith("REQ-") else "DesignElement"
-
-            return [
-                TraceabilityLinkModel(
-                    id=f"TEMP-L", 
-                    source_type=source_type, 
-                    source_id=source_ref_id, 
-                    target_id=link.target_id, 
-                    relationship_type="traces_to"  # Assuming a default, adjust if relationship is dynamic
-                ) 
-                for link in link_finding_output.links
-            ]
+            batch_output = BatchLinkFindingOutput(**response.content)
+            new_links = []
+            for source_ref_id, found_links in batch_output.links_by_source.items():
+                source_element = next((s for s in sources if s.get('reference_id') == source_ref_id), None)
+                if not source_element:
+                    continue
+                
+                source_type = "Requirement" if source_element.get('id', '').startswith("REQ-") else "DesignElement"
+                for link in found_links:
+                    new_links.append(TraceabilityLinkModel(
+                        id="TEMP-L",
+                        source_type=source_type,
+                        source_id=source_ref_id,
+                        target_id=link.target_id,
+                        relationship_type=link.relationship_type
+                    ))
+            return new_links
         except Exception as e:
-            logger.error(f"Error finding document links for element {source_element.get('reference_id')}: {e}")
+            logger.error(f"Error finding document links in batch: {e}")
             return []
 
-    async def _llm_find_d2c_links(self, source_element: Dict, all_code_targets: List[Dict]) -> List[TraceabilityLinkModel]:
+    async def _llm_find_d2c_links_batch(self, sources: List[Dict], all_code_targets: List[Dict]) -> List[TraceabilityLinkModel]:
+        if not sources:
+            return []
         try:
-            # Ensure the source element has a reference_id
-            source_ref_id = source_element.get('reference_id')
-            if not source_ref_id:
-                logger.warning(f"Skipping D2C link creation for an element without a reference_id: {source_element.get('name', 'Unknown')}")
-                return []
-
-            parser = JsonOutputParser(pydantic_object=LinkFindingOutput)
+            parser = JsonOutputParser(pydantic_object=BatchLinkFindingOutput)
             system_prompt = design_code_links_system_prompt()
-            human_prompt = design_code_links_human_prompt(source_element, all_code_targets)
+            human_prompt = design_code_links_human_prompt(sources, all_code_targets)
 
-            # The generate_response method already returns a parsed dictionary
             response = await self.llm_client.generate_response(
-                prompt=human_prompt, 
-                system_message=system_prompt + "\n" + parser.get_format_instructions(), 
-                output_format="json", 
+                prompt=human_prompt,
+                system_message=system_prompt + "\n" + parser.get_format_instructions(),
+                output_format="json",
                 temperature=0.0
             )
 
-            # Directly use the dictionary from the response
-            link_finding_output = LinkFindingOutput(**response.content)
-
-            return [
-                TraceabilityLinkModel(
-                    id=f"TEMP-L", 
-                    source_type="DesignElement", 
-                    source_id=source_ref_id, 
-                    target_id=link.target_id, 
-                    relationship_type="implements" # Assuming a default relationship
-                ) 
-                for link in link_finding_output.links
-            ]
+            batch_output = BatchLinkFindingOutput(**response.content)
+            new_links = []
+            for source_ref_id, found_links in batch_output.links_by_source.items():
+                for link in found_links:
+                    new_links.append(TraceabilityLinkModel(
+                        id="TEMP-L",
+                        source_type="DesignElement",
+                        source_id=source_ref_id,
+                        target_id=link.target_id,
+                        relationship_type=link.relationship_type
+                    ))
+            return new_links
         except Exception as e:
-            logger.error(f"Error finding D2C links for element {source_element.get('reference_id')}: {e}")
+            logger.error(f"Error finding D2C links in batch: {e}")
             return []
 
     async def _update_traceability_mappings(self, state: BaselineMapUpdaterState) -> BaselineMapUpdaterState:
@@ -319,10 +323,6 @@ class BaselineMapUpdaterWorkflow:
         code_paths_to_clear = {path for path, change in changed_code.items() if change['status'] in ['modified', 'deleted']}
         self._delete_all_associated_links(baseline_map, doc_ref_ids_to_clear, code_paths_to_clear)
 
-        # Identify candidates for link creation
-        req_candidates = []
-        design_candidates = []
-
         def get_element_by_ref_id(file_path: str, ref_id: str):
             """Finds an element by its reference_id and file_path encoded in the main ID."""
             for el in baseline_map.requirements + baseline_map.design_elements:
@@ -335,12 +335,15 @@ class BaselineMapUpdaterWorkflow:
                             return el
             return None
 
-
+        # Prepare candidates for R2D/D2D link creation
+        req_candidates = []
+        design_candidates = []
         for file_path, changes in changes_by_file.items():
             for el in changes.added:
                 # For new items, details already contain all necessary fields for a new model instance
                 candidate = el.details.copy()
-                candidate['file_path'] = file_path # Ensure file_path is present
+                candidate['file_path'] = file_path
+                
                 if el.element_type == "Requirement":
                     req_candidates.append(candidate)
                 else:
@@ -363,6 +366,7 @@ class BaselineMapUpdaterWorkflow:
                     else:
                         design_candidates.append(candidate)
 
+        # Prepare targets for R2D/D2D link creation
         all_doc_targets = [el.dict() for el in baseline_map.requirements + baseline_map.design_elements]
         # Add file_path to existing elements for linking context if not present
         for target in all_doc_targets:
@@ -386,13 +390,21 @@ class BaselineMapUpdaterWorkflow:
             if change['status'] == 'added':
                 all_code_targets.append({"id": f"TEMP-{path}", "path": path, "name": os.path.basename(path), "content": change.get('new_content', '')})
 
-        # Create links for document elements
-        logger.info(f"Creating R2D links for {len(req_candidates)} and D2D links for {len(design_candidates)} candidates...")
+        # Run Link Creation in Batches
+        logger.info(f"Creating R2D/D2D links for {len(req_candidates) + len(design_candidates)} candidates in parallel batches...")
         doc_candidates = req_candidates + design_candidates
-        new_doc_links = await self._run_link_creation_in_batches(doc_candidates, all_doc_targets, self._llm_find_document_links)
+        new_doc_links = await self._run_link_creation_in_parallel_batches(
+            doc_candidates, 
+            all_doc_targets, 
+            self._llm_find_document_links_batch
+        )
         
-        logger.info(f"Creating D2C links for {len(design_candidates)} candidates...")
-        new_d2c_links = await self._run_link_creation_in_batches(design_candidates, all_code_targets, self._llm_find_d2c_links)
+        logger.info(f"Creating D2C links for {len(design_candidates)} candidates in parallel batches...")
+        new_d2c_links = await self._run_link_creation_in_parallel_batches(
+            design_candidates, 
+            all_code_targets, 
+            self._llm_find_d2c_links_batch
+        )
         
         state['newly_created_links'] = new_doc_links + new_d2c_links
         logger.info(f"Generated {len(state['newly_created_links'])} new traceability links in total.")
@@ -464,12 +476,22 @@ class BaselineMapUpdaterWorkflow:
             
             for link in new_links:
                 max_link_id += 1; link.id = f"L-{max_link_id:04d}"
-                target_el = all_elements_map.get(link.target_id) or all_code_map.get(link.target_id)
+                
+                # The target_id for doc links is a reference_id, for code links it's a direct ID
+                is_doc_link = not link.target_id.startswith("CC-")
+
+                if is_doc_link:
+                    target_el = all_elements_map.get(link.target_id) # Find by reference_id
+                else: # It's a D2C link
+                    target_el = all_code_map.get(link.target_id) # Find by direct ID 'CC-xxx'
+                
                 if target_el:
                     if isinstance(target_el, RequirementModel): link.target_type = "Requirement"
                     elif isinstance(target_el, DesignElementModel): link.target_type = "DesignElement"
-                    else: link.target_type = "CodeComponent"
-                else: link.target_type = "Unresolved"
+                    elif isinstance(target_el, CodeComponentModel): link.target_type = "CodeComponent"
+                    else: link.target_type = "Unresolved" # Should not happen if logic is correct
+                else: 
+                    link.target_type = "Unresolved"
             
             baseline_map.traceability_links.extend(new_links)
 

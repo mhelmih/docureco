@@ -44,10 +44,17 @@ class RawUnifiedChangeDetectionOutput(BaseModel):
 class FoundLink(BaseModel):
     """Represents a single traceability link found by the LLM."""
     target_id: str = Field(description="The unique ID of the element that the source element traces to (e.g., 'REQ-doc/srs.md-001', 'DE-doc/sdd.md-005').")
+    relationship_type: str = Field(description="The type of relationship, like 'realizes' or 'implements'.")
 
 class LinkFindingOutput(BaseModel):
     """Structured output for the link finding process for a single source element."""
     links: List[FoundLink] = Field(description="A list of traceability links found for the source element.")
+
+class BatchLinkFindingOutput(BaseModel):
+    """Structured output for finding links for multiple source elements at once."""
+    links_by_source: Dict[str, List[FoundLink]] = Field(
+        description="A dictionary where keys are the `reference_id` of the source elements, and values are the lists of links found for each source."
+    )
 
 
 __all__ = [
@@ -59,5 +66,6 @@ __all__ = [
     "DetectedUnifiedChange",
     "RawUnifiedChangeDetectionOutput",
     "FoundLink",
-    "LinkFindingOutput"
+    "LinkFindingOutput",
+    "BatchLinkFindingOutput"
 ] 
