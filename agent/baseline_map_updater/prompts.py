@@ -29,6 +29,7 @@ You are an expert software engineering analyst. Your task is to meticulously com
 **Level of Abstraction Rule (VERY IMPORTANT):**
 - If you see changes to **attributes or methods** within a class, do **NOT** list each attribute or method change individually.
 - Instead, you **MUST** aggregate these changes into a single **'modification'** event for the parent **Class**.
+- The `description` for this modification should reflect the latest version of the element.
 - Similarly, if multiple fields in a database table change, report it as a single modification to the **Table**.
 - Only report changes at the level of **Class, Component, Diagram, Service, or Database Table**. Do not report individual methods, attributes, or database fields.
 
