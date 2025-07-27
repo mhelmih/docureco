@@ -222,7 +222,7 @@ class BaselineMapUpdaterWorkflow:
 
                 cmd = [
                     "repomix",
-                    "--repo", repo_path, # Scan the local path
+                    repo_path, # Pass the local path as a positional argument
                     "--output", output_file,
                     "--style", "xml",
                     "--ignore", "node_modules,__pycache__,.git,.venv,venv,env,target,build,dist,.next,coverage,.github,.vscode,.env,*.json,*.md,*.txt"
