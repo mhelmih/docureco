@@ -15,7 +15,7 @@ class ModifiedElement(BaseModel):
     """Represents any element that has been modified."""
     reference_id: str = Field(description="The unique identifier of the element that was modified.")
     element_type: str = Field(description="The type of the element: 'Requirement' or 'DesignElement'.")
-    changes: Dict[str, Any] = Field(description="A dictionary detailing the changes.")
+    changes: Dict[str, Union[Any, Dict[str, Any]]] = Field(description="A dictionary detailing the changes, which can include 'from'/'to' structures.")
 
 class DeletedElement(BaseModel):
     """Represents any element that has been deleted."""
@@ -43,7 +43,8 @@ class RawUnifiedChangeDetectionOutput(BaseModel):
 
 class FoundLink(BaseModel):
     """Represents a single traceability link found by the LLM."""
-    target_id: str = Field(description="The unique ID of the element that the source element traces to (e.g., 'REQ-doc/srs.md-001', 'DE-doc/sdd.md-005').")
+    target_id: str = Field(description="The `reference_id` of the element that the source element traces to.")
+    target_type: str = Field(description="The type of the target element, e.g., 'Requirement' or 'DesignElement'.")
     relationship_type: str = Field(description="The type of relationship, like 'realizes' or 'implements'.")
 
 class LinkFindingOutput(BaseModel):

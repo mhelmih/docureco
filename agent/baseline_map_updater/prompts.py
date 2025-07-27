@@ -34,14 +34,14 @@ You are an expert software engineering analyst. Your task is to meticulously com
 - Only report changes at the level of **Class, Component, Diagram, Service, or Database Table**. Do not report individual methods, attributes, or database fields.
 
 For each design element change identified, provide this inside the `full_element_data` field:
-- name: Clear, descriptive name of the design element
-- description: Brief description of purpose/functionality. For modifications, summarize what changed.
+- name: Clear, descriptive name of the design element with its type (e.g., AddBook Class)
+- description: Brief description of purpose/functionality.
 - type: Category (Use Case, Scenario, Class, Interface, Component, Database Table, UI, Diagram, Service, Query, Algorithm, Process, Procedure, Module, etc.)
 - section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
 
 For each requirement change identified, provide this inside the `full_element_data` field:
 - title: Clear, concise title of the requirement
-- description: Detailed description of what is required. For modifications, summarize what changed.
+- description: Detailed description of what is required.
 - type: Category (Functional, Non-Functional, Business, User, System, etc.)
 - priority: Importance level (High, Medium, Low)
 - section: Section reference from the document. Please choose more specific section name (full with number, name, and/or title. Not just number or title). For example, if the section is "4.1.1 Class: Book", the section should be "4.1.1 Class: Book".
@@ -130,18 +130,23 @@ Generate the final, clean JSON object with `added`, `modified`, and `deleted` li
 def document_link_creation_system_prompt() -> str:
     """System prompt for creating traceability links between document elements (R2D, D2D)."""
     return """
-You are a Software Engineering expert specializing in requirements and design traceability. Your task is to identify direct relationships between a given source element and a list of potential target elements from documentation.
+You are a Software Engineering expert specializing in requirements and design traceability. Your task is to process a batch of source elements and identify direct relationships between them and a list of potential target elements from documentation.
 
 **Instructions:**
 1.  You will receive a list of `source_elements` (can be Requirements or Design Elements).
 2.  For **each** source element, review the `potential_target_elements` list to find direct traces.
-3.  Assign the correct `relationship_type` based on the source and target types:
+3.  For each identified link, you MUST provide:
+    *   `target_id`: The `reference_id` of the target element.
+    *   `target_type`: The type of the target element ('Requirement' or 'DesignElement').
+    *   `relationship_type`: The nature of the link (`realizes`, `satisfies`, `refines`, `depends_on`).
+4.  Assign the correct `relationship_type` based on the source and target types:
     *   **Requirement → Design Element (R→D)**: Use `satisfies` or `realizes`.
     *   **Design Element → Design Element (D→D)**: Use `refines`, `depends_on`, or `realizes`.
+    *   There is no need to create R→R and D→R relationships.
 4.  Structure your output as a single JSON object with one key: `links_by_source`.
 5.  The value of `links_by_source` should be another dictionary where:
     *   Each **key** is the `reference_id` of a `source_element`.
-    *   Each **value** is a list of link objects (`target_id`, `relationship_type`) found for that source. `target_id` must be the `reference_id` of the target element.
+    *   Each **value** is a list of link objects (`target_id`, `relationship_type`, `target_type`) found for that source. `target_id` must be the `reference_id` of the target element.
 6.  If a source element has no links, its `reference_id` should still be a key with an empty list `[]` as its value.
 
 For Requirement to Design Element (R→D) relationships, use ONLY these relationship types:
@@ -161,7 +166,6 @@ Selection Guidelines:
 - Only identify relationships that make logical sense based on the element information and traceability matrix context. If you are not sure about the relationship type, use "realizes" as the default relationship type.
 
 Provide **only** the JSON object."""
-
 
 def document_link_creation_human_prompt(source_elements: List[Dict[str, Any]], potential_targets: List[Dict[str, Any]]) -> str:
     """Human-facing prompt for batch link creation between document elements."""

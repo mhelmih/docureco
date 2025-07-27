@@ -265,13 +265,15 @@ class BaselineMapUpdaterWorkflow:
                 if not source_element:
                     continue
                 
-                source_type = "Requirement" if source_element.get('id', '').startswith("REQ-") else "DesignElement"
+                source_type = source_element.get("element_type", "DesignElement") # Default for safety
+
                 for link in found_links:
                     new_links.append(TraceabilityLinkModel(
                         id="TEMP-L",
                         source_type=source_type,
                         source_id=source_ref_id,
                         target_id=link.target_id,
+                        target_type=link.target_type,
                         relationship_type=link.relationship_type
                     ))
             return new_links
@@ -303,6 +305,7 @@ class BaselineMapUpdaterWorkflow:
                         source_type="DesignElement",
                         source_id=source_ref_id,
                         target_id=link.target_id,
+                        target_type="CodeComponent", # D2C links are always to CodeComponent
                         relationship_type=link.relationship_type
                     ))
             return new_links
@@ -343,6 +346,7 @@ class BaselineMapUpdaterWorkflow:
                 # For new items, details already contain all necessary fields for a new model instance
                 candidate = el.details.copy()
                 candidate['file_path'] = file_path
+                candidate['element_type'] = el.element_type # Ensure type is carried over
                 
                 if el.element_type == "Requirement":
                     req_candidates.append(candidate)
@@ -360,6 +364,7 @@ class BaselineMapUpdaterWorkflow:
                     
                     # The file_path is implicitly confirmed by get_element_by_ref_id
                     candidate['file_path'] = file_path
+                    candidate['element_type'] = el.element_type # Ensure type is carried over
                     
                     if el.element_type == "Requirement":
                         req_candidates.append(candidate)
@@ -447,8 +452,12 @@ class BaselineMapUpdaterWorkflow:
         baseline_map.design_elements = [d for d in baseline_map.design_elements if d.id not in deleted_doc_ids]
 
         for file_path, changes in changes_by_file.items():
-            max_req = max([int(r.id.split('-')[-1]) for r in baseline_map.requirements if r.file_path == file_path] or [0])
-            max_de = max([int(d.id.split('-')[-1]) for d in baseline_map.design_elements if d.file_path == file_path] or [0])
+            # Correctly extract max IDs using regex on the element ID
+            req_ids_in_file = [int(re.search(r'-(\d+)$', r.id).group(1)) for r in baseline_map.requirements if re.match(fr'REQ-{re.escape(file_path)}-\d+$', r.id)]
+            de_ids_in_file = [int(re.search(r'-(\d+)$', d.id).group(1)) for d in baseline_map.design_elements if re.match(fr'DE-{re.escape(file_path)}-\d+$', d.id)]
+            max_req = max(req_ids_in_file or [0])
+            max_de = max(de_ids_in_file or [0])
+
             for el in changes.added:
                 details, el_type = el.details, el.element_type
                 details['file_path'] = file_path
