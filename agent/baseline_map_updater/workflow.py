@@ -176,18 +176,27 @@ class BaselineMapUpdaterWorkflow:
         try:
             repo_data = await self._scan_repository_with_repomix(state["repository"], state["commit_sha"])
             
-            # The structure from repomix is a list of file dicts. We need to convert it
-            # into a list of CodeComponentModel-like dicts for the linking step.
+            # Create a lookup map of existing code components by their path for quick access.
+            existing_components_by_path = {c.path: c for c in state["baseline_map"].code_components}
+            
             code_components = []
             max_cc_id = max([int(c.id.split('-')[-1]) for c in state["baseline_map"].code_components if c.id.startswith("CC-")] or [0])
 
             for file_info in repo_data.get("files", []):
-                max_cc_id += 1
+                file_path = file_info["path"]
+                
+                # If a component with this path already exists, reuse its ID. Otherwise, create a new one.
+                if file_path in existing_components_by_path:
+                    component_id = existing_components_by_path[file_path].id
+                else:
+                    max_cc_id += 1
+                    component_id = f"CC-{max_cc_id:03d}"
+
                 code_components.append({
-                    "id": f"CC-{max_cc_id:03d}",
-                    "path": file_info["path"],
-                    "name": os.path.basename(file_info["path"]),
-                    "type": os.path.splitext(file_info["path"])[1],
+                    "id": component_id,
+                    "path": file_path,
+                    "name": os.path.basename(file_path),
+                    "type": os.path.splitext(file_path)[1],
                     "content": file_info["content"]
                 })
 
@@ -445,16 +454,14 @@ class BaselineMapUpdaterWorkflow:
                             return el
             return None
 
-        # Prepare candidates for R2D/D2D link creation
+        # Identify all new and modified elements (candidates for new links)
         req_candidates = []
         design_candidates = []
         for file_path, changes in changes_by_file.items():
             for el in changes.added:
-                # For new items, details already contain all necessary fields for a new model instance
                 candidate = el.details.copy()
                 candidate['file_path'] = file_path
-                candidate['element_type'] = el.element_type # Ensure type is carried over
-                
+                candidate['element_type'] = el.element_type
                 if el.element_type == "Requirement":
                     req_candidates.append(candidate)
                 else:
@@ -464,21 +471,18 @@ class BaselineMapUpdaterWorkflow:
                 # Find the original element to get its full context
                 original_element = get_element_by_ref_id(file_path, el.reference_id)
                 if original_element:
-                    # Create a complete, updated version of the element for context
                     candidate = original_element.dict()
                     candidate.update(el.changes)
                     if 'id' not in candidate: candidate['id'] = original_element.id
-                    
-                    # The file_path is implicitly confirmed by get_element_by_ref_id
                     candidate['file_path'] = file_path
-                    candidate['element_type'] = el.element_type # Ensure type is carried over
-                    
+                    candidate['element_type'] = el.element_type
                     if el.element_type == "Requirement":
                         req_candidates.append(candidate)
                     else:
                         design_candidates.append(candidate)
 
-        # Prepare targets for R2D/D2D link creation
+        # Prepare the complete context for the LLM
+        # Start with all existing document elements
         all_doc_targets = [el.dict() for el in baseline_map.requirements + baseline_map.design_elements]
         # Add file_path to existing elements for linking context if not present
         for target in all_doc_targets:
@@ -492,12 +496,12 @@ class BaselineMapUpdaterWorkflow:
         all_doc_targets.extend(req_candidates)
         all_doc_targets.extend(design_candidates)
         
-        # Prepare code targets. The full scan from repomix is the single source of truth.
+        # Prepare the full code context
         all_code_targets = state.get("full_code_scan", [])
 
         # Run Link Creation in Batches
-        logger.info(f"Creating R2D/D2C links for {len(req_candidates) + len(design_candidates)} candidates in parallel batches...")
         doc_candidates = req_candidates + design_candidates
+        logger.info(f"Creating R2D/D2D links for {len(doc_candidates)} candidates in parallel batches...")
         new_doc_links = await self._run_link_creation_in_parallel_batches(
             doc_candidates, 
             all_doc_targets, 
@@ -505,10 +509,7 @@ class BaselineMapUpdaterWorkflow:
             batch_size=10
         )
         
-        # Now, create D2C links using the newly created doc links as context
         logger.info(f"Creating D2C links for {len(design_candidates)} candidates with document link context...")
-        
-        # Prepare the context: a simplified list of D2D link dicts
         d2d_links_context = [
             {"source": link.source_id, "target": link.target_id, "type": link.relationship_type}
             for link in new_doc_links if link.source_type == "DesignElement" and link.target_type == "DesignElement"
@@ -549,9 +550,11 @@ class BaselineMapUpdaterWorkflow:
             return None
 
         for file_path, changes in changes_by_file.items():
+            # get all deleted element ids
             for el in changes.deleted:
                 element = get_element_by_ref_id(file_path, el.reference_id)
                 if element: deleted_doc_ids.add(element.id)
+            # process modified elements
             for el in changes.modified:
                 element = get_element_by_ref_id(file_path, el.reference_id)
                 if element:
@@ -563,16 +566,18 @@ class BaselineMapUpdaterWorkflow:
                                 final_value = value['to']
                             setattr(element, field, final_value)
         
+        # exclude deleted elements from the baseline map
         baseline_map.requirements = [r for r in baseline_map.requirements if r.id not in deleted_doc_ids]
         baseline_map.design_elements = [d for d in baseline_map.design_elements if d.id not in deleted_doc_ids]
 
         for file_path, changes in changes_by_file.items():
-            # Correctly extract max IDs using regex on the element ID
+            # extract max IDs using regex on the element ID
             req_ids_in_file = [int(re.search(r'-(\d+)$', r.id).group(1)) for r in baseline_map.requirements if re.match(fr'REQ-{re.escape(file_path)}-\d+$', r.id)]
             de_ids_in_file = [int(re.search(r'-(\d+)$', d.id).group(1)) for d in baseline_map.design_elements if re.match(fr'DE-{re.escape(file_path)}-\d+$', d.id)]
             max_req = max(req_ids_in_file or [0])
             max_de = max(de_ids_in_file or [0])
 
+            # process added elements
             for el in changes.added:
                 details, el_type = el.details, el.element_type
                 details['file_path'] = file_path
@@ -583,66 +588,49 @@ class BaselineMapUpdaterWorkflow:
                     max_de += 1; details['id'] = f"DE-{file_path}-{max_de:03d}"
                     baseline_map.design_elements.append(DesignElementModel(**details))
 
-        # Update code component inventory based on the full scan and deleted files
-        scanned_paths = {c["path"] for c in state.get("full_code_scan", [])}
-        existing_paths = {c.path for c in baseline_map.code_components}
-        
-        # Delete components that are no longer in the scan
-        paths_to_delete = existing_paths - scanned_paths
-        baseline_map.code_components = [c for c in baseline_map.code_components if c.path not in paths_to_delete]
-        
-        # Add new components that are in the scan but not in the baseline
-        paths_to_add = scanned_paths - existing_paths
-        max_cc_id = max([int(c.id.split('-')[-1]) for c in baseline_map.code_components if c.id.startswith("CC-")] or [0])
-        
-        scanned_code_map = {c["path"]: c for c in state.get("full_code_scan", [])}
-        for path in paths_to_add:
-            max_cc_id += 1
-            new_comp_data = scanned_code_map[path]
-            baseline_map.code_components.append(CodeComponentModel(
-                id=f"CC-{max_cc_id:03d}",
-                path=path,
-                name=new_comp_data.get("name", os.path.basename(path)),
-                type=new_comp_data.get("type", os.path.splitext(path)[1])
-            ))
+        # process all code components
+        final_code_components = []
+        if state.get("full_code_scan"):
+            for comp_data in state["full_code_scan"]:
+                final_code_components.append(CodeComponentModel(
+                    id=comp_data["id"],
+                    path=comp_data["path"],
+                    name=comp_data.get("name", os.path.basename(comp_data["path"])),
+                    type=comp_data.get("type", os.path.splitext(comp_data["path"])[1])
+                ))
+        baseline_map.code_components = final_code_components
 
-        # Add the newly created links
+        # add the newly created links
         new_links: List[TraceabilityLinkModel] = state.get('newly_created_links', [])
         if new_links:
-            max_link_id = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("L-")] or [0])
-            all_elements_map = {el.reference_id: el for el in baseline_map.requirements + baseline_map.design_elements}
-            all_code_map = {c.id: c for c in baseline_map.code_components}
-            
-            for link in new_links:
-                max_link_id += 1; link.id = f"L-{max_link_id:04d}"
-                
-                # The target_id for doc links is a reference_id, for code links it's a direct ID
-                is_doc_link = not link.target_id.startswith("CC-")
+            # get the max existing ID for each link type to ensure continuity
+            max_rd = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("RD-")] or [0])
+            max_dd = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("DD-")] or [0])
+            max_dc = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("DC-")] or [0])
 
-                if is_doc_link:
-                    target_el = all_elements_map.get(link.target_id) # Find by reference_id
-                else: # It's a D2C link
-                    target_el = all_code_map.get(link.target_id) # Find by direct ID 'CC-xxx'
-                
-                if target_el:
-                    if isinstance(target_el, RequirementModel): link.target_type = "Requirement"
-                    elif isinstance(target_el, DesignElementModel): link.target_type = "DesignElement"
-                    elif isinstance(target_el, CodeComponentModel): link.target_type = "CodeComponent"
-                    else: link.target_type = "Unresolved" # Should not happen if logic is correct
-                else: 
-                    link.target_type = "Unresolved"
+            for link in new_links:
+                # assign a new, descriptive ID based on the link type
+                if link.source_type == "Requirement" and link.target_type == "DesignElement":
+                    max_rd += 1
+                    link.id = f"RD-{max_rd:03d}"
+                elif link.source_type == "DesignElement" and link.target_type == "DesignElement":
+                    max_dd += 1
+                    link.id = f"DD-{max_dd:03d}"
+                elif link.source_type == "DesignElement" and link.target_type == "CodeComponent":
+                    max_dc += 1
+                    link.id = f"DC-{max_dc:03d}"
+                else:
+                    # Fallback for any other unexpected link types
+                    max_link_id = max(max_rd, max_dd, max_dc) + 1
+                    link.id = f"L-{max_link_id:03d}"
             
             baseline_map.traceability_links.extend(new_links)
 
-        logger.info(f"REQUIREMENTS: {baseline_map.requirements}")
-        logger.info(f"DESIGN ELEMENTS: {baseline_map.design_elements}")
-        logger.info(f"CODE COMPONENTS: {baseline_map.code_components}")
-        logger.info(f"TRACEABILITY LINKS: {baseline_map.traceability_links}")
-        # # Save Final Map
-        # if await self.baseline_map_repo.save_baseline_map(baseline_map):
-        #     state["current_step"] = "completed"
-        # else:
-        #     state["error"] = "Failed to save the updated baseline map."
+        # save the final map
+        if await self.baseline_map_repo.save_baseline_map(baseline_map):
+            state["current_step"] = "completed"
+        else:
+            state["error"] = "Failed to save the updated baseline map."
         return state
 
 def create_baseline_map_updater(llm_client: Optional[DocurecoLLMClient] = None,
