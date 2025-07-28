@@ -489,6 +489,22 @@ class BaselineMapUpdaterWorkflow:
                     else:
                         design_candidates.append(candidate)
 
+        def clean_for_llm(elements: List[Dict]) -> List[Dict]:
+            """Prepares element list for the LLM, ensuring only reference_id is used for identification."""
+            cleaned_elements = []
+            for el in elements:
+                # Create a copy to avoid modifying the original state objects
+                clean_el = el.copy()
+                # The 'id' field should be the reference_id for the LLM context
+                clean_el['id'] = el.get('reference_id', el.get('id'))
+                # Remove the long, unique ID if it exists, to avoid confusion
+                if 'id' in el and el['id'] != el.get('reference_id'):
+                    # We keep the original 'id' key but populate it with reference_id
+                    # and remove the specific reference_id key if it exists to prevent redundancy
+                    clean_el.pop('reference_id', None) 
+                cleaned_elements.append(clean_el)
+            return cleaned_elements
+
         # Prepare the complete context for the LLM
         # Start with all existing document elements
         all_doc_targets = [el.dict() for el in baseline_map.requirements + baseline_map.design_elements]
@@ -507,24 +523,28 @@ class BaselineMapUpdaterWorkflow:
         # Prepare the full code context
         all_code_targets = state.get("full_code_scan", [])
 
+        # Clean candidates and targets for the LLM to prevent ID confusion
+        doc_candidates_for_llm = clean_for_llm(req_candidates + design_candidates)
+        all_doc_targets_for_llm = clean_for_llm(all_doc_targets)
+        design_candidates_for_llm = clean_for_llm(design_candidates)
+
         # Run Link Creation in Batches
-        doc_candidates = req_candidates + design_candidates
-        logger.info(f"Creating R2D/D2D links for {len(doc_candidates)} candidates in parallel batches...")
+        logger.info(f"Creating R2D/D2D links for {len(doc_candidates_for_llm)} candidates in parallel batches...")
         new_doc_links = await self._run_link_creation_in_parallel_batches(
-            doc_candidates, 
-            all_doc_targets, 
+            doc_candidates_for_llm, 
+            all_doc_targets_for_llm, 
             self._llm_find_document_links_batch,
             batch_size=10
         )
         
-        logger.info(f"Creating D2C links for {len(design_candidates)} candidates with document link context...")
+        logger.info(f"Creating D2C links for {len(design_candidates_for_llm)} candidates with document link context...")
         d2d_links_context = [
             {"source": link.source_id, "target": link.target_id, "type": link.relationship_type}
             for link in new_doc_links if link.source_type == "DesignElement" and link.target_type == "DesignElement"
         ]
 
         new_d2c_links = await self._run_link_creation_in_parallel_batches(
-            design_candidates, 
+            design_candidates_for_llm, 
             all_code_targets, 
             lambda sources, targets: self._llm_find_d2c_links_batch(sources, targets, d2d_links_context),
             batch_size=10

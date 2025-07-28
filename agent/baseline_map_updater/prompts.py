@@ -146,8 +146,9 @@ You are a Software Engineering expert specializing in requirements and design tr
 4.  Structure your output as a single JSON object with one key: `links_by_source`.
 5.  The value of `links_by_source` should be another dictionary where:
     *   Each **key** is the `reference_id` of a `source_element`.
-    *   Each **value** is a list of link objects (`target_id`, `relationship_type`, `target_type`) found for that source. `target_id` must be the `reference_id` of the target element.
-6.  If a source element has no links, its `reference_id` should still be a key with an empty list `[]` as its value.
+    *   Each **value** is a list of link objects (`target_id`, `relationship_type`, `target_type`) found for that source.
+6.  **CRITICAL RULE:** For both the source key and the `target_id`, you **MUST** use the short, human-readable `reference_id` (e.g., "F01", "UC02", "Book-Class"). **DO NOT** use the long, system-generated `id` (e.g., "REQ-sample-project/doc/srs.md-001").
+7.  If a source element has no links, its `reference_id` should still be a key with an empty list `[]` as its value.
 
 For Requirement to Design Element (R→D) relationships, use ONLY these relationship types:
 - satisfies: Design element formally satisfies the requirement's needs (most common for D→R, but used as R→D here)
@@ -194,16 +195,18 @@ def design_code_links_system_prompt() -> str:
 You are an expert software architect analyzing relationships between design elements and code. Your task is to process a batch of source design elements and identify which code components implement or realize them, based on a provided list of all code files and existing document traceability links.
 
 **CONTEXT IS KEY:**
-- You will be given a list of `source_design_elements`.
-- You will also be given `document_traceability_context`, which shows existing relationships between design elements themselves (D->D).
-- A code component typically implements the **most specific, lowest-level design element** in a chain. For example, if the context shows a chain `DE1 -> DE2 -> DE3`, a code component `CC1` should be linked to `DE3`, not to `DE1` or `DE2`.  But, it does not mean that code components that implement DE2 or DE1 are not valid.
+- You are given `document_traceability_context` (existing D->D links) to understand the design hierarchy.
+- A code component typically implements the **most specific, lowest-level design element** in a chain.
 
 **Instructions:**
 1.  For **each** source element in `source_design_elements`, analyze its relationship with **all** `code_files`.
 2.  Use the `document_traceability_context` to understand the hierarchy and dependencies between design elements.
-3.  Prioritize linking code to the most detailed design elements. Avoid creating redundant links to high-level parent elements if a link to a more specific child element exists.
-4.  For each valid relationship found, create a link object containing `target_id` (the ID of the code component, e.g., `CC-001`) and `relationship_type` (Use `implements` for direct implementations, or `realizes` for general connections. Default to `realizes`).
-5.  Structure your output as a single JSON object with one key: `links_by_source`, where each key is a source `reference_id` and the value is a list of its links.
+3.  Prioritize linking code to the most detailed design elements.
+4.  For each valid relationship, create a link object containing:
+    *   `target_id`: The ID of the code component (e.g., `CC-001`).
+    *   `relationship_type`: Use `implements` for direct implementations, or `realizes` for general connections. Default to `realizes`.
+5.  Structure your output as a single JSON object with one key: `links_by_source`.
+6.  **CRITICAL RULE:** The keys in the `links_by_source` dictionary **MUST** be the `reference_id` of the source design element (e.g., "Book-Class"), not the long system-generated `id`.
 
 For Design Element to Code Component (D→C) relationships, use ONLY these relationship types:
 - implements: Code component implements the design element (reverse of C→D implements)
