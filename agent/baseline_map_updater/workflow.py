@@ -180,10 +180,15 @@ class BaselineMapUpdaterWorkflow:
             existing_components_by_path = {c.path: c for c in state["baseline_map"].code_components}
             
             code_components = []
+            processed_paths = set()  # Track paths processed in this scan to prevent duplicates
             max_cc_id = max([int(c.id.split('-')[-1]) for c in state["baseline_map"].code_components if c.id.startswith("CC-")] or [0])
 
             for file_info in repo_data.get("files", []):
                 file_path = file_info["path"]
+                
+                # Skip if we have already processed this file path from the repomix output
+                if file_path in processed_paths:
+                    continue
                 
                 # If a component with this path already exists, reuse its ID. Otherwise, create a new one.
                 if file_path in existing_components_by_path:
@@ -199,6 +204,8 @@ class BaselineMapUpdaterWorkflow:
                     "type": os.path.splitext(file_path)[1],
                     "content": file_info["content"]
                 })
+                
+                processed_paths.add(file_path) # Mark this path as processed
 
             state["full_code_scan"] = code_components
             logger.info(f"Full codebase scan complete. Found {len(code_components)} code files.")
