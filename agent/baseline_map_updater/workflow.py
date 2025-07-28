@@ -533,7 +533,7 @@ class BaselineMapUpdaterWorkflow:
         changes_by_file: Dict[str, UnifiedChangesOutput] = state.get("changes_by_file", {})
         changed_code: Dict[str, Dict] = state.get("changed_code", {})
         
-        # --- Step 1: Update Element and Code Component Inventory ---
+        # Update Element and Code Component Inventory
         deleted_doc_ids = set()
 
         def get_element_by_ref_id(file_path: str, ref_id: str):
@@ -587,11 +587,11 @@ class BaselineMapUpdaterWorkflow:
         scanned_paths = {c["path"] for c in state.get("full_code_scan", [])}
         existing_paths = {c.path for c in baseline_map.code_components}
         
-        # 1. Delete components that are no longer in the scan
+        # Delete components that are no longer in the scan
         paths_to_delete = existing_paths - scanned_paths
         baseline_map.code_components = [c for c in baseline_map.code_components if c.path not in paths_to_delete]
         
-        # 2. Add new components that are in the scan but not in the baseline
+        # Add new components that are in the scan but not in the baseline
         paths_to_add = scanned_paths - existing_paths
         max_cc_id = max([int(c.id.split('-')[-1]) for c in baseline_map.code_components if c.id.startswith("CC-")] or [0])
         
@@ -604,10 +604,9 @@ class BaselineMapUpdaterWorkflow:
                 path=path,
                 name=new_comp_data.get("name", os.path.basename(path)),
                 type=new_comp_data.get("type", os.path.splitext(path)[1])
-                # Content is not stored in the baseline map model
             ))
 
-        # --- Step 2: Add the newly created links ---
+        # Add the newly created links
         new_links: List[TraceabilityLinkModel] = state.get('newly_created_links', [])
         if new_links:
             max_link_id = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("L-")] or [0])
@@ -635,8 +634,11 @@ class BaselineMapUpdaterWorkflow:
             
             baseline_map.traceability_links.extend(new_links)
 
-        logger.info("Skipping saving the updated baseline map.")
-        # # --- Step 3: Save Final Map ---
+        logger.info(f"REQUIREMENTS: {baseline_map.requirements}")
+        logger.info(f"DESIGN ELEMENTS: {baseline_map.design_elements}")
+        logger.info(f"CODE COMPONENTS: {baseline_map.code_components}")
+        logger.info(f"TRACEABILITY LINKS: {baseline_map.traceability_links}")
+        # # Save Final Map
         # if await self.baseline_map_repo.save_baseline_map(baseline_map):
         #     state["current_step"] = "completed"
         # else:
