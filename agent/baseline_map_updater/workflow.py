@@ -444,8 +444,9 @@ class BaselineMapUpdaterWorkflow:
         changes_by_file: Dict[str, UnifiedChangesOutput] = state.get("changes_by_file", {})     # documentation changes per file path
         changed_code: Dict[str, Dict] = state.get("changed_code", {})
 
-        # Clear all links associated with deleted or modified elements
-        doc_ref_ids_to_clear = {el.reference_id for changes in changes_by_file.values() for el in changes.deleted + changes.modified}
+        # Clear links ONLY for DELETED elements, not modified ones.
+        # This prevents wiping out all links when a document has significant changes.
+        doc_ref_ids_to_clear = {el.reference_id for changes in changes_by_file.values() for el in changes.deleted}
         code_paths_to_clear = {path for path, change in changed_code.items() if change['status'] in ['modified', 'deleted']}
         self._delete_all_associated_links(baseline_map, doc_ref_ids_to_clear, code_paths_to_clear)
 
@@ -610,12 +611,26 @@ class BaselineMapUpdaterWorkflow:
         # add the newly created links
         new_links: List[TraceabilityLinkModel] = state.get('newly_created_links', [])
         if new_links:
+            # Create a set of existing link pairs for quick lookup
+            existing_link_pairs = {
+                (link.source_id, link.target_id) 
+                for link in baseline_map.traceability_links
+            }
+            
+            unique_new_links = []
+            for link in new_links:
+                # Check if this new link is a duplicate of an existing one
+                if (link.source_id, link.target_id) not in existing_link_pairs:
+                    unique_new_links.append(link)
+                    # Add to set to prevent duplicate additions from the new_links list itself
+                    existing_link_pairs.add((link.source_id, link.target_id))
+
             # get the max existing ID for each link type to ensure continuity
             max_rd = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("RD-")] or [0])
             max_dd = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("DD-")] or [0])
             max_dc = max([int(l.id.split('-')[-1]) for l in baseline_map.traceability_links if l.id.startswith("DC-")] or [0])
 
-            for link in new_links:
+            for link in unique_new_links:
                 # assign a new, descriptive ID based on the link type
                 if link.source_type == "Requirement" and link.target_type == "DesignElement":
                     max_rd += 1
@@ -631,7 +646,7 @@ class BaselineMapUpdaterWorkflow:
                     max_link_id = max(max_rd, max_dd, max_dc) + 1
                     link.id = f"L-{max_link_id:03d}"
             
-            baseline_map.traceability_links.extend(new_links)
+            baseline_map.traceability_links.extend(unique_new_links)
 
         # save the final map
         if await self.baseline_map_repo.save_baseline_map(baseline_map):

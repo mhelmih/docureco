@@ -9,6 +9,7 @@ import asyncio
 import subprocess
 import sys
 import logging
+import json
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 agent_dir = os.path.dirname(current_dir)
@@ -47,10 +48,18 @@ async def main():
     )
     print("\n--- Workflow Final State ---")
     if final_state.get("baseline_map"):
-        # Avoid printing the whole map object for brevity
+        try:
+            with open("final_baseline_map_for_debug.json", "w", encoding="utf-8") as f:
+                # Use pydantic's model_dump_json for proper serialization
+                f.write(final_state["baseline_map"].model_dump_json(indent=2))
+            logger.info("Saved final baseline map state to 'final_baseline_map_for_debug.json'")
+        except Exception as e:
+            logger.error(f"Failed to save debug baseline map: {e}")
+
+    # Create a summary object for printing
+    map_summary = {}
+    if final_state.get("baseline_map"):
         map_summary = {
-            "repository": final_state["baseline_map"].repository,
-            "branch": final_state["baseline_map"].branch,
             "requirements": len(final_state["baseline_map"].requirements),
             "design_elements": len(final_state["baseline_map"].design_elements),
             "code_components": len(final_state["baseline_map"].code_components),
@@ -65,10 +74,10 @@ async def main():
     print("="*50)
     print(f"Repository: {args.repository}")
     print(f"Branch: {args.branch}")
-    print(f"Requirements: {stats.get('requirements_count', 0)}")
-    print(f"Design Elements: {stats.get('total_design_elements_count', 0)}")
-    print(f"Code Components: {stats.get('code_components_count', 0)}")
-    print(f"Traceability Links: {stats.get('total_traceability_links_count', 0)}")
+    print(f"Requirements: {map_summary.get('requirements', 0)}")
+    print(f"Design Elements: {map_summary.get('design_elements', 0)}")
+    print(f"Code Components: {map_summary.get('code_components', 0)}")
+    print(f"Traceability Links: {map_summary.get('traceability_links', 0)}")
     print("="*50)
 
 if __name__ == "__main__":
