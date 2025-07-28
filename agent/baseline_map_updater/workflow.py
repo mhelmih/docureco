@@ -501,7 +501,8 @@ class BaselineMapUpdaterWorkflow:
         new_doc_links = await self._run_link_creation_in_parallel_batches(
             doc_candidates, 
             all_doc_targets, 
-            self._llm_find_document_links_batch
+            self._llm_find_document_links_batch,
+            batch_size=10
         )
         
         # Now, create D2C links using the newly created doc links as context
@@ -516,7 +517,8 @@ class BaselineMapUpdaterWorkflow:
         new_d2c_links = await self._run_link_creation_in_parallel_batches(
             design_candidates, 
             all_code_targets, 
-            lambda sources, targets: self._llm_find_d2c_links_batch(sources, targets, d2d_links_context)
+            lambda sources, targets: self._llm_find_d2c_links_batch(sources, targets, d2d_links_context),
+            batch_size=10
         )
         
         state['newly_created_links'] = new_doc_links + new_d2c_links
