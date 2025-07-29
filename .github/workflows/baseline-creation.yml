@@ -97,7 +97,7 @@ jobs:
           ${{ github.repository }} \
           --branch ${{ github.event.inputs.branch }} \
           ${{ github.event.inputs.force_recreate == 'true' && '--force' || '' }} \
-          --log-level INFO
+          --log-level ${{ env.LOG_LEVEL }}
 
     - name: Sanitize artifact name
       run: |
