@@ -139,13 +139,13 @@ class BaselineMapCreatorWorkflow:
         has_sdd = len(state.get("sdd_content", {})) > 0
         has_srs = len(state.get("srs_content", {})) > 0
         
-        if not has_sdd and not has_srs:
-            logger.error("❌ No SDD or SRS documentation found. Workflow will terminate.")
-            logger.error(f"   - SDD files: {len(state.get('sdd_content', {}))}")
-            logger.error(f"   - SRS files: {len(state.get('srs_content', {}))}")
+        if not has_sdd or not has_srs:
+            logger.error("❌ No SDD or SRS documentation found. Both are required. Workflow will terminate.")
+            logger.error(f"   - SDD files found: {len(state.get('sdd_content', {}))}")
+            logger.error(f"   - SRS files found: {len(state.get('srs_content', {}))}")
             return "end"
         
-        logger.info(f"✅ Documentation found - proceeding to design element identification")
+        logger.info(f"✅ Both SDD and SRS documentation found - proceeding to design element identification")
         logger.info(f"   - SDD files: {len(state.get('sdd_content', {}))}")
         logger.info(f"   - SRS files: {len(state.get('srs_content', {}))}")
         return "identify_design_elements"
