@@ -1,11 +1,6 @@
 from typing import List, Dict, Any, Union
 from pydantic import BaseModel, Field
 
-class UnifiedElement(BaseModel):
-    """A generic model that can represent either a Requirement or a Design Element."""
-    element_type: str = Field(description="The type of the element, must be either 'Requirement' or 'DesignElement'.")
-    content: Dict[str, Any] = Field(description="A dictionary containing the actual content of the element, like id, name, description, etc.")
-
 class AddedElement(BaseModel):
     """Represents any element (Requirement or Design Element) that has been added."""
     element_type: str = Field(description="The type of the element: 'Requirement' or 'DesignElement'.")
@@ -39,8 +34,6 @@ class RawUnifiedChangeDetectionOutput(BaseModel):
     """The output of the first-pass raw change detection for any element type."""
     detected_changes: List[DetectedUnifiedChange] = Field(description="A flat list of all detected, unverified changes.")
 
-# --- Models for Link Creation ---
-
 class FoundLink(BaseModel):
     """Represents a single traceability link found by the LLM."""
     target_id: str = Field(description="The `reference_id` of the element that the source element traces to.")
@@ -59,7 +52,6 @@ class BatchLinkFindingOutput(BaseModel):
 
 
 __all__ = [
-    "UnifiedElement",
     "AddedElement",
     "ModifiedElement",
     "DeletedElement",

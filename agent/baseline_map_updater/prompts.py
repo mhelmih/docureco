@@ -5,8 +5,6 @@ Prompts for Baseline Map Updater workflow
 import json
 from typing import List, Dict, Any
 
-# --- Prompts for Pass 1: Raw Unified Change Identification ---
-
 def raw_unified_change_identification_system_prompt() -> str:
     """
     System prompt for the first pass: identify all potential changes (Reqs or DEs).
@@ -77,8 +75,6 @@ Please perform a raw change detection on the file `{file_path}` by comparing the
 Generate the JSON object containing the flat list of all detected changes.
 """
 
-# --- Prompts for Pass 2: Unified Reconciliation and Cleanup ---
-
 def unified_reconciliation_system_prompt() -> str:
     """
     System prompt for the second pass: clean up and validate the raw changes for any element type.
@@ -124,8 +120,6 @@ Please validate and categorize the following detected changes.
 
 Generate the final, clean JSON object with `added`, `modified`, and `deleted` lists.
 """
-
-# --- Prompts for R2D/D2D Link Creation ---
 
 def document_link_creation_system_prompt() -> str:
     """System prompt for creating traceability links between document elements (R2D, D2D)."""
