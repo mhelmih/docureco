@@ -25,6 +25,10 @@ env/
 .vscode/
 
 # Parsed PDF
-parsed-pdf/
+thesis/
+thesis-bib4llm/
+paper/
+paper-template-latex/
+misc/
 
 venv

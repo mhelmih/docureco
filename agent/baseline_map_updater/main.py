@@ -7,29 +7,22 @@ import os
 import argparse
 import asyncio
 import subprocess
+import sys
+import logging
+import json
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+agent_dir = os.path.dirname(current_dir)
+root_dir = os.path.dirname(agent_dir)
+sys.path.insert(0, agent_dir)
+sys.path.insert(0, root_dir)
+
 from .workflow import BaselineMapUpdaterWorkflow
+from agent.config.llm_config import setup_logging
 
-def setup_test_commit():
-    """Creates a dummy file and commits it to have a HEAD^ to diff against."""
-    try:
-        with open("dummy_change.txt", "w") as f:
-            f.write("This is a test change.")
-        subprocess.run("git add dummy_change.txt", shell=True, check=True)
-        # Check if there are staged changes before committing
-        status_result = subprocess.run("git status --porcelain", shell=True, check=True, capture_output=True, text=True)
-        if status_result.stdout:
-            # Use --no-verify to bypass any pre-commit hooks
-            subprocess.run('git commit --no-verify -m "Test commit for updater"', shell=True, check=True)
-            print("Created a test commit.")
-        else:
-            print("No changes to commit. Assuming a commit already exists.")
-    except subprocess.CalledProcessError as e:
-        print(f"Could not create test commit. Assuming one exists. Error: {e}")
-    except Exception as e:
-        print(f"An error occurred during test setup: {e}")
+logger = logging.getLogger(__name__)
 
-
-def main():
+async def main():
     """
     Initializes and runs the baseline map updater workflow.
     It now relies on the latest git commit to fetch file changes.
@@ -37,36 +30,55 @@ def main():
     parser = argparse.ArgumentParser(description="Baseline Map Updater")
     parser.add_argument("--repository", type=str, required=True, help="Repository name (e.g., 'owner/repo')")
     parser.add_argument("--branch", type=str, default="main", help="Branch name")
+    parser.add_argument("--commit_sha", type=str, required=True, help="The SHA of the commit to analyze")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], 
+                        help="Logging level (default: INFO)")
+    
     args = parser.parse_args()
     
-    # Setup a commit to make sure HEAD^ exists
-    setup_test_commit()
-
+    # Setup logging
+    setup_logging(level=args.log_level)
+    
     workflow = BaselineMapUpdaterWorkflow()
     
-    async def run_workflow():
-        # The 'file_changes' argument is now unused as the workflow fetches them directly
-        final_state = await workflow.execute(
-            repository=args.repository,
-            branch=args.branch,
-            file_changes=[] # This is now legacy and will be ignored by the new workflow
-        )
-        print("\n--- Workflow Final State ---")
-        if final_state.get("baseline_map"):
-            # Avoid printing the whole map object for brevity
-            map_summary = {
-                "repository": final_state["baseline_map"].repository,
-                "branch": final_state["baseline_map"].branch,
-                "requirements": len(final_state["baseline_map"].requirements),
-                "design_elements": len(final_state["baseline_map"].design_elements),
-                "code_components": len(final_state["baseline_map"].code_components),
-                "traceability_links": len(final_state["baseline_map"].traceability_links),
-            }
-            final_state["baseline_map"] = map_summary
-        print(final_state)
-        print("--------------------------")
+    final_state = await workflow.execute(
+        repository=args.repository,
+        branch=args.branch,
+        commit_sha=args.commit_sha
+    )
+    print("\n--- Workflow Final State ---")
+    if final_state.get("baseline_map"):
+        try:
+            with open("final_baseline_map_for_debug.json", "w", encoding="utf-8") as f:
+                # Use pydantic's model_dump_json for proper serialization
+                f.write(final_state["baseline_map"].model_dump_json(indent=2))
+            logger.info("Saved final baseline map state to 'final_baseline_map_for_debug.json'")
+        except Exception as e:
+            logger.error(f"Failed to save debug baseline map: {e}")
 
-    asyncio.run(run_workflow())
+    # Create a summary object for printing
+    map_summary = {}
+    if final_state.get("baseline_map"):
+        map_summary = {
+            "requirements": len(final_state["baseline_map"].requirements),
+            "design_elements": len(final_state["baseline_map"].design_elements),
+            "code_components": len(final_state["baseline_map"].code_components),
+            "traceability_links": len(final_state["baseline_map"].traceability_links),
+        }
+        final_state["baseline_map"] = map_summary
+    
+    # Print summary
+    stats = final_state.get("processing_stats", {})
+    print("\n" + "="*50)
+    print("BASELINE MAP UPDATER SUMMARY")
+    print("="*50)
+    print(f"Repository: {args.repository}")
+    print(f"Branch: {args.branch}")
+    print(f"Requirements: {map_summary.get('requirements', 0)}")
+    print(f"Design Elements: {map_summary.get('design_elements', 0)}")
+    print(f"Code Components: {map_summary.get('code_components', 0)}")
+    print(f"Traceability Links: {map_summary.get('traceability_links', 0)}")
+    print("="*50)
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 

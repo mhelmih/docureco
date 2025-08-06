@@ -1,15 +1,17 @@
 name: 'Docureco Agent: Update Baseline Map on Merge'
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    types: [closed]
   workflow_dispatch:
     inputs:
       branch:
         description: 'Branch name to analyze'
         required: true
         default: 'main'
+      commit_sha:
+        description: 'Commit SHA to analyze'
+        required: true
 
 env:
   # LLM Configuration
@@ -46,13 +48,11 @@ env:
 jobs:
   update-baseline-map:
     runs-on: ubuntu-latest
+    if: (github.event_name == 'pull_request' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        # Fetch depth 2 to allow git diff between HEAD and its parent
-        fetch-depth: 2
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -66,6 +66,11 @@ jobs:
       with:
         node-version: '20'
     
+    - name: Install Git
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git
+
     - name: Install Repomix
       run: |
         npm install -g repomix
@@ -84,18 +89,31 @@ jobs:
         pip install --upgrade pip
         pip install -r agent/requirements.txt
     
+    - name: Set target branch and commit SHA
+      id: set_vars
+      run: |
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          echo "branch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ github.event.pull_request.merge_commit_sha }}" >> $GITHUB_OUTPUT
+        else
+          echo "branch=${{ github.event.inputs.branch }}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ github.event.inputs.commit_sha }}" >> $GITHUB_OUTPUT
+        fi
+
     - name: Update baseline traceability map
       env:
         LOG_LEVEL: 'INFO'
       run: |
         python -m agent baseline-map-updater \
           --repository ${{ github.repository }} \
-          --branch ${{ github.ref_name }}
+          --branch ${{ steps.set_vars.outputs.branch }} \
+          --commit_sha ${{ steps.set_vars.outputs.commit_sha }} \
+          --log-level ${{ env.LOG_LEVEL }}
 
     - name: Sanitize artifact name
       run: |
         repo_name="${{ github.repository }}"
-        branch_name="${{ github.ref_name }}"
+        branch_name="${{ steps.set_vars.outputs.branch }}"
         echo "ARTIFACT_NAME=baseline-map-update-${repo_name//\//_}-${branch_name//\//_}" >> $GITHUB_ENV
     
     - name: Upload update artifacts
@@ -117,12 +135,14 @@ jobs:
         
         if [ "${{ github.event_name }}" = "push" ]; then
           echo "**Trigger:** Push to \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "**Trigger:** Merged PR #${{ github.event.number }} into \`${{ steps.set_vars.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
         else
           echo "**Trigger:** Manual" >> $GITHUB_STEP_SUMMARY
         fi
 
         echo "**Repository:** \`${{ github.repository }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** \`${{ steps.set_vars.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔗 Workflow Details" >> $GITHUB_STEP_SUMMARY

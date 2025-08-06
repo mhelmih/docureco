@@ -1,57 +1,64 @@
-from typing import List
+from typing import List, Dict, Any, Union
 from pydantic import BaseModel, Field
 
-class DesignElementOutput(BaseModel):
-    """Structured output for design elements"""
-    reference_id: str = Field(description="Design element identifier reference from the document (e.g., 'C01', 'UC01', 'M01', etc.)")
-    name: str = Field(description="Clear, descriptive name of the design element")
-    description: str = Field(description="Brief description of purpose/functionality")
-    type: str = Field(description="Category (Service, Class, Interface, Component, Database, UI, etc.)")
-    section: str = Field(description="Section reference from the document")
+class AddedElement(BaseModel):
+    """Represents any element (Requirement or Design Element) that has been added."""
+    element_type: str = Field(description="The type of the element: 'Requirement' or 'DesignElement'.")
+    details: Dict[str, Any] = Field(description="The full details of the newly added element.")
 
-class TraceabilityMatrixEntry(BaseModel):
-    """Structured output for traceability matrix entries"""
-    source_id: str = Field(description="ID of the source artifact (e.g., 'REQ-001', 'DE-001', etc.)")
-    target_id: str = Field(description="ID of the target artifact (e.g., 'DE-002', 'UC01', etc.)")
-    relationship_type: str = Field(default="unclassified", description="Relationship type (will be classified later)")
-    source_file: str = Field(description="File path where this relationship was found")
+class ModifiedElement(BaseModel):
+    """Represents any element that has been modified."""
+    reference_id: str = Field(description="The unique identifier of the element that was modified.")
+    element_type: str = Field(description="The type of the element: 'Requirement' or 'DesignElement'.")
+    changes: Dict[str, Union[Any, Dict[str, Any]]] = Field(description="A dictionary detailing the changes, which can include 'from'/'to' structures.")
 
-class DesignElementsWithMatrixOutput(BaseModel):
-    """Structured output for design elements and traceability matrix extraction"""
-    design_elements: List[DesignElementOutput] = Field(description="List of design elements found")
-    traceability_matrix: List[TraceabilityMatrixEntry] = Field(description="List of traceability relationships found")
+class DeletedElement(BaseModel):
+    """Represents any element that has been deleted."""
+    reference_id: str = Field(description="The unique identifier of the element that was deleted.")
+    element_type: str = Field(description="The type of the element: 'Requirement' or 'DesignElement'.")
 
-class RequirementOutput(BaseModel):
-    """Structured output for requirements"""
-    reference_id: str = Field(description="Requirement identifier reference from the document (e.g., 'REQ-001', 'UC01', 'M01', etc.)")
-    title: str = Field(description="Clear, concise title of the requirement")
-    description: str = Field(description="Detailed description of what is required")
-    type: str = Field(description="Category (Functional, Non-Functional, Business, User, System, etc.)")
-    priority: str = Field(description="Importance level (High, Medium, Low)")
-    section: str = Field(description="Section reference from the document")
+class UnifiedChangesOutput(BaseModel):
+    """Structured output for all identified changes to any type of element."""
+    added: List[AddedElement] = Field(default_factory=list)
+    modified: List[ModifiedElement] = Field(default_factory=list)
+    deleted: List[DeletedElement] = Field(default_factory=list)
 
-class RequirementsWithDesignElementsOutput(BaseModel):
-    """Structured output for requirements and design elements extraction"""
-    requirements: List[RequirementOutput] = Field(description="List of requirements found")
-    design_elements: List[DesignElementOutput] = Field(description="List of design elements found")
+class DetectedUnifiedChange(BaseModel):
+    """Represents a single, unverified change of any type detected in the first pass."""
+    reference_id: str = Field(description="The identifier of the element.")
+    element_type: str = Field(description="The detected type of the element: 'Requirement' or 'DesignElement'.")
+    full_element_data: Dict[str, Any] = Field(description="All extracted data for the element (name, description, etc.).")
+    detected_change_type: str = Field(description="The type of change detected ('addition', 'modification', or 'deletion').")
 
-class RelationshipOutput(BaseModel):
-    """Structured output for relationships"""
-    source_id: str = Field(description="ID of the source element")
-    target_id: str = Field(description="ID of the target element")
-    relationship_type: str = Field(description="Type of relationship")
+class RawUnifiedChangeDetectionOutput(BaseModel):
+    """The output of the first-pass raw change detection for any element type."""
+    detected_changes: List[DetectedUnifiedChange] = Field(description="A flat list of all detected, unverified changes.")
 
-class RelationshipListOutput(BaseModel):
-    """A list of relationship outputs."""
-    relationships: List[RelationshipOutput] = Field(description="A list of identified relationships between elements.")
+class FoundLink(BaseModel):
+    """Represents a single traceability link found by the LLM."""
+    target_id: str = Field(description="The `reference_id` of the element that the source element traces to.")
+    target_type: str = Field(description="The type of the target element, e.g., 'Requirement' or 'DesignElement'.")
+    relationship_type: str = Field(description="The type of relationship, like 'realizes' or 'implements'.")
+
+class LinkFindingOutput(BaseModel):
+    """Structured output for the link finding process for a single source element."""
+    links: List[FoundLink] = Field(description="A list of traceability links found for the source element.")
+
+class BatchLinkFindingOutput(BaseModel):
+    """Structured output for finding links for multiple source elements at once."""
+    links_by_source: Dict[str, List[FoundLink]] = Field(
+        description="A dictionary where keys are the `reference_id` of the source elements, and values are the lists of links found for each source."
+    )
 
 
 __all__ = [
-    "DesignElementOutput", 
-    "TraceabilityMatrixEntry", 
-    "DesignElementsWithMatrixOutput", 
-    "RequirementOutput", 
-    "RequirementsWithDesignElementsOutput", 
-    "RelationshipOutput",
-    "RelationshipListOutput"
+    "AddedElement",
+    "ModifiedElement",
+    "DeletedElement",
+    "UnifiedChangesOutput",
+    "DetectedUnifiedChange",
+    "RawUnifiedChangeDetectionOutput",
+    "FoundLink",
+    "LinkFindingOutput",
+    "BatchLinkFindingOutput"
 ] 
