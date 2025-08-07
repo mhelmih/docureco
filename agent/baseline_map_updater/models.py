@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 class AddedElement(BaseModel):
     """Represents any element (Requirement or Design Element) that has been added."""
+    reference_id: str = Field(description="The unique identifier of the newly added element.")
     element_type: str = Field(description="The type of the element: 'Requirement' or 'DesignElement'.")
     details: Dict[str, Any] = Field(description="The full details of the newly added element.")
 

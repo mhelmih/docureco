@@ -89,7 +89,7 @@ You are a meticulous Quality Assurance engineer. You have received a list of 'de
     - If a change is marked 'modification' but its `reference_id` **IS NOT IN** any `existing_elements` object, it's an **'addition'**.
 3.  **Deletion Rule:** An element is **DELETED** **ONLY** if it's explicitly marked `detected_change_type: 'deletion'`. Do **NOT** assume deletion otherwise.
 4.  Format the final, validated data into a JSON object with three keys: `added`, `modified`, and `deleted`.
-5.  For `added` elements, the output object should contain `element_type` and the `details` of the new element.
+5.  For `added` elements, the output object should contain `reference_id`, `element_type`, and the `details` of the new element.
 6.  For `modified` elements, the output object should contain `reference_id`, `element_type`, and a `changes` dictionary.
 7.  For `deleted` elements, the output object should contain `reference_id` and `element_type`.
 
