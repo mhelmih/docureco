@@ -11,6 +11,8 @@ from src.book.book import Book
 from src.book.book_collection import BookCollection
 from src.reading_progress.reading_progress import ReadingProgress
 from src.reading_progress.reading_progress_collection import ReadingProgressCollection
+from src.note.note_collection import NoteCollection
+from src.note.export_note import export_to_markdown
 
 def to_capitalized_first_word(s: str) -> str:
     if not s:
@@ -22,8 +24,10 @@ class BookDetail:
     def __init__(self):
         self.book_collection = BookCollection()
         self.reading_progress_collection = ReadingProgressCollection()
+        self.note_collection = NoteCollection()
         self.book_collection.set_db("read_buddy.db")
         self.reading_progress_collection.set_db("read_buddy.db")
+        self.note_collection.set_db("read_buddy.db")
         self.file_picker = ft.FilePicker(on_result=self.save_result)
         self.has_upload_cover = False
 
@@ -125,6 +129,31 @@ class BookDetail:
         update_button = ft.ElevatedButton(text="Update", width=150, on_click=update_data)
         delete_book_button = ft.ElevatedButton(text="Hapus Buku", on_click=delete_book)
         
+        def export_action(e):
+            """
+            Fetches all notes for the current book and exports them to a markdown file.
+            """
+            notes = self.note_collection.get_all_notes_by_book_id(self.book_id)
+            if not notes:
+                snack_bar = ft.SnackBar(content=ft.Text("Tidak ada catatan untuk diekspor!"))
+                self.page.snack_bar = snack_bar
+                snack_bar.open = True
+                self.page.update()
+                return
+
+            # Format all notes into a single string
+            full_note_content = ""
+            for note in notes:
+                full_note_content += f"## Catatan pada Halaman {note.get_pageNumber()}\n"
+                full_note_content += f"_{note.get_creationDate()}_\n\n"
+                full_note_content += f"{note.get_content()}\n\n---\n\n"
+            
+            # Get book title for the filename
+            book = self.book_collection.get_by_id(self.book_id)
+            export_to_markdown(full_note_content, book.get_bookTitle())
+
+        export_notes_button = ft.ElevatedButton(text="Ekspor Catatan", width=150, on_click=export_action)
+
         def toggle_favorite(e):
             new_favorite_status = not book.get_isFavorite()
             book.set_isFavorite(new_favorite_status)
@@ -231,6 +260,7 @@ class BookDetail:
             content=ft.Row(
                 [
                     view_notes_button,
+                    export_notes_button,
                     record_progress_button,
                     update_button,
                     favorite_button

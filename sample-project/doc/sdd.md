@@ -75,6 +75,7 @@ This structure chart shows the calling relationships between the six modules in 
 | M04       | Manage Reading Progress    | Allows the user to update their reading progress for a specific book.                  |
 | M05       | View Notes                 | Displays a list of all notes associated with a specific book.                          |
 | M06       | Manage Notes               | Displays the form for adding or editing a note and processes the input.                |
+| M07       | Export Notes               | Allows users to export notes for a book to a Markdown file.                            |
 
 ---
 
@@ -277,12 +278,14 @@ _Note: For UI classes, methods often correspond to building UI components or han
 | `detail_clicked(e)`       | public         | Event handler for when the user clicks to see book details.   |
 | `close_detail_clicked(e)` | public         | Event handler for when the user closes the detail view.       |
 | `favorite_clicked(e)`     | public         | Event handler for when the favorite button is clicked.        |
+| export_action(e)          | public         | Exports all notes for the book to a Markdown file.            |
 | **Attribute Name**        | **Visibility** | **Type**                                                      |
 | `book`                    | private        | Book                                                          |
 | `title_display`           | private        | ft.Row                                                        |
 | `display_view`            | private        | ft.Row                                                        |
 | `detail_view_1`           | private        | ft.Row                                                        |
 | `detail_view_2`           | private        | ft.Row                                                        |
+| note_collection           | private        | NoteCollection                                                |
 
 #### 4.3.4 Other Boundary Classes
 
@@ -381,6 +384,7 @@ The software will use a local SQLite database with the following tables to persi
 7.  `BookDetail` constructs the UI with populated form fields showing book title, page count, status, current page, and reading statistics.
 8.  The detail view displays action buttons for viewing notes, recording progress, updating data, and deleting the book.
 9.  The view shows the book cover image with an option to upload a new cover.
+10. If the user clicks the export notes button, `BookDetail` calls `export_action()` to fetch and export notes to a Markdown file.
 
 **UC04: Modify book**
 
@@ -548,6 +552,7 @@ _(This section refers to the UI mockup for the "Modify Book Data" screen, which 
 | `PageCountTextField`    | Text Field   | Text Box for page count, initially filled with the book's page count.                           |
 | `ValidationDataControl` | Data control | Associated with the query for validating book title and page count data.                        |
 | `CoverImage`            | Image        | Associated with the cover image in the Books table.                                             |
+| `ExportNotesButton`     | Button       | If clicked, will export the notes for the book to a Markdown file.                              |
 
 ---
 
