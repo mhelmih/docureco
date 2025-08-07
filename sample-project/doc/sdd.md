@@ -115,12 +115,15 @@ This section provides a detailed breakdown of each class based on class diagram 
 | `__eq__(value)`              | public         | Compares two Book objects for equality.      |
 | `get_isFavorite()`           | public         | Returns the favorite status of the book.     |
 | `set_isFavorite(isFavorite)` | public         | Sets the favorite status of the book.        |
+| get_coverImage()             | public         | Returns the cover image of the book.         |
+| set_coverImage(coverImage)   | public         | Sets the cover image of the book.            |
 | **Attribute Name**           | **Visibility** | **Type**                                     |
 | `_bookId`                    | private        | Integer                                      |
 | `_bookTitle`                 | private        | String                                       |
 | `_bookStatus`                | private        | String                                       |
 | `_totalPages`                | private        | Integer                                      |
 | `_isFavorite`                | private        | Boolean                                      |
+| \_coverImage                 | private        | String                                       |
 
 #### 4.1.2 Class: Note
 
@@ -174,21 +177,21 @@ This section provides a detailed breakdown of each class based on class diagram 
 
 **Class Name**: `BookCollection`
 
-| Operation Name                                 | Visibility     | Description                                                                 |
-| :--------------------------------------------- | :------------- | :-------------------------------------------------------------------------- |
-| `set_db(db_path)`                              | public         | Sets up the database connection.                                            |
-| `get_by_id(book_id)`                           | public         | Retrieves a single `Book` object by its ID.                                 |
-| `get_book_count()`                             | public         | Returns the total number of books.                                          |
-| `get_all()`                                    | public         | Retrieves a list of all book records.                                       |
-| `clear_all()`                                  | public         | Deletes all book records from the database.                                 |
-| `delete_by_id(id)`                             | public         | Deletes a book record by its ID.                                            |
-| `insert(book)`                                 | public         | Inserts a new book record into the database, including favorite status.     |
-| `update_book(book)`                            | public         | Updates an existing book record in the database, including favorite status. |
-| `update_favorite_status(book_id, is_favorite)` | public         | Updates the favorite status of a book in the database.                      |
-| `get_favorites()`                              | public         | Retrieves a list of favorite book records.                                  |
-| **Attribute Name**                             | **Visibility** | **Type**                                                                    |
-| `_conn`                                        | private        | sqlite3.Connection                                                          |
-| `_cursor`                                      | private        | sqlite3.Cursor                                                              |
+| Operation Name                                 | Visibility     | Description                                                                                 |
+| :--------------------------------------------- | :------------- | :------------------------------------------------------------------------------------------ |
+| `set_db(db_path)`                              | public         | Sets up the database connection.                                                            |
+| `get_by_id(book_id)`                           | public         | Retrieves a single `Book` object by its ID.                                                 |
+| `get_book_count()`                             | public         | Returns the total number of books.                                                          |
+| `get_all()`                                    | public         | Retrieves a list of all book records, including cover image data.                           |
+| `clear_all()`                                  | public         | Deletes all book records from the database.                                                 |
+| `delete_by_id(id)`                             | public         | Deletes a book record by its ID.                                                            |
+| `insert(book)`                                 | public         | Inserts a new book record into the database, including favorite status and cover image.     |
+| `update_book(book)`                            | public         | Updates an existing book record in the database, including favorite status and cover image. |
+| `update_favorite_status(book_id, is_favorite)` | public         | Updates the favorite status of a book in the database.                                      |
+| `get_favorites()`                              | public         | Retrieves a list of favorite book records.                                                  |
+| **Attribute Name**                             | **Visibility** | **Type**                                                                                    |
+| `_conn`                                        | private        | sqlite3.Connection                                                                          |
+| `_cursor`                                      | private        | sqlite3.Cursor                                                                              |
 
 #### 4.2.2 Class: NoteCollection
 
@@ -315,6 +318,7 @@ The software will use a local SQLite database with the following tables to persi
 | `title`       | TEXT      | NOT NULL                   |
 | `page_count`  | INTEGER   | NOT NULL                   |
 | `status`      | TEXT      | NOT NULL                   |
+| cover_image   | TEXT      |                            |
 | `is_favorite` | INTEGER   | DEFAULT 0                  |
 
 **Table 2: ReadingProgress**

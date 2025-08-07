@@ -90,16 +90,16 @@ This application will function on a computer with the following minimum hardware
 
 ### 3.1 Functional Requirements
 
-| ID  | Requirement Statement                                     | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| :-- | :-------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --- |
-| F01 | The software must allow users to add new book.            | The software allows users to add new books by entering the book title, number of pages, status, and whether it is a favorite. The system performs basic validation to ensure required fields are filled and page count is a positive integer.                                                                                                                                                                                                                                                                             |
-| F02 | The software must allow users to view list of books.      | The user can view the list of books (with title, number of pages, status, reading start date and time, number of days since starting, number of times read, the last page read, and favorite status) stored in the software. The user can also view the number of books to be read, currently being read, and already read, including filtering by favorite status.                                                                                                                                                       |
-| F03 | The software must allow users to view book details.       | The user can view the details of a book (with title, number of pages, status, reading start date and time, number of days since starting, number of times read, the last page read, and favorite status) stored in the software.                                                                                                                                                                                                                                                                                          |
-| F04 | The software must allow users to modify book details.     | The user can modify the title, number of pages, status, and favorite status of a book. The user can change the status of a book from 'To Read' to 'Reading' and from 'Read' to 'Reading' when they want to re-read it. The book status also changes from 'Reading' to 'Read' automatically by the system when the last page read is equal to the book total page count. The date and time is recorded when the book status changed from 'To Read' to 'Reading'. The user can also delete a book regardless of its status. |
-| F05 | The software must allow users to manage reading progress. | The user can update the last page number of the book they have read, and toggle the favorite status if applicable. The user can also update the reading start date and time, number of days since starting, and number of times read.                                                                                                                                                                                                                                                                                     |
-| F06 | The software must allow users to view personal notes.     | The user can view and export the personal notes of a book (with note content, page number, and favorite status if integrated) to a Markdown file.                                                                                                                                                                                                                                                                                                                                                                         |     |
-| F07 | The software must allow users to manage personal notes.   | The user can add, modify, and delete personal notes on each page of a book.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| F08 | The software must allow users to export personal notes.   | The user can export all personal notes for a book to a Markdown file, including note content and page numbers.                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ID  | Requirement Statement                                     | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| :-- | :-------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
+| F01 | The software must allow users to add new book.            | The software allows users to add new books by entering the book title, number of pages, status, whether it is a favorite, and cover image. The system performs basic validation to ensure required fields are filled and page count is a positive integer.                                                                                                                                                                                                                                           |
+| F02 | The software must allow users to view list of books.      | The user can view the list of books (with title, number of pages, status, reading start date and time, number of days since starting, number of times read, the last page read, favorite status, and cover image) stored in the software. The user can also view the number of books to be read, currently being read, and already read, including filtering by favorite status.                                                                                                                     |
+| F03 | The software must allow users to view book details.       | The user can view the details of a book (with title, number of pages, status, reading start date and time, number of days since starting, number of times read, the last page read, favorite status, and cover image) stored in the software.                                                                                                                                                                                                                                                        |
+| F04 | The software must allow users to modify book details.     | The user can modify the title, number of pages, status, favorite status, and cover image of a book. The user can change the status of a book from 'To Read' to 'Reading' and from 'Read' to 'Reading' when they want to re-read it. The book status changes from 'Reading' to 'Read' automatically when the last page read equals the total page count. The date and time is recorded when the status changes from 'To Read' to 'Reading'. The user can also delete a book regardless of its status. |
+| F05 | The software must allow users to manage reading progress. | The user can update the last page number of the book they have read, and toggle the favorite status if applicable. The user can also update the reading start date and time, number of days since starting, and number of times read.                                                                                                                                                                                                                                                                |
+| F06 | The software must allow users to view personal notes.     | The user can view and export the personal notes of a book (with note content, page number, and favorite status if integrated) to a Markdown file.                                                                                                                                                                                                                                                                                                                                                    |     |
+| F07 | The software must allow users to manage personal notes.   | The user can add, modify, and delete personal notes on each page of a book.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| F08 | The software must allow users to export personal notes.   | The user can export all personal notes for a book to a Markdown file, including note content and page numbers.                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### 3.2 Non-Functional Requirements
 
@@ -126,10 +126,10 @@ As shown in the diagram, the user can perform actions as defined in the Software
 
 | ID   | Use Case           | Description                                                                                                                                                 |
 | :--- | :----------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UC01 | Add book           | The process of adding book data with input from the user, including setting an initial favorite status.                                                     |
+| UC01 | Add book           | The process of adding book data with input from the user, including setting an initial favorite status and cover image.                                     |
 | UC02 | View list of books | The system displays a list of books in the database along with their status, including options to filter or sort by favorite status.                        |
-| UC03 | View book details  | The system displays book data, including favorite status, reading progress, and an option to export notes if notes are available.                           |
-| UC04 | Modify book        | The process of changing book data, including favorite status, with user input and updating reading progress data.                                           |
+| UC03 | View book details  | The system displays book data, including favorite status, reading progress, cover image, and an option to export notes if notes are available.              |
+| UC04 | Modify book        | The process of changing book data, including favorite status and cover image, with user input and updating reading progress data.                           |
 | UC05 | View notes         | The system shows the notes available in the database and provides an option to export them to a Markdown file, potentially integrated with favorite status. |
 | UC06 | Manage notes       | The process of adding or changing notes in the database with input from the user.                                                                           |
 
@@ -145,13 +145,12 @@ As shown in the diagram, the user can perform actions as defined in the Software
   <tr>
     <td colspan="2"><strong>Normal Scenario</strong></td>
   </tr>
-  <tr>
-    <td>1. User selects the "add book" menu.</td>
+  <td>1. User selects the "add book" menu.</td>
     <td></td>
   </tr>
   <tr>
     <td></td>
-    <td>2. System displays a form for book data entry (book title, number of pages, book status: reading, to read).</td>
+    <td>2. System displays a form for book data entry (book title, number of pages, book status: reading, to read, and cover image).</td>
   </tr>
   <tr>
     <td>3. User fills in the book data.</td>
@@ -159,7 +158,7 @@ As shown in the diagram, the user can perform actions as defined in the Software
   </tr>
   <tr>
     <td></td>
-    <td>4. System adds the book data, including initializing favorite status to false, according to the input.</td>
+    <td>4. System adds the book data, including initializing favorite status to false and handling cover image, according to the input.</td>
   </tr>
   <tr>
     <td colspan="2"><strong>Alternative Scenario 1 (Incomplete data input)</strong></td>
@@ -173,7 +172,7 @@ As shown in the diagram, the user can perform actions as defined in the Software
     <td>2. System displays a form for book data entry (book title, number of pages, book status: reading, to read).</td>
   </tr>
   <tr>
-    <td>3. User fills in the book data but leaves one or more fields empty.</td>
+    <td>3. User fills in the book data but leaves one or more fields (including cover image) empty.</td>
     <td></td>
   </tr>
   <tr>
@@ -249,11 +248,11 @@ As shown in the diagram, the user can perform actions as defined in the Software
   </tr>
   <tr>
     <td>1. User selects a book from the list.</td>
-    <td></td>
+     <td></td>
   </tr>
   <tr>
     <td></td>
-    <td>2. System displays the book's data, including favorite status, and reading progress, along with a form to update the progress (last page read) and toggle favorite status.</td>
+    <td>2. System displays the book's data, including favorite status, cover image, and reading progress, along with a form to update the progress (last page read) and toggle favorite status.</td>
   </tr>
 </table>
 
@@ -281,7 +280,7 @@ As shown in the diagram, the user can perform actions as defined in the Software
   </tr>
   <tr>
     <td></td>
-    <td>4. System displays a form for updating the book data (title, number of pages, status).</td>
+    <td>4. System displays a form for updating the book data (title, number of pages, status, and cover image).</td>
   </tr>
   <tr>
     <td>5. User fills in the book data.</td>
@@ -289,7 +288,7 @@ As shown in the diagram, the user can perform actions as defined in the Software
   </tr>
   <tr>
     <td></td>
-    <td>6. System updates the book data, including any changes to favorite status, according to the user's input.</td>
+    <td>6. System updates the book data, including any changes to favorite status and cover image, according to the user's input.</td>
   </tr>
 </table>
 
@@ -404,18 +403,18 @@ Finally, there is a "BookTitleDisplay" boundary class (C04) which has a direct a
 
 **Class Details**
 
-| Class ID | Class Name         | Attributes                                                                                                                            | Methods                                                                                                                                                               |
-| :------- | :----------------- | :------------------------------------------------------------------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C01      | AddBookForm        | `input_book_title`, `input_page_count`, `input_book_status`                                                                           | `display_add_book_form()`                                                                                                                                             |
-| C02      | UpdateProgressForm | `book_id`, `input_book_title`, `input_page_count`, `input_book_status`, `input_start_date`, `input_day_counter`, `input_current_page` | `display_update_progress_form()`                                                                                                                                      |
-| C03      | UpdateNoteForm     | `input_book_title`, `input_note_content`, `input_note_page`                                                                           | `display_update_note_form()`                                                                                                                                          |
-| C04      | BookTitleDisplay   | `book_id`, `book_title`, `book_status`                                                                                                | `display_book_list()`                                                                                                                                                 |
-| C05      | UpdateBook         | `book_id`, `new_book_title`, `new_page_count`, `new_book_status`                                                                      | `update_book_data()`                                                                                                                                                  |
-| C06      | UpdateProgress     | `target_book_id`, `start_date`, `day_counter`, `current_page`, `read_count`                                                           | `update_reading_progress()`                                                                                                                                           |
-| C07      | UpdateNote         | `book_id`, `note_id`, `note_content`, `page_number`                                                                                   | `update_note()`                                                                                                                                                       |
-| C08      | Book               | `book_id`, `book_title`, `page_count`, `book_status`, `is_favorite`                                                                   | `get_title()`, `get_pages()`, `get_status()`, `get_book_id()`, `set_title()`, `set_pages()`, `set_status()`, `get_is_favorite()`, `set_is_favorite()`                 |
-| C09      | ReadingProgress    | `book_id`, `start_date`, `day_counter`, `current_page`, `read_count`                                                                  | `get_book_id()`, `get_start_date()`, `set_start_date()`, `get_day()`, `set_day()`, `get_current_page()`, `set_current_page()`, `get_read_count()`, `set_read_count()` |
-| C10      | Note               | `book_id`, `note_id`, `note_content`, `note_page`                                                                                     | `get_note_content()`, `get_note_page()`, `get_note_id()`, `set_note_content()`, `set_note_page()`                                                                     |
+| Class ID | Class Name         | Attributes                                                                                                                            | Methods                                                                                                                                                                                         |
+| :------- | :----------------- | :------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C01      | AddBookForm        | `input_book_title`, `input_page_count`, `input_book_status`                                                                           | `display_add_book_form()`                                                                                                                                                                       |
+| C02      | UpdateProgressForm | `book_id`, `input_book_title`, `input_page_count`, `input_book_status`, `input_start_date`, `input_day_counter`, `input_current_page` | `display_update_progress_form()`                                                                                                                                                                |
+| C03      | UpdateNoteForm     | `input_book_title`, `input_note_content`, `input_note_page`                                                                           | `display_update_note_form()`                                                                                                                                                                    |
+| C04      | BookTitleDisplay   | `book_id`, `book_title`, `book_status`                                                                                                | `display_book_list()`                                                                                                                                                                           |
+| C05      | UpdateBook         | `book_id`, `new_book_title`, `new_page_count`, `new_book_status`, `new_cover_image`                                                   | `update_book_data()`                                                                                                                                                                            |
+| C06      | UpdateProgress     | `target_book_id`, `start_date`, `day_counter`, `current_page`, `read_count`                                                           | `update_reading_progress()`                                                                                                                                                                     |
+| C07      | UpdateNote         | `book_id`, `note_id`, `note_content`, `page_number`                                                                                   | `update_note()`                                                                                                                                                                                 |
+| C08      | Book               | `book_id`, `book_title`, `page_count`, `book_status`, `is_favorite`, `cover_image`                                                    | `get_title()`, `get_pages()`, `get_status()`, `get_book_id()`, `set_title()`, `set_pages()`, `set_status()`, `get_is_favorite()`, `set_is_favorite()`, `get_cover_image()`, `set_cover_image()` |
+| C09      | ReadingProgress    | `book_id`, `start_date`, `day_counter`, `current_page`, `read_count`                                                                  | `get_book_id()`, `get_start_date()`, `set_start_date()`, `get_day()`, `set_day()`, `get_current_page()`, `set_current_page()`, `get_read_count()`, `set_read_count()`                           |
+| C10      | Note               | `book_id`, `note_id`, `note_content`, `note_page`                                                                                     | `get_note_content()`, `get_note_page()`, `get_note_id()`, `set_note_content()`, `set_note_page()`                                                                                               |
 
 ---
 
