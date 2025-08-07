@@ -18,15 +18,15 @@ class BookCollection:
         data_buku = self._cursor.fetchone()
 
         if data_buku:
-            return Book(data_buku[0], data_buku[1], data_buku[2], data_buku[3], bool(data_buku[4]))
+            return Book(data_buku[0], data_buku[1], data_buku[2], data_buku[3], bool(data_buku[4]), data_buku[5])
         else :
             return None
         
     def insert(self, book : Book) :
 
-        query = "INSERT INTO buku (judul_buku, status_buku, total_halaman, is_favorite) VALUES (?, ?, ?, ?)"
+        query = "INSERT INTO buku (judul_buku, status_buku, total_halaman, is_favorite, cover_image) VALUES (?, ?, ?, ?, ?)"
 
-        data = (book.get_bookTitle(), book.get_bookStatus(), book.get_totalPages(), int(book.get_isFavorite()))
+        data = (book.get_bookTitle(), book.get_bookStatus(), book.get_totalPages(), int(book.get_isFavorite()), book.get_coverImage())
 
         self._cursor.execute(query, data)
 
@@ -39,9 +39,9 @@ class BookCollection:
 
     def update_book(self, book : Book) :
 
-        query = "UPDATE buku SET judul_buku = ?, status_buku = ?, total_halaman = ?, is_favorite = ? WHERE id_buku = ?"
+        query = "UPDATE buku SET judul_buku = ?, status_buku = ?, total_halaman = ?, is_favorite = ?, cover_image = ? WHERE id_buku = ?"
 
-        data = (book.get_bookTitle(), book.get_bookStatus(), book.get_totalPages(), int(book.get_isFavorite()), book.get_bookId())
+        data = (book.get_bookTitle(), book.get_bookStatus(), book.get_totalPages(), int(book.get_isFavorite()), book.get_coverImage(), book.get_bookId())
 
         self._cursor.execute(query, data)
         self._conn.commit()
@@ -64,7 +64,7 @@ class BookCollection:
 
         data_buku = self._cursor.fetchall()
 
-        return list(map(lambda row : Book(row[0], row[1], row[2], row[3], bool(row[4])), data_buku))
+        return list(map(lambda row : Book(row[0], row[1], row[2], row[3], bool(row[4]), row[5]), data_buku))
 
     def get_favorites(self) :
         query = "SELECT * FROM buku WHERE is_favorite = 1"
@@ -72,7 +72,7 @@ class BookCollection:
 
         data_buku = self._cursor.fetchall()
 
-        return list(map(lambda row : Book(row[0], row[1], row[2], row[3], bool(row[4])), data_buku))
+        return list(map(lambda row : Book(row[0], row[1], row[2], row[3], bool(row[4]), row[5]), data_buku))
     
     def clear_all(self) :
         query = "DELETE FROM buku"
